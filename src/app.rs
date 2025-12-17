@@ -55,12 +55,26 @@ pub struct RustApiApp {
     pub sidebar_width: f32,
     pub response_format_json: bool,
 
+    // Rename modal state
+    pub show_rename_modal: bool,
+    pub rename_target: RenameTarget,
+    pub rename_value: String,
+
     // Async communication
     pub async_sender: Sender<AsyncMessage>,
     pub async_receiver: Receiver<AsyncMessage>,
 
     // Search
     pub search_query: String,
+}
+
+/// What we're renaming
+#[derive(Debug, Clone, Default)]
+pub enum RenameTarget {
+    #[default]
+    None,
+    Collection(usize),
+    Request(usize, usize),
 }
 
 impl Default for RustApiApp {
@@ -94,6 +108,9 @@ impl Default for RustApiApp {
             new_item_name: String::new(),
             sidebar_width: 280.0,
             response_format_json: true,
+            show_rename_modal: false,
+            rename_target: RenameTarget::None,
+            rename_value: String::new(),
             async_sender: tx,
             async_receiver: rx,
             search_query: String::new(),
@@ -416,6 +433,10 @@ impl RustApiApp {
                             action = Some(SidebarAction::AddRequest(col_idx));
                             ui.close_menu();
                         }
+                        if ui.button("✏ Rename").clicked() {
+                            action = Some(SidebarAction::RenameCollection(col_idx));
+                            ui.close_menu();
+                        }
                         if ui.button("📤 Export").clicked() {
                             action = Some(SidebarAction::ExportCollection(col_idx));
                             ui.close_menu();
@@ -461,6 +482,11 @@ impl RustApiApp {
                             }
 
                             req_label.context_menu(|ui| {
+                                if ui.button("✏ Rename").clicked() {
+                                    action = Some(SidebarAction::RenameRequest(col_idx, req_idx));
+                                    ui.close_menu();
+                                }
+                                ui.separator();
                                 if ui.button("🗑 Delete").clicked() {
                                     action = Some(SidebarAction::DeleteRequest(col_idx, req_idx));
                                     ui.close_menu();
@@ -491,6 +517,22 @@ impl RustApiApp {
                                 .save_file()
                             {
                                 let _ = storage::export_collection(collection, &path);
+                            }
+                        }
+                    }
+                    SidebarAction::RenameCollection(col_idx) => {
+                        if let Some(collection) = self.collections.get(col_idx) {
+                            self.rename_value = collection.name.clone();
+                            self.rename_target = RenameTarget::Collection(col_idx);
+                            self.show_rename_modal = true;
+                        }
+                    }
+                    SidebarAction::RenameRequest(col_idx, req_idx) => {
+                        if let Some(collection) = self.collections.get(col_idx) {
+                            if let Some(request) = collection.requests.get(req_idx) {
+                                self.rename_value = request.name.clone();
+                                self.rename_target = RenameTarget::Request(col_idx, req_idx);
+                                self.show_rename_modal = true;
                             }
                         }
                     }
@@ -844,6 +886,64 @@ impl RustApiApp {
                 });
         }
 
+        // Rename modal
+        if self.show_rename_modal {
+            let title = match &self.rename_target {
+                RenameTarget::Collection(_) => "Rename Collection",
+                RenameTarget::Request(_, _) => "Rename Request",
+                RenameTarget::None => "Rename",
+            };
+            
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Name:");
+                        ui.text_edit_singleline(&mut self.rename_value);
+                    });
+                    
+                    ui.add_space(8.0);
+                    
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() && !self.rename_value.is_empty() {
+                            match &self.rename_target {
+                                RenameTarget::Collection(col_idx) => {
+                                    if let Some(collection) = self.collections.get_mut(*col_idx) {
+                                        collection.name = self.rename_value.clone();
+                                        let _ = storage::save_collection(collection, None);
+                                    }
+                                }
+                                RenameTarget::Request(col_idx, req_idx) => {
+                                    if let Some(collection) = self.collections.get_mut(*col_idx) {
+                                        if let Some(request) = collection.requests.get_mut(*req_idx) {
+                                            request.name = self.rename_value.clone();
+                                            // Also update current_request if it's the same one
+                                            if self.current_collection_idx == Some(*col_idx) 
+                                                && self.current_request_idx == Some(*req_idx) 
+                                            {
+                                                self.current_request.name = self.rename_value.clone();
+                                            }
+                                            let _ = storage::save_collection(collection, None);
+                                        }
+                                    }
+                                }
+                                RenameTarget::None => {}
+                            }
+                            self.show_rename_modal = false;
+                            self.rename_target = RenameTarget::None;
+                            self.rename_value.clear();
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_rename_modal = false;
+                            self.rename_target = RenameTarget::None;
+                            self.rename_value.clear();
+                        }
+                    });
+                });
+        }
+
         // Environment editor modal
         if self.show_environment_editor {
             egui::Window::new("Manage Environments")
@@ -860,16 +960,21 @@ impl RustApiApp {
                     ui.separator();
 
                     let mut env_to_delete: Option<usize> = None;
+                    let mut save_env_idx: Option<usize> = None;
                     
                     for (env_idx, env) in self.environments.iter_mut().enumerate() {
+                        // Use stable ID based on environment id, not name
+                        let header_id = egui::Id::new(&env.id);
                         egui::CollapsingHeader::new(&env.name)
+                            .id_salt(header_id)
                             .default_open(false)
                             .show(ui, |ui| {
-                                // Name edit
+                                // Name edit - only save on focus lost
                                 ui.horizontal(|ui| {
                                     ui.label("Name:");
-                                    if ui.text_edit_singleline(&mut env.name).changed() {
-                                        let _ = storage::save_environment(env);
+                                    let response = ui.text_edit_singleline(&mut env.name);
+                                    if response.lost_focus() {
+                                        save_env_idx = Some(env_idx);
                                     }
                                 });
 
@@ -878,25 +983,29 @@ impl RustApiApp {
 
                                 // Variables editor
                                 let mut var_to_delete: Option<usize> = None;
-                                for (var_idx, var) in env.variables.iter_mut().enumerate() {
+                                for (_var_idx, var) in env.variables.iter_mut().enumerate() {
                                     ui.horizontal(|ui| {
-                                        ui.checkbox(&mut var.enabled, "");
-                                        ui.text_edit_singleline(&mut var.key);
-                                        ui.text_edit_singleline(&mut var.value);
+                                        if ui.checkbox(&mut var.enabled, "").changed() {
+                                            save_env_idx = Some(env_idx);
+                                        }
+                                        let key_resp = ui.text_edit_singleline(&mut var.key);
+                                        let val_resp = ui.text_edit_singleline(&mut var.value);
+                                        if key_resp.lost_focus() || val_resp.lost_focus() {
+                                            save_env_idx = Some(env_idx);
+                                        }
                                         if ui.small_button("🗑").clicked() {
-                                            var_to_delete = Some(var_idx);
+                                            var_to_delete = Some(_var_idx);
                                         }
                                     });
                                 }
 
                                 if let Some(idx) = var_to_delete {
                                     env.variables.remove(idx);
-                                    let _ = storage::save_environment(env);
+                                    save_env_idx = Some(env_idx);
                                 }
 
                                 if ui.button("➕ Add Variable").clicked() {
                                     env.variables.push(KeyValue::default());
-                                    let _ = storage::save_environment(env);
                                 }
 
                                 ui.add_space(8.0);
@@ -905,6 +1014,13 @@ impl RustApiApp {
                                     env_to_delete = Some(env_idx);
                                 }
                             });
+                    }
+
+                    // Save environment if needed (after iteration to avoid borrow issues)
+                    if let Some(idx) = save_env_idx {
+                        if let Some(env) = self.environments.get(idx) {
+                            let _ = storage::save_environment(env);
+                        }
                     }
 
                     if let Some(idx) = env_to_delete {
@@ -917,9 +1033,20 @@ impl RustApiApp {
 
                     ui.add_space(8.0);
                     
-                    if ui.button("Close").clicked() {
-                        self.show_environment_editor = false;
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Save All").clicked() {
+                            for env in &self.environments {
+                                let _ = storage::save_environment(env);
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            // Save all environments before closing
+                            for env in &self.environments {
+                                let _ = storage::save_environment(env);
+                            }
+                            self.show_environment_editor = false;
+                        }
+                    });
                 });
         }
     }
@@ -931,6 +1058,8 @@ enum SidebarAction {
     DeleteRequest(usize, usize),
     DeleteCollection(usize),
     ExportCollection(usize),
+    RenameCollection(usize),
+    RenameRequest(usize, usize),
 }
 
 /// Format file size
