@@ -1,1 +1,71 @@
-/target
+############################################
+# OS / Editor
+############################################
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+*.log
+
+############################################
+# Rust
+############################################
+# Compiled files
+/target/
+**/*.rs.bk
+
+# Cargo
+Cargo.lock
+# (Uncomment next line if this is a binary-only project)
+# Cargo.lock
+
+# Rustfmt / Clippy
+.rustfmt.toml.bak
+
+############################################
+# Vue.js / Node.js
+############################################
+node_modules/
+dist/
+dist-ssr/
+.cache/
+.vite/
+.vscode/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+############################################
+# Environment files
+############################################
+.env
+.env.*
+!.env.example
+
+############################################
+# Build & temp
+############################################
+coverage/
+.tmp/
+.temp/
+*.tmp
+
+############################################
+# Testing
+############################################
+/coverage/
+
+############################################
+# Misc
+############################################
+*.pid
+*.seed
+*.tgz
+
+############################################
+# Windows NTFS ADS (just in case)
+############################################
+*:Zone.Identifier

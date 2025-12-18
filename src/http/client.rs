@@ -1,6 +1,6 @@
 //! HTTP client for executing API requests
 
-use crate::models::{ApiRequest, ApiResponse, BodyType, Environment, HttpMethod};
+use crate::models::{ApiRequest, ApiResponse, BodyType, Environment, HttpMethod, KeyValue};
 use reqwest::blocking::{Client, RequestBuilder};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::time::Instant;
@@ -9,6 +9,7 @@ use std::time::Instant;
 pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) -> ApiResponse {
     let client = match Client::builder()
         .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(30))
         .build()
     {
         Ok(c) => c,
@@ -22,8 +23,14 @@ pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) 
         request.url.clone()
     };
 
+    // Build query params including API key if needed
+    let mut query_params = request.query_params.clone();
+    if let Some((key, value)) = request.auth.get_api_key_query_param() {
+        query_params.push(KeyValue::new(key, value));
+    }
+
     // Build the URL with query parameters
-    let url_with_params = build_url_with_params(&url, &request.query_params, environment);
+    let url_with_params = build_url_with_params(&url, &query_params, environment);
 
     // Create the request builder
     let mut builder: RequestBuilder = match request.method {
@@ -38,6 +45,29 @@ pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) 
 
     // Add headers
     let mut headers = HeaderMap::new();
+    
+    // Add auth header if applicable
+    if let Some((key, value)) = request.auth.get_auth_header() {
+        let key_sub = if let Some(env) = environment {
+            env.substitute(&key)
+        } else {
+            key
+        };
+        let value_sub = if let Some(env) = environment {
+            env.substitute(&value)
+        } else {
+            value
+        };
+        
+        if let (Ok(name), Ok(val)) = (
+            HeaderName::try_from(key_sub.as_str()),
+            HeaderValue::try_from(&value_sub),
+        ) {
+            headers.insert(name, val);
+        }
+    }
+
+    // Add user headers
     for header in &request.headers {
         if header.enabled && !header.key.is_empty() {
             let value = if let Some(env) = environment {
@@ -169,7 +199,7 @@ pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) 
 /// Build URL with query parameters
 fn build_url_with_params(
     base_url: &str,
-    params: &[crate::models::KeyValue],
+    params: &[KeyValue],
     environment: Option<&Environment>,
 ) -> String {
     let enabled_params: Vec<_> = params

@@ -1,9 +1,9 @@
-//! Data models for API requests, collections, and environments
+//! API Request model
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use super::auth::AuthConfig;
 
 /// HTTP Methods supported by the client
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -140,6 +140,7 @@ pub struct ApiRequest {
     pub body_type: BodyType,
     pub body: String,
     pub form_data: Vec<KeyValue>,
+    pub auth: AuthConfig,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -156,6 +157,7 @@ impl Default for ApiRequest {
             body_type: BodyType::None,
             body: String::new(),
             form_data: vec![],
+            auth: AuthConfig::default(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -170,173 +172,22 @@ impl ApiRequest {
         }
     }
 
-    pub fn with_method(mut self, method: HttpMethod) -> Self {
-        self.method = method;
-        self
-    }
-
-    pub fn with_url(mut self, url: impl Into<String>) -> Self {
-        self.url = url.into();
-        self
-    }
-}
-
-/// A folder containing requests
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Folder {
-    pub id: String,
-    pub name: String,
-    pub requests: Vec<ApiRequest>,
-    pub folders: Vec<Folder>,
-    pub expanded: bool,
-}
-
-impl Folder {
-    pub fn new(name: impl Into<String>) -> Self {
+    /// Create a duplicate of this request with a new ID
+    pub fn duplicate(&self) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
-            name: name.into(),
-            requests: vec![],
-            folders: vec![],
-            expanded: true,
-        }
-    }
-}
-
-/// A collection of API requests
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Collection {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub version: String,
-    pub requests: Vec<ApiRequest>,
-    pub folders: Vec<Folder>,
-    pub variables: HashMap<String, String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    #[serde(skip)]
-    pub file_path: Option<String>,
-    #[serde(skip)]
-    pub expanded: bool,
-}
-
-impl Default for Collection {
-    fn default() -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            name: String::from("New Collection"),
-            description: String::new(),
-            version: String::from("1.0.0"),
-            requests: vec![],
-            folders: vec![],
-            variables: HashMap::new(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            file_path: None,
-            expanded: true,
-        }
-    }
-}
-
-impl Collection {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            ..Default::default()
-        }
-    }
-}
-
-/// An environment with variables
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Environment {
-    pub id: String,
-    pub name: String,
-    pub variables: Vec<KeyValue>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-impl Default for Environment {
-    fn default() -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            name: String::from("New Environment"),
-            variables: vec![],
+            name: format!("{} (copy)", self.name),
+            method: self.method,
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+            query_params: self.query_params.clone(),
+            body_type: self.body_type.clone(),
+            body: self.body.clone(),
+            form_data: self.form_data.clone(),
+            auth: self.auth.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
     }
-}
-
-impl Environment {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            ..Default::default()
-        }
-    }
-
-    /// Get a variable value by key
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.variables
-            .iter()
-            .find(|kv| kv.enabled && kv.key == key)
-            .map(|kv| kv.value.as_str())
-    }
-
-    /// Substitute variables in a string using {{variable}} syntax
-    pub fn substitute(&self, input: &str) -> String {
-        let mut result = input.to_string();
-        for kv in &self.variables {
-            if kv.enabled {
-                let pattern = format!("{{{{{}}}}}", kv.key);
-                result = result.replace(&pattern, &kv.value);
-            }
-        }
-        result
-    }
-}
-
-/// HTTP Response from a request
-#[derive(Debug, Clone, Default)]
-pub struct ApiResponse {
-    pub status: u16,
-    pub status_text: String,
-    pub headers: Vec<(String, String)>,
-    pub body: String,
-    pub size: usize,
-    pub time_ms: u128,
-    pub error: Option<String>,
-}
-
-impl ApiResponse {
-    pub fn error(msg: impl Into<String>) -> Self {
-        Self {
-            error: Some(msg.into()),
-            ..Default::default()
-        }
-    }
-
-    pub fn status_color(&self) -> egui::Color32 {
-        match self.status {
-            200..=299 => egui::Color32::from_rgb(152, 195, 121), // Green
-            300..=399 => egui::Color32::from_rgb(229, 192, 123), // Yellow
-            400..=499 => egui::Color32::from_rgb(224, 108, 117), // Red
-            500..=599 => egui::Color32::from_rgb(198, 120, 221), // Purple
-            _ => egui::Color32::GRAY,
-        }
-    }
-}
-
-/// Application state for persistence
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AppState {
-    pub collections: Vec<Collection>,
-    pub environments: Vec<Environment>,
-    pub active_environment_id: Option<String>,
-    pub recent_files: Vec<String>,
-    pub window_size: Option<(f32, f32)>,
 }
 

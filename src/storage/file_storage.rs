@@ -1,9 +1,18 @@
-//! File-based storage for collections and environments
+//! File-based storage for collections, environments, and history
 
-use crate::models::{AppState, Collection, Environment};
+use crate::models::{Collection, Environment, RequestHistory};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
+
+/// Application state for persistence
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AppState {
+    pub active_environment_id: Option<String>,
+    pub recent_files: Vec<String>,
+    pub window_size: Option<(f32, f32)>,
+}
 
 /// Get the application data directory
 pub fn get_app_data_dir() -> PathBuf {
@@ -25,6 +34,11 @@ pub fn get_environments_dir() -> PathBuf {
 /// Get the state file path
 pub fn get_state_file() -> PathBuf {
     get_app_data_dir().join("state.json")
+}
+
+/// Get the history file path
+pub fn get_history_file() -> PathBuf {
+    get_app_data_dir().join("history.json")
 }
 
 /// Initialize storage directories
@@ -52,6 +66,27 @@ pub fn load_app_state() -> Result<AppState> {
     } else {
         Ok(AppState::default())
     }
+}
+
+/// Save request history
+pub fn save_history(history: &RequestHistory) -> Result<()> {
+    let path = get_history_file();
+    let json = serde_json::to_string_pretty(history)?;
+    fs::write(&path, json)?;
+    Ok(())
+}
+
+/// Load request history
+pub fn load_history() -> RequestHistory {
+    let path = get_history_file();
+    if path.exists() {
+        if let Ok(json) = fs::read_to_string(&path) {
+            if let Ok(history) = serde_json::from_str(&json) {
+                return history;
+            }
+        }
+    }
+    RequestHistory::new(100)
 }
 
 /// Save a collection to a file
@@ -111,7 +146,7 @@ pub fn load_all_collections() -> Vec<Collection> {
 
 /// Save an environment to a file
 pub fn save_environment(environment: &Environment) -> Result<PathBuf> {
-    let safe_name = sanitize_filename(&environment.name);
+    let safe_name = format!("{}_{}", sanitize_filename(&environment.name), &environment.id[..8]);
     let file_path = get_environments_dir().join(format!("{}.json", safe_name));
     
     let json = serde_json::to_string_pretty(environment)?;
@@ -161,10 +196,19 @@ pub fn delete_collection(collection: &Collection) -> Result<()> {
 
 /// Delete an environment file
 pub fn delete_environment(environment: &Environment) -> Result<()> {
-    let safe_name = sanitize_filename(&environment.name);
-    let file_path = get_environments_dir().join(format!("{}.json", safe_name));
-    if file_path.exists() {
-        fs::remove_file(file_path)?;
+    let dir = get_environments_dir();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "json") {
+                if let Ok(env) = load_environment(&path) {
+                    if env.id == environment.id {
+                        fs::remove_file(path)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }

@@ -5,12 +5,18 @@
 //! - Environment variables with {{variable}} syntax
 //! - Support for GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
 //! - Headers, query params, body (JSON, text, form data, URL encoded)
+//! - Authentication (Bearer Token, Basic Auth, API Key)
+//! - Code generation (cURL, Python, JavaScript, Rust)
+//! - Request history
+//! - Multiple tabs support
 //! - Dark theme with modern UI
 
 mod app;
-mod http_client;
+mod http;
 mod models;
 mod storage;
+mod ui;
+mod utils;
 
 use app::RustApiApp;
 
