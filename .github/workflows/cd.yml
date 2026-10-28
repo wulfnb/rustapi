@@ -1,0 +1,247 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  validate:
+    name: Require complete CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  release-info:
+    name: Validate release identity
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.info.outputs.tag }}
+      prerelease: ${{ steps.info.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Match version tags to Cargo.toml
+        id: info
+        shell: python
+        run: |
+          import os, re, tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('Cargo.toml').read_text())['package']['version']
+          ref = os.environ['GITHUB_REF']
+          if ref.startswith('refs/tags/'):
+              tag = ref.removeprefix('refs/tags/')
+              if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?', tag) or tag != 'v' + version:
+                  raise SystemExit('Release tag must equal v + Cargo.toml version')
+              prerelease = '-' in version
+          elif ref == 'refs/heads/main':
+              tag = 'preview-' + os.environ['GITHUB_SHA'][:12]
+              prerelease = True
+          else:
+              raise SystemExit('Publishing is limited to main or version tags')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'tag={tag}\nprerelease={str(prerelease).lower()}\n')
+
+  package:
+    name: Package ${{ matrix.platform }} ${{ matrix.arch }}
+    needs: [validate, release-info]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x86_64
+          - os: macos-15
+            platform: macos
+            arch: arm64
+          - os: macos-15-intel
+            platform: macos
+            arch: x86_64
+          - os: windows-2022
+            platform: windows
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Linux native and display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          xargs -a docker/build-packages.txt sudo apt-get install -y --no-install-recommends
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: release-${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Build release
+        run: cargo build --locked --release
+      - name: Package and extract distribution
+        id: package
+        shell: bash
+        run: |
+          binary=target/release/rustapi
+          if [ "$RUNNER_OS" = Windows ]; then binary="$binary.exe"; fi
+          python scripts/package.py --binary "$binary" --platform '${{ matrix.platform }}' --arch '${{ matrix.arch }}'
+      - name: Verify packaged application (Linux)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          BINARY: ${{ steps.package.outputs.binary }}
+        run: xvfb-run -a python scripts/desktop-smoke.py "$BINARY"
+      - name: Verify packaged application (macOS / Windows)
+        if: runner.os != 'Linux'
+        env:
+          BINARY: ${{ steps.package.outputs.binary }}
+          WGPU_BACKEND: dx12
+        shell: bash
+        run: python scripts/desktop-smoke.py "$BINARY"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: dist-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  image:
+    name: Publish tested Docker image
+    needs: [validate, release-info, package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      reference: ${{ steps.identity.outputs.name }}@${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Registry image identity
+        id: identity
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Build the exact image to publish
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.identity.outputs.name }}:sha-${{ github.sha }}
+          cache-from: type=gha,scope=docker-runtime
+          cache-to: type=gha,scope=docker-runtime,mode=max
+      - name: Verify image before publishing
+        env:
+          IMAGE: ${{ steps.identity.outputs.name }}:sha-${{ github.sha }}
+        run: python scripts/docker-smoke.py "$IMAGE"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push validated image and channel tags
+        id: push
+        env:
+          IMAGE: ${{ steps.identity.outputs.name }}
+          RELEASE_TAG: ${{ needs.release-info.outputs.tag }}
+          PRERELEASE: ${{ needs.release-info.outputs.prerelease }}
+        run: |
+          immutable="$IMAGE:sha-$GITHUB_SHA"
+          docker push "$immutable"
+          digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$immutable" | awk -F@ -v name="$IMAGE" '$1 == name {print $2; exit}')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF" = refs/heads/main ]; then channel=edge; else channel="$RELEASE_TAG"; fi
+          docker buildx imagetools create --tag "$IMAGE:$channel" "$IMAGE@$digest"
+          if [ "$PRERELEASE" = false ]; then
+            docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$digest"
+          fi
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event.repository.private == false || vars.ENABLE_PRIVATE_ATTESTATIONS == 'true'
+        with:
+          subject-name: ${{ steps.identity.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  publish:
+    name: Publish native downloads and checksums
+    needs: [release-info, package, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: release-files
+      - name: Require all six distributions and generate checksums
+        working-directory: release-files
+        run: |
+          test -f RustAPI-linux-x86_64.tar.gz
+          test -f RustAPI-windows-x86_64.zip
+          for arch in arm64 x86_64; do
+            test -f "RustAPI-macos-$arch.zip"
+            test -f "RustAPI-macos-$arch.dmg"
+          done
+          sha256sum -- *.zip *.dmg *.tar.gz > SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event.repository.private == false || vars.ENABLE_PRIVATE_ATTESTATIONS == 'true'
+        with:
+          subject-checksums: release-files/SHA256SUMS.txt
+      - name: Publish release for the validated commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.release-info.outputs.tag }}
+          PRERELEASE: ${{ needs.release-info.outputs.prerelease }}
+          IMAGE: ${{ needs.image.outputs.reference }}
+        run: |
+          # shellcheck disable=SC2016
+          printf 'Built from commit %s.\n\nDocker image: `%s`\n\nmacOS apps use ad-hoc signing and are not notarized. Linux archives require Ubuntu 24.04 or a compatible runtime. Docker images target linux/amd64.\n' "$GITHUB_SHA" "$IMAGE" > release-notes.md
+          options=()
+          if [ "$PRERELEASE" = true ]; then options+=(--prerelease --latest=false); else options+=(--latest); fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # A rerun may repair an existing draft; do not overwrite a published release.
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "RustAPI $RELEASE_TAG" --draft --notes-file release-notes.md "${options[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" release-files/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false "${options[@]}"

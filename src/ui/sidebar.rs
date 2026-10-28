@@ -1,7 +1,7 @@
 //! Sidebar UI component with collections tree
 
+use crate::models::Collection;
 use egui::Ui;
-use crate::models::{Collection, HttpMethod};
 
 /// Actions that can be triggered from the sidebar
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ pub fn render_sidebar(
     let mut action: Option<SidebarAction> = None;
 
     ui.add_space(8.0);
-    
+
     // Search box
     ui.horizontal(|ui| {
         ui.add_space(8.0);
@@ -37,7 +37,7 @@ pub fn render_sidebar(
             .desired_width(ui.available_width() - 16.0);
         ui.add(search_edit);
     });
-    
+
     ui.add_space(8.0);
     ui.separator();
     ui.add_space(8.0);
@@ -48,7 +48,11 @@ pub fn render_sidebar(
         ui.strong("Collections");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(8.0);
-            if ui.small_button("➕").on_hover_text("New Collection").clicked() {
+            if ui
+                .small_button("➕")
+                .on_hover_text("New Collection")
+                .clicked()
+            {
                 action = Some(SidebarAction::NewCollection);
             }
         });
@@ -60,7 +64,7 @@ pub fn render_sidebar(
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (col_idx, collection) in collections.iter_mut().enumerate() {
             ui.add_space(4.0);
-            
+
             // Collection header
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
@@ -68,7 +72,7 @@ pub fn render_sidebar(
                 if ui.small_button(icon).clicked() {
                     collection.expanded = !collection.expanded;
                 }
-                
+
                 let col_label = ui.selectable_label(false, &collection.name);
                 if col_label.clicked() {
                     collection.expanded = !collection.expanded;
@@ -99,25 +103,33 @@ pub fn render_sidebar(
             if collection.expanded {
                 for (req_idx, request) in collection.requests.iter().enumerate() {
                     // Filter by search query
-                    if !search_query.is_empty() 
-                        && !request.name.to_lowercase().contains(&search_query.to_lowercase())
-                        && !request.url.to_lowercase().contains(&search_query.to_lowercase())
+                    if !search_query.is_empty()
+                        && !request
+                            .name
+                            .to_lowercase()
+                            .contains(&search_query.to_lowercase())
+                        && !request
+                            .url
+                            .to_lowercase()
+                            .contains(&search_query.to_lowercase())
                     {
                         continue;
                     }
 
-                    let is_selected = current_collection_idx == Some(col_idx) 
+                    let is_selected = current_collection_idx == Some(col_idx)
                         && current_request_idx == Some(req_idx);
 
                     ui.horizontal(|ui| {
                         ui.add_space(32.0);
-                        
+
                         // Method badge
                         let method_color = request.method.color();
-                        ui.label(egui::RichText::new(request.method.as_str())
-                            .color(method_color)
-                            .size(10.0)
-                            .strong());
+                        ui.label(
+                            egui::RichText::new(request.method.as_str())
+                                .color(method_color)
+                                .size(10.0)
+                                .strong(),
+                        );
 
                         let req_label = ui.selectable_label(is_selected, &request.name);
                         if req_label.clicked() {
@@ -147,4 +159,3 @@ pub fn render_sidebar(
 
     action
 }
-

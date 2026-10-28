@@ -1,16 +1,15 @@
 //! Data models for the API client
 
-mod request;
-mod response;
+mod auth;
 mod collection;
 mod environment;
-mod auth;
 mod history;
+mod request;
+mod response;
 
-pub use request::*;
-pub use response::*;
+pub use auth::*;
 pub use collection::*;
 pub use environment::*;
-pub use auth::*;
 pub use history::*;
-
+pub use request::*;
+pub use response::*;

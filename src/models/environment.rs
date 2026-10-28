@@ -1,9 +1,9 @@
 //! Environment model
 
+use super::request::KeyValue;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use super::request::KeyValue;
 
 /// An environment with variables
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,4 +55,3 @@ impl Environment {
         result
     }
 }
-

@@ -1,8 +1,8 @@
 //! Code generation modal
 
-use egui::{Context, Ui};
+use crate::http::{generate_code, CodeGenLanguage};
 use crate::models::{ApiRequest, Environment};
-use crate::http::{CodeGenLanguage, generate_code};
+use egui::Context;
 
 /// Render code generation modal
 pub fn render_code_gen_modal(
@@ -26,7 +26,10 @@ pub fn render_code_gen_modal(
             ui.horizontal(|ui| {
                 ui.label("Language:");
                 for lang in CodeGenLanguage::all() {
-                    if ui.selectable_label(*selected_language == *lang, lang.as_str()).clicked() {
+                    if ui
+                        .selectable_label(*selected_language == *lang, lang.as_str())
+                        .clicked()
+                    {
                         *selected_language = *lang;
                     }
                 }
@@ -37,23 +40,23 @@ pub fn render_code_gen_modal(
 
             // Generated code
             let code = generate_code(request, *selected_language, environment);
-            
+
             egui::ScrollArea::both().show(ui, |ui| {
                 ui.add(
                     egui::TextEdit::multiline(&mut code.as_str())
                         .code_editor()
                         .desired_width(f32::INFINITY)
-                        .desired_rows(20)
+                        .desired_rows(20),
                 );
             });
 
             ui.add_space(8.0);
-            
+
             ui.horizontal(|ui| {
                 if ui.button("📋 Copy to Clipboard").clicked() {
                     ui.output_mut(|o| o.copied_text = code.clone());
                 }
-                
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Close").clicked() {
                         *show = false;
@@ -62,4 +65,3 @@ pub fn render_code_gen_modal(
             });
         });
 }
-

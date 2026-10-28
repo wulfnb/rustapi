@@ -1,11 +1,11 @@
 //! UI styling and theming
 
-use egui::{Context, Style, Visuals, Color32, Rounding, Stroke};
+use egui::{Color32, Context, Rounding, Stroke};
 
 /// Apply custom dark theme
 pub fn apply_dark_theme(ctx: &Context) {
     let mut style = (*ctx.style()).clone();
-    
+
     // Dark theme colors - inspired by One Dark
     let bg_dark = Color32::from_rgb(30, 33, 39);
     let bg_medium = Color32::from_rgb(40, 44, 52);
@@ -23,8 +23,8 @@ pub fn apply_dark_theme(ctx: &Context) {
     style.visuals.widgets.active.bg_fill = accent;
     style.visuals.selection.bg_fill = accent.linear_multiply(0.3);
     style.visuals.override_text_color = Some(text_primary);
-    style.visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text_secondary);
-    
+    style.visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_secondary);
+
     // Rounded corners
     style.visuals.window_rounding = Rounding::same(8.0);
     style.visuals.widgets.noninteractive.rounding = Rounding::same(6.0);
@@ -34,33 +34,3 @@ pub fn apply_dark_theme(ctx: &Context) {
 
     ctx.set_style(style);
 }
-
-/// Colors for different UI elements
-pub struct AppColors;
-
-impl AppColors {
-    pub fn success() -> Color32 {
-        Color32::from_rgb(152, 195, 121)
-    }
-    
-    pub fn warning() -> Color32 {
-        Color32::from_rgb(229, 192, 123)
-    }
-    
-    pub fn error() -> Color32 {
-        Color32::from_rgb(224, 108, 117)
-    }
-    
-    pub fn info() -> Color32 {
-        Color32::from_rgb(97, 175, 239)
-    }
-    
-    pub fn muted() -> Color32 {
-        Color32::from_rgb(150, 155, 165)
-    }
-    
-    pub fn bg_panel() -> Color32 {
-        Color32::from_rgb(40, 44, 52)
-    }
-}
-

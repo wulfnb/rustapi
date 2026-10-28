@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
+  # Loopback integration tests must never pass through the runner's proxy.
+  NO_PROXY: 127.0.0.1,localhost
+
+jobs:
+  native:
+    name: Native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, macos-15-intel, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Linux native and display dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          xargs -a docker/build-packages.txt sudo apt-get install -y --no-install-recommends
+          sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri
+      - name: Install the repository Rust toolchain
+        run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: ci-${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Formatting
+        run: cargo fmt --all --check
+      - name: Lints (warnings are errors)
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Unit and loopback integration tests
+        run: cargo test --locked --all-targets
+      - name: Documentation tests
+        run: cargo test --locked --doc
+      - name: Build native application
+        run: cargo build --locked
+      - name: Desktop startup (Linux software renderer)
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a python scripts/desktop-smoke.py target/debug/rustapi
+      - name: Desktop startup (macOS / Windows)
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          WGPU_BACKEND: dx12
+        run: |
+          binary=target/debug/rustapi
+          if [ "$RUNNER_OS" = Windows ]; then binary="$binary.exe"; fi
+          python scripts/desktop-smoke.py "$binary"
+
+  docker:
+    name: Docker tests and browser desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Test inside Linux builder
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          target: test
+          push: false
+          cache-from: type=gha,scope=docker-test
+          cache-to: type=gha,scope=docker-test,mode=max
+      - name: Build runnable desktop image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          tags: rustapi:ci
+          cache-from: type=gha,scope=docker-runtime
+          cache-to: type=gha,scope=docker-runtime,mode=max
+      - name: Check Compose configuration
+        run: docker compose config --quiet
+      - name: Real GUI, WebSocket, and persistent volume smoke test
+        run: python scripts/docker-smoke.py rustapi:ci
+
+  quality:
+    name: Workflow, shell, and coverage checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Linux native dependencies
+        run: |
+          sudo apt-get update
+          xargs -a docker/build-packages.txt sudo apt-get install -y --no-install-recommends
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - name: Install pinned workflow linter
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Validate workflow and shell scripts
+        run: |
+          actionlint
+          shellcheck docker/start-desktop.sh
+          python3 -m compileall -q scripts docker
+      - name: Measure coverage
+        run: |
+          rustup component add llvm-tools-preview
+          mkdir -p coverage
+          cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: coverage-linux
+          path: coverage/lcov.info
+          if-no-files-found: error

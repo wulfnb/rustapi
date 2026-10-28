@@ -1,8 +1,8 @@
 //! Modal dialogs
 
-use egui::Context;
 use crate::models::{Collection, Environment, KeyValue};
 use crate::storage;
+use egui::Context;
 
 /// What we're renaming
 #[derive(Debug, Clone, Default)]
@@ -31,9 +31,9 @@ pub fn render_new_collection_modal(
                     ui.label("Name:");
                     ui.text_edit_singleline(new_name);
                 });
-                
+
                 ui.add_space(8.0);
-                
+
                 ui.horizontal(|ui| {
                     if ui.button("Create").clicked() && !new_name.is_empty() {
                         result = Some(new_name.clone());
@@ -69,7 +69,7 @@ pub fn render_rename_modal(
         RenameTarget::Request(_, _) => "Rename Request",
         RenameTarget::None => return,
     };
-    
+
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
@@ -79,9 +79,9 @@ pub fn render_rename_modal(
                 ui.label("Name:");
                 ui.text_edit_singleline(rename_value);
             });
-            
+
             ui.add_space(8.0);
-            
+
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() && !rename_value.is_empty() {
                     match target {
@@ -144,7 +144,7 @@ pub fn render_environment_editor(
 
             let mut env_to_delete: Option<usize> = None;
             let mut save_env_indices: Vec<usize> = vec![];
-            
+
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for (env_idx, env) in environments.iter_mut().enumerate() {
                     // Use stable ID based on environment id
@@ -175,12 +175,12 @@ pub fn render_environment_editor(
                                     let key_resp = ui.add(
                                         egui::TextEdit::singleline(&mut var.key)
                                             .hint_text("Variable name")
-                                            .desired_width(150.0)
+                                            .desired_width(150.0),
                                     );
                                     let val_resp = ui.add(
                                         egui::TextEdit::singleline(&mut var.value)
                                             .hint_text("Value")
-                                            .desired_width(200.0)
+                                            .desired_width(200.0),
                                     );
                                     if key_resp.lost_focus() || val_resp.lost_focus() {
                                         save_env_indices.push(env_idx);
@@ -197,7 +197,7 @@ pub fn render_environment_editor(
                             }
 
                             ui.add_space(4.0);
-                            
+
                             if ui.button("➕ Add Variable").clicked() {
                                 env.variables.push(KeyValue::default());
                             }
@@ -217,7 +217,10 @@ pub fn render_environment_editor(
             });
 
             // Save environments that need saving
-            for idx in save_env_indices.into_iter().collect::<std::collections::HashSet<_>>() {
+            for idx in save_env_indices
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+            {
                 if let Some(env) = environments.get(idx) {
                     let _ = storage::save_environment(env);
                 }
@@ -232,7 +235,7 @@ pub fn render_environment_editor(
             }
 
             ui.add_space(8.0);
-            
+
             ui.horizontal(|ui| {
                 if ui.button("Save All").clicked() {
                     for env in environments.iter() {
@@ -249,4 +252,3 @@ pub fn render_environment_editor(
             });
         });
 }
-

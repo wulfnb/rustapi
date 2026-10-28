@@ -1,0 +1,9 @@
+.git
+.github
+target
+dist
+coverage
+**/__pycache__
+.DS_Store
+.env*
+*.log

@@ -1,0 +1,14 @@
+services:
+  rustapi:
+    build: .
+    ports:
+      - "127.0.0.1:6080:6080"
+    volumes:
+      - rustapi-data:/data
+    shm_size: 256m
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  rustapi-data:

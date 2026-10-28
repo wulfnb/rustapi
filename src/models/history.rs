@@ -1,9 +1,9 @@
 //! Request history model
 
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
-use super::request::{ApiRequest, HttpMethod};
+use super::request::ApiRequest;
 use super::response::ApiResponse;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// A history entry for a sent request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,14 +26,21 @@ impl HistoryEntry {
 
     /// Get a short display string for the history entry
     pub fn display_string(&self) -> String {
-        let status = self.response
+        let status = self
+            .response
             .as_ref()
             .map(|r| format!("{}", r.status))
             .unwrap_or_else(|| "ERR".to_string());
-        
+
         let time = self.timestamp.format("%H:%M:%S").to_string();
-        
-        format!("[{}] {} {} - {}", time, self.request.method.as_str(), truncate_url(&self.request.url, 40), status)
+
+        format!(
+            "[{}] {} {} - {}",
+            time,
+            self.request.method.as_str(),
+            truncate_url(&self.request.url, 40),
+            status
+        )
     }
 }
 
@@ -56,7 +63,7 @@ impl RequestHistory {
     pub fn add(&mut self, request: ApiRequest, response: Option<ApiResponse>) {
         let entry = HistoryEntry::new(request, response);
         self.entries.insert(0, entry);
-        
+
         // Trim to max entries
         if self.entries.len() > self.max_entries {
             self.entries.truncate(self.max_entries);
@@ -77,10 +84,5 @@ impl RequestHistory {
 
 /// Truncate URL for display
 fn truncate_url(url: &str, max_len: usize) -> String {
-    if url.len() <= max_len {
-        url.to_string()
-    } else {
-        format!("{}...", &url[..max_len-3])
-    }
+    crate::utils::truncate_str(url, max_len)
 }
-

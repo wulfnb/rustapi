@@ -16,10 +16,7 @@ Thumbs.db
 /target/
 **/*.rs.bk
 
-# Cargo
-Cargo.lock
-# (Uncomment next line if this is a binary-only project)
-# Cargo.lock
+# Cargo.lock is tracked for reproducible application builds.
 
 # Rustfmt / Clippy
 .rustfmt.toml.bak
@@ -69,3 +66,5 @@ coverage/
 # Windows NTFS ADS (just in case)
 ############################################
 *:Zone.Identifier
+
+**/__pycache__/

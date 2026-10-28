@@ -1,8 +1,8 @@
 //! Request editor UI component
 
-use egui::Ui;
-use crate::models::{ApiRequest, HttpMethod, BodyType, KeyValue};
 use super::auth_editor::render_auth_editor;
+use crate::models::{ApiRequest, BodyType, HttpMethod, KeyValue};
+use egui::Ui;
 
 /// Request editor tabs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -24,24 +24,34 @@ pub fn render_request_editor(
 ) {
     // Tabs
     ui.horizontal(|ui| {
-        if ui.selectable_label(*current_tab == RequestTab::Params, "Params").clicked() {
+        if ui
+            .selectable_label(*current_tab == RequestTab::Params, "Params")
+            .clicked()
+        {
             *current_tab = RequestTab::Params;
         }
-        if ui.selectable_label(*current_tab == RequestTab::Headers, "Headers").clicked() {
+        if ui
+            .selectable_label(*current_tab == RequestTab::Headers, "Headers")
+            .clicked()
+        {
             *current_tab = RequestTab::Headers;
         }
-        if ui.selectable_label(*current_tab == RequestTab::Body, "Body").clicked() {
+        if ui
+            .selectable_label(*current_tab == RequestTab::Body, "Body")
+            .clicked()
+        {
             *current_tab = RequestTab::Body;
         }
-        if ui.selectable_label(*current_tab == RequestTab::Auth, "Auth").clicked() {
+        if ui
+            .selectable_label(*current_tab == RequestTab::Auth, "Auth")
+            .clicked()
+        {
             *current_tab = RequestTab::Auth;
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if has_save_target {
-                if ui.button("💾 Save").clicked() {
-                    *on_save = true;
-                }
+            if has_save_target && ui.button("💾 Save").clicked() {
+                *on_save = true;
             }
         });
     });
@@ -50,20 +60,18 @@ pub fn render_request_editor(
     ui.add_space(8.0);
 
     // Tab content
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        match current_tab {
-            RequestTab::Params => {
-                render_key_value_editor(ui, &mut request.query_params);
-            }
-            RequestTab::Headers => {
-                render_key_value_editor(ui, &mut request.headers);
-            }
-            RequestTab::Body => {
-                render_body_editor(ui, request);
-            }
-            RequestTab::Auth => {
-                render_auth_editor(ui, &mut request.auth);
-            }
+    egui::ScrollArea::vertical().show(ui, |ui| match current_tab {
+        RequestTab::Params => {
+            render_key_value_editor(ui, &mut request.query_params);
+        }
+        RequestTab::Headers => {
+            render_key_value_editor(ui, &mut request.headers);
+        }
+        RequestTab::Body => {
+            render_body_editor(ui, request);
+        }
+        RequestTab::Auth => {
+            render_auth_editor(ui, &mut request.auth);
         }
     });
 }
@@ -119,10 +127,10 @@ fn render_body_editor(ui: &mut Ui, request: &mut ApiRequest) {
     // Body type selector
     ui.horizontal(|ui| {
         for body_type in BodyType::all() {
-            if ui.selectable_label(
-                request.body_type == *body_type,
-                body_type.as_str()
-            ).clicked() {
+            if ui
+                .selectable_label(request.body_type == *body_type, body_type.as_str())
+                .clicked()
+            {
                 request.body_type = body_type.clone();
             }
         }
@@ -167,9 +175,11 @@ pub fn render_url_bar(
         // Method selector
         egui::ComboBox::from_id_salt("method_selector")
             .width(100.0)
-            .selected_text(egui::RichText::new(request.method.as_str())
-                .color(request.method.color())
-                .strong())
+            .selected_text(
+                egui::RichText::new(request.method.as_str())
+                    .color(request.method.color())
+                    .strong(),
+            )
             .show_ui(ui, |ui| {
                 for method in HttpMethod::all() {
                     ui.selectable_value(
@@ -185,9 +195,9 @@ pub fn render_url_bar(
             .hint_text("Enter URL...")
             .font(egui::TextStyle::Monospace)
             .desired_width(ui.available_width() - 220.0);
-        
+
         let url_response = ui.add(url_edit);
-        
+
         // Send on Enter
         if url_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             *on_send = true;
@@ -199,14 +209,12 @@ pub fn render_url_bar(
         }
 
         // Send button
-        let send_btn = egui::Button::new(
-            if is_loading {
-                egui::RichText::new("⏳ Sending...")
-            } else {
-                egui::RichText::new("▶ Send").strong()
-            }
-        );
-        
+        let send_btn = egui::Button::new(if is_loading {
+            egui::RichText::new("⏳ Sending...")
+        } else {
+            egui::RichText::new("▶ Send").strong()
+        });
+
         if ui.add_enabled(!is_loading, send_btn).clicked() {
             *on_send = true;
         }
@@ -214,4 +222,3 @@ pub fn render_url_bar(
         ui.add_space(16.0);
     });
 }
-
