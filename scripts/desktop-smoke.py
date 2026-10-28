@@ -19,3 +19,6 @@ with tempfile.TemporaryDirectory(prefix="rustapi-smoke-") as profile:
         raise SystemExit("Native event loop did not complete")
     if not (Path(profile) / "collections").is_dir():
         raise SystemExit("Application did not initialize its profile")
+    for filename in ("state.json", "history.json"):
+        if not (Path(profile) / filename).is_file():
+            raise SystemExit(f"Application did not persist {filename} on shutdown")

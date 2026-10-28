@@ -89,4 +89,8 @@ impl eframe::App for DesktopApp {
             ctx.request_repaint();
         }
     }
+
+    fn on_exit(&mut self, gl: Option<&eframe::glow::Context>) {
+        self.inner.on_exit(gl);
+    }
 }

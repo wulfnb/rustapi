@@ -125,7 +125,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
-          tool: actionlint@1.7.12,cargo-llvm-cov@0.9.1
+          tool: cargo-llvm-cov@0.9.1
+      - name: Install pinned workflow linter
+        run: |
+          GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Validate workflow and shell scripts
         run: |
           actionlint

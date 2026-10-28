@@ -7,5 +7,6 @@ libxcursor-dev
 libxrandr-dev
 libxinerama-dev
 libxkbcommon-dev
+libxkbcommon-x11-0
 libwayland-dev
 libegl1-mesa-dev
