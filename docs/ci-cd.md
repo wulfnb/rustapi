@@ -14,7 +14,7 @@ workflow image names derive from that repository automatically.
 
 ## Validation
 
-`.github/workflows/ci.yml` runs for pull requests, non-main branch pushes, and manual
+`.github/workflows/ci.yml` runs for pull requests and manual
 dispatch. CD calls it as a reusable workflow for main and version tags, avoiding a
 second independent CI run on main pushes.
 
