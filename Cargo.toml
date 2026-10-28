@@ -8,7 +8,7 @@ authors = ["Your Name"]
 [dependencies]
 # GUI Framework
 eframe = "0.29"
-egui = "0.29"
+egui = "0.34"
 egui_extras = { version = "0.29", features = ["image"] }
 
 # HTTP Client
