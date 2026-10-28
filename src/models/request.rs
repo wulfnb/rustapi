@@ -1,9 +1,9 @@
 //! API Request model
 
+use super::auth::AuthConfig;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use super::auth::AuthConfig;
 
 /// HTTP Methods supported by the client
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -45,13 +45,13 @@ impl HttpMethod {
 
     pub fn color(&self) -> egui::Color32 {
         match self {
-            HttpMethod::GET => egui::Color32::from_rgb(97, 175, 239),    // Blue
-            HttpMethod::POST => egui::Color32::from_rgb(152, 195, 121),  // Green
-            HttpMethod::PUT => egui::Color32::from_rgb(229, 192, 123),   // Yellow
-            HttpMethod::DELETE => egui::Color32::from_rgb(224, 108, 117),// Red
+            HttpMethod::GET => egui::Color32::from_rgb(97, 175, 239), // Blue
+            HttpMethod::POST => egui::Color32::from_rgb(152, 195, 121), // Green
+            HttpMethod::PUT => egui::Color32::from_rgb(229, 192, 123), // Yellow
+            HttpMethod::DELETE => egui::Color32::from_rgb(224, 108, 117), // Red
             HttpMethod::PATCH => egui::Color32::from_rgb(198, 120, 221), // Purple
-            HttpMethod::HEAD => egui::Color32::from_rgb(86, 182, 194),   // Cyan
-            HttpMethod::OPTIONS => egui::Color32::from_rgb(190, 190, 190),// Gray
+            HttpMethod::HEAD => egui::Color32::from_rgb(86, 182, 194), // Cyan
+            HttpMethod::OPTIONS => egui::Color32::from_rgb(190, 190, 190), // Gray
         }
     }
 }
@@ -190,4 +190,3 @@ impl ApiRequest {
         }
     }
 }
-

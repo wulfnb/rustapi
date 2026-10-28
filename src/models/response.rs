@@ -36,4 +36,3 @@ impl ApiResponse {
         (200..300).contains(&self.status)
     }
 }
-

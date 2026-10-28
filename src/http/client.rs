@@ -45,9 +45,15 @@ pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) 
 
     // Add headers
     let mut headers = HeaderMap::new();
-    
+
     // Add auth header if applicable
-    if let Some((key, value)) = request.auth.get_auth_header() {
+    // Substitute credentials before Basic auth encodes them as Base64.
+    let mut auth = request.auth.clone();
+    if let Some(env) = environment {
+        auth.basic_username = env.substitute(&auth.basic_username);
+        auth.basic_password = env.substitute(&auth.basic_password);
+    }
+    if let Some((key, value)) = auth.get_auth_header() {
         let key_sub = if let Some(env) = environment {
             env.substitute(&key)
         } else {
@@ -58,7 +64,7 @@ pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) 
         } else {
             value
         };
-        
+
         if let (Ok(name), Ok(val)) = (
             HeaderName::try_from(key_sub.as_str()),
             HeaderValue::try_from(&value_sub),
@@ -228,11 +234,20 @@ fn build_url_with_params(
         .collect::<Vec<_>>()
         .join("&");
 
-    if base_url.contains('?') {
-        format!("{}&{}", base_url, query_string)
+    let (base, fragment) = base_url.split_once('#').unwrap_or((base_url, ""));
+    let separator = if base.ends_with('?') || (base.contains('?') && base.ends_with('&')) {
+        ""
+    } else if base.contains('?') {
+        "&"
     } else {
-        format!("{}?{}", base_url, query_string)
-    }
+        "?"
+    };
+    let suffix = if base_url.contains('#') {
+        format!("#{fragment}")
+    } else {
+        String::new()
+    };
+    format!("{base}{separator}{query_string}{suffix}")
 }
 
 /// Format JSON body for display (pretty print)
@@ -243,3 +258,66 @@ pub fn format_json(json_str: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! query_case {
+        ($name:ident, $base:expr, $expected:expr) => {
+            #[test]
+            fn $name() {
+                assert_eq!(
+                    build_url_with_params($base, &[KeyValue::new("key", "a b")], None),
+                    $expected
+                );
+            }
+        };
+    }
+    query_case!(
+        query_on_plain_url,
+        "https://test/path",
+        "https://test/path?key=a%20b"
+    );
+    query_case!(
+        query_before_fragment,
+        "https://test/path#section",
+        "https://test/path?key=a%20b#section"
+    );
+    query_case!(
+        query_after_existing_param,
+        "https://test/path?first=1",
+        "https://test/path?first=1&key=a%20b"
+    );
+    query_case!(
+        query_after_empty_query,
+        "https://test/path?",
+        "https://test/path?key=a%20b"
+    );
+    query_case!(
+        query_after_trailing_separator,
+        "https://test/path?first=1&",
+        "https://test/path?first=1&key=a%20b"
+    );
+    query_case!(
+        ampersand_in_path_is_not_a_query,
+        "https://test/path&",
+        "https://test/path&?key=a%20b"
+    );
+
+    #[test]
+    fn no_enabled_params_preserve_url_exactly() {
+        let base = "https://test/path?existing=1#fragment";
+        assert_eq!(build_url_with_params(base, &[], None), base);
+        assert_eq!(
+            build_url_with_params(
+                base,
+                &[KeyValue {
+                    enabled: false,
+                    ..KeyValue::new("key", "value")
+                }],
+                None
+            ),
+            base
+        );
+    }
+}

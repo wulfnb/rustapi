@@ -2,9 +2,9 @@
 
 use crate::models::{Collection, Environment, RequestHistory};
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 
 /// Application state for persistence
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -16,6 +16,9 @@ pub struct AppState {
 
 /// Get the application data directory
 pub fn get_app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("RUSTAPI_DATA_DIR").filter(|p| !p.is_empty()) {
+        return PathBuf::from(path);
+    }
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("rustapi")
@@ -101,12 +104,12 @@ pub fn save_collection(collection: &Collection, path: Option<&Path>) -> Result<P
     };
 
     let json = serde_json::to_string_pretty(collection)?;
-    
+
     // Ensure parent directory exists
     if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    
+
     fs::write(&file_path, json)?;
     Ok(file_path)
 }
@@ -115,10 +118,10 @@ pub fn save_collection(collection: &Collection, path: Option<&Path>) -> Result<P
 pub fn load_collection(path: &Path) -> Result<Collection> {
     let json = fs::read_to_string(path)
         .with_context(|| format!("Failed to read collection file: {:?}", path))?;
-    
+
     let mut collection: Collection = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse collection file: {:?}", path))?;
-    
+
     collection.file_path = Some(path.to_string_lossy().to_string());
     Ok(collection)
 }
@@ -134,7 +137,7 @@ pub fn load_all_collections() -> Vec<Collection> {
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(collection) = load_collection(&path) {
                     collections.push(collection);
                 }
@@ -146,9 +149,13 @@ pub fn load_all_collections() -> Vec<Collection> {
 
 /// Save an environment to a file
 pub fn save_environment(environment: &Environment) -> Result<PathBuf> {
-    let safe_name = format!("{}_{}", sanitize_filename(&environment.name), &environment.id[..8]);
+    let safe_name = format!(
+        "{}_{}",
+        sanitize_filename(&environment.name),
+        sanitize_filename(&environment.id.chars().take(8).collect::<String>())
+    );
     let file_path = get_environments_dir().join(format!("{}.json", safe_name));
-    
+
     let json = serde_json::to_string_pretty(environment)?;
     fs::write(&file_path, json)?;
     Ok(file_path)
@@ -158,10 +165,10 @@ pub fn save_environment(environment: &Environment) -> Result<PathBuf> {
 pub fn load_environment(path: &Path) -> Result<Environment> {
     let json = fs::read_to_string(path)
         .with_context(|| format!("Failed to read environment file: {:?}", path))?;
-    
+
     let environment: Environment = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse environment file: {:?}", path))?;
-    
+
     Ok(environment)
 }
 
@@ -176,7 +183,7 @@ pub fn load_all_environments() -> Vec<Environment> {
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(env) = load_environment(&path) {
                     environments.push(env);
                 }
@@ -200,7 +207,7 @@ pub fn delete_environment(environment: &Environment) -> Result<()> {
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(env) = load_environment(&path) {
                     if env.id == environment.id {
                         fs::remove_file(path)?;
@@ -227,7 +234,8 @@ pub fn import_collection(path: &Path) -> Result<Collection> {
 
 /// Sanitize filename
 fn sanitize_filename(name: &str) -> String {
-    name.chars()
+    let safe = name
+        .chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
                 c
@@ -237,6 +245,17 @@ fn sanitize_filename(name: &str) -> String {
         })
         .collect::<String>()
         .trim()
-        .to_string()
+        .to_string();
+    let upper = safe.to_ascii_uppercase();
+    let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && matches!(upper.as_bytes()[3], b'1'..=b'9'));
+    if safe.is_empty() {
+        "Untitled".into()
+    } else if reserved {
+        format!("_{safe}")
+    } else {
+        safe
+    }
 }
-

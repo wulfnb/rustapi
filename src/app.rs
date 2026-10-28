@@ -99,9 +99,9 @@ impl RustApiApp {
 
     /// Get the active environment
     fn get_active_environment(&self) -> Option<&Environment> {
-        self.active_environment_id.as_ref().and_then(|id| {
-            self.environments.iter().find(|e| &e.id == id)
-        })
+        self.active_environment_id
+            .as_ref()
+            .and_then(|id| self.environments.iter().find(|e| &e.id == id))
     }
 
     /// Send the current request
@@ -149,9 +149,10 @@ impl RustApiApp {
             let request = ApiRequest::new(format!("Request {}", collection.requests.len() + 1));
             collection.requests.push(request.clone());
             let _ = storage::save_collection(collection, None);
-            
+
             let req_idx = collection.requests.len() - 1;
-            self.tab_manager.open_tab(request, Some(col_idx), Some(req_idx));
+            self.tab_manager
+                .open_tab(request, Some(col_idx), Some(req_idx));
         }
     }
 
@@ -172,7 +173,7 @@ impl RustApiApp {
             if req_idx < collection.requests.len() {
                 collection.requests.remove(req_idx);
                 let _ = storage::save_collection(collection, None);
-                
+
                 // Close tab if open
                 if let Some(tab_idx) = self.tab_manager.tabs.iter().position(|t| {
                     t.collection_idx == Some(col_idx) && t.request_idx == Some(req_idx)
@@ -195,14 +196,17 @@ impl RustApiApp {
         if col_idx < self.collections.len() {
             let collection = self.collections.remove(col_idx);
             let _ = storage::delete_collection(&collection);
-            
+
             // Close any tabs from this collection
-            let tabs_to_close: Vec<usize> = self.tab_manager.tabs.iter()
+            let tabs_to_close: Vec<usize> = self
+                .tab_manager
+                .tabs
+                .iter()
                 .enumerate()
                 .filter(|(_, t)| t.collection_idx == Some(col_idx))
                 .map(|(i, _)| i)
                 .collect();
-            
+
             for idx in tabs_to_close.into_iter().rev() {
                 self.tab_manager.close_tab(idx);
             }
@@ -229,9 +233,10 @@ impl eframe::App for RustApiApp {
                 AsyncMessage::ResponseReceived(response) => {
                     // Add to history
                     if let Some(tab) = self.tab_manager.active_tab() {
-                        self.history.add(tab.request.clone(), Some(response.clone()));
+                        self.history
+                            .add(tab.request.clone(), Some(response.clone()));
                     }
-                    
+
                     // Set response on active tab
                     if let Some(tab) = self.tab_manager.active_tab_mut() {
                         tab.response = Some(response);
@@ -257,7 +262,7 @@ impl eframe::App for RustApiApp {
             let mut show_env_editor = false;
             let mut show_import = false;
             let mut show_history = false;
-            
+
             render_top_bar(
                 ui,
                 &self.environments,
@@ -266,7 +271,7 @@ impl eframe::App for RustApiApp {
                 &mut show_import,
                 &mut show_history,
             );
-            
+
             if show_env_editor {
                 self.show_environment_editor = true;
             }
@@ -293,7 +298,9 @@ impl eframe::App for RustApiApp {
             .width_range(200.0..=400.0)
             .show(ctx, |ui| {
                 // Get current selection for highlighting
-                let (current_col, current_req) = self.tab_manager.active_tab()
+                let (current_col, current_req) = self
+                    .tab_manager
+                    .active_tab()
                     .map(|t| (t.collection_idx, t.request_idx))
                     .unwrap_or((None, None));
 
@@ -308,7 +315,11 @@ impl eframe::App for RustApiApp {
                         SidebarAction::SelectRequest(col_idx, req_idx) => {
                             if let Some(collection) = self.collections.get(col_idx) {
                                 if let Some(request) = collection.requests.get(req_idx) {
-                                    self.tab_manager.open_tab(request.clone(), Some(col_idx), Some(req_idx));
+                                    self.tab_manager.open_tab(
+                                        request.clone(),
+                                        Some(col_idx),
+                                        Some(req_idx),
+                                    );
                                 }
                             }
                         }
@@ -344,7 +355,7 @@ impl eframe::App for RustApiApp {
                             if let Some(collection) = self.collections.get(col_idx) {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("JSON", &["json"])
-                                    .set_file_name(&format!("{}.json", collection.name))
+                                    .set_file_name(format!("{}.json", collection.name))
                                     .save_file()
                                 {
                                     let _ = storage::export_collection(collection, &path);
@@ -383,9 +394,11 @@ impl RustApiApp {
         }
 
         // Rename modal
-        let current_request_name = self.tab_manager.active_tab_mut()
+        let current_request_name = self
+            .tab_manager
+            .active_tab_mut()
             .map(|t| &mut t.request.name);
-        
+
         render_rename_modal(
             ctx,
             &mut self.show_rename_modal,
@@ -419,14 +432,11 @@ impl RustApiApp {
         }
 
         // History panel
-        if let Some(action) = render_history_panel(
-            ctx,
-            &mut self.show_history_panel,
-            &self.history,
-        ) {
+        if let Some(action) = render_history_panel(ctx, &mut self.show_history_panel, &self.history)
+        {
             match action {
                 HistoryAction::LoadRequest(request) => {
-                    self.tab_manager.open_tab(request, None, None);
+                    self.tab_manager.open_tab(*request, None, None);
                 }
                 HistoryAction::ClearHistory => {
                     self.history.clear();
@@ -443,25 +453,27 @@ impl RustApiApp {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
-                
+
                 let mut tab_to_close: Option<usize> = None;
                 let mut tab_to_select: Option<usize> = None;
 
                 for (idx, tab) in self.tab_manager.tabs.iter().enumerate() {
                     let is_active = self.tab_manager.active_tab_idx == Some(idx);
-                    
-                    let tab_response = ui.selectable_label(is_active, tab.title());
-                    
-                    if tab_response.clicked() {
-                        tab_to_select = Some(idx);
-                    }
-                    
-                    // Close button
-                    if ui.small_button("×").clicked() {
-                        tab_to_close = Some(idx);
-                    }
-                    
-                    ui.separator();
+
+                    ui.push_id(&tab.id, |ui| {
+                        let tab_response = ui.selectable_label(is_active, tab.title());
+
+                        if tab_response.clicked() {
+                            tab_to_select = Some(idx);
+                        }
+
+                        // Close button
+                        if ui.small_button("×").clicked() {
+                            tab_to_close = Some(idx);
+                        }
+
+                        ui.separator();
+                    });
                 }
 
                 if let Some(idx) = tab_to_select {
@@ -513,7 +525,7 @@ impl RustApiApp {
         // URL bar
         let mut on_send = false;
         let mut on_generate_code = false;
-        
+
         if let Some(tab) = self.tab_manager.active_tab_mut() {
             render_url_bar(
                 ui,
@@ -546,7 +558,7 @@ impl RustApiApp {
             .outer_margin(egui::Margin::symmetric(16.0, 0.0))
             .show(ui, |ui| {
                 ui.set_min_height(request_height);
-                
+
                 let mut on_save = false;
                 if let Some(tab) = self.tab_manager.active_tab_mut() {
                     render_request_editor(
@@ -557,7 +569,7 @@ impl RustApiApp {
                         has_save_target,
                     );
                 }
-                
+
                 if on_save {
                     self.save_current_request();
                 }
@@ -573,7 +585,7 @@ impl RustApiApp {
             .outer_margin(egui::Margin::symmetric(16.0, 0.0))
             .show(ui, |ui| {
                 ui.set_min_height(response_height);
-                
+
                 render_response_viewer(
                     ui,
                     response.as_ref(),

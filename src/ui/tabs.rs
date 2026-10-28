@@ -59,12 +59,19 @@ impl TabManager {
     }
 
     /// Open a new tab with a request
-    pub fn open_tab(&mut self, request: ApiRequest, col_idx: Option<usize>, req_idx: Option<usize>) {
+    pub fn open_tab(
+        &mut self,
+        request: ApiRequest,
+        col_idx: Option<usize>,
+        req_idx: Option<usize>,
+    ) {
         // Check if already open
         if let (Some(ci), Some(ri)) = (col_idx, req_idx) {
-            if let Some(idx) = self.tabs.iter().position(|t| {
-                t.collection_idx == Some(ci) && t.request_idx == Some(ri)
-            }) {
+            if let Some(idx) = self
+                .tabs
+                .iter()
+                .position(|t| t.collection_idx == Some(ci) && t.request_idx == Some(ri))
+            {
                 self.active_tab_idx = Some(idx);
                 return;
             }
@@ -84,15 +91,15 @@ impl TabManager {
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             self.tabs.remove(idx);
-            
+
             // Adjust active tab
             if self.tabs.is_empty() {
                 self.active_tab_idx = None;
             } else if let Some(active) = self.active_tab_idx {
-                if active >= self.tabs.len() {
-                    self.active_tab_idx = Some(self.tabs.len() - 1);
-                } else if active > idx {
+                if active > idx {
                     self.active_tab_idx = Some(active - 1);
+                } else if active == idx {
+                    self.active_tab_idx = Some(idx.min(self.tabs.len() - 1));
                 }
             }
         }
@@ -108,13 +115,6 @@ impl TabManager {
         self.active_tab_idx.and_then(|idx| self.tabs.get_mut(idx))
     }
 
-    /// Mark active tab as modified
-    pub fn mark_modified(&mut self) {
-        if let Some(tab) = self.active_tab_mut() {
-            tab.is_modified = true;
-        }
-    }
-
     /// Mark active tab as saved
     pub fn mark_saved(&mut self) {
         if let Some(tab) = self.active_tab_mut() {
@@ -128,3 +128,70 @@ impl TabManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn three_tabs() -> TabManager {
+        let mut manager = TabManager::new();
+        for name in ["first", "second", "third"] {
+            manager.open_tab(ApiRequest::new(name), None, None);
+        }
+        manager
+    }
+
+    #[test]
+    fn saved_request_reuses_its_existing_tab() {
+        let mut manager = TabManager::new();
+        manager.open_tab(ApiRequest::new("saved"), Some(0), Some(1));
+        manager.open_tab(ApiRequest::new("unsaved"), None, None);
+        manager.open_tab(ApiRequest::new("saved"), Some(0), Some(1));
+        assert_eq!(manager.tabs.len(), 2);
+        assert_eq!(manager.active_tab_idx, Some(0));
+    }
+
+    #[test]
+    fn closing_earlier_tab_preserves_active_request() {
+        let mut manager = three_tabs();
+        manager.close_tab(0);
+        assert_eq!(manager.active_tab_idx, Some(1));
+        assert_eq!(manager.active_tab().unwrap().request.name, "third");
+    }
+
+    #[test]
+    fn closing_active_tab_selects_neighbor() {
+        let mut manager = three_tabs();
+        manager.active_tab_idx = Some(1);
+        manager.close_tab(1);
+        assert_eq!(manager.active_tab().unwrap().request.name, "third");
+        manager.close_tab(1);
+        assert_eq!(manager.active_tab().unwrap().request.name, "first");
+    }
+
+    #[test]
+    fn closing_last_tab_clears_selection_and_invalid_close_is_noop() {
+        let mut manager = three_tabs();
+        manager.close_tab(99);
+        assert_eq!(manager.tabs.len(), 3);
+        while manager.has_tabs() {
+            manager.close_tab(0);
+        }
+        assert!(manager.active_tab().is_none());
+        assert_eq!(manager.active_tab_idx, None);
+    }
+
+    #[test]
+    fn tab_titles_track_saved_state() {
+        let mut manager = three_tabs();
+        manager.active_tab_mut().unwrap().is_modified = true;
+        assert_eq!(manager.active_tab().unwrap().title(), "● third");
+        manager.mark_saved();
+        assert_eq!(manager.active_tab().unwrap().title(), "third");
+    }
+
+    #[test]
+    fn unsaved_tabs_have_unique_identity() {
+        let manager = three_tabs();
+        assert_ne!(manager.tabs[0].id, manager.tabs[1].id);
+    }
+}

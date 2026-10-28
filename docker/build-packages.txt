@@ -1,0 +1,11 @@
+build-essential
+pkg-config
+libssl-dev
+libx11-dev
+libxi-dev
+libxcursor-dev
+libxrandr-dev
+libxinerama-dev
+libxkbcommon-dev
+libwayland-dev
+libegl1-mesa-dev

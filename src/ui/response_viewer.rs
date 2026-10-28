@@ -1,8 +1,8 @@
 //! Response viewer UI component
 
-use egui::Ui;
-use crate::models::ApiResponse;
 use crate::http::format_json;
+use crate::models::ApiResponse;
+use egui::Ui;
 
 /// Response viewer tabs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -22,19 +22,21 @@ pub fn render_response_viewer(
 ) {
     ui.horizontal(|ui| {
         ui.strong("Response");
-        
+
         if let Some(response) = response {
             ui.separator();
-            
+
             // Status badge
             let status_text = format!("{} {}", response.status, response.status_text);
-            ui.label(egui::RichText::new(status_text)
-                .color(response.status_color())
-                .strong());
+            ui.label(
+                egui::RichText::new(status_text)
+                    .color(response.status_color())
+                    .strong(),
+            );
 
             ui.separator();
             ui.label(format!("{}ms", response.time_ms));
-            
+
             ui.separator();
             ui.label(format_size(response.size));
         }
@@ -48,16 +50,22 @@ pub fn render_response_viewer(
         } else {
             // Response tabs
             ui.horizontal(|ui| {
-                if ui.selectable_label(*current_tab == ResponseTab::Body, "Body").clicked() {
+                if ui
+                    .selectable_label(*current_tab == ResponseTab::Body, "Body")
+                    .clicked()
+                {
                     *current_tab = ResponseTab::Body;
                 }
-                if ui.selectable_label(*current_tab == ResponseTab::Headers, "Headers").clicked() {
+                if ui
+                    .selectable_label(*current_tab == ResponseTab::Headers, "Headers")
+                    .clicked()
+                {
                     *current_tab = ResponseTab::Headers;
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(format_json_enabled, "Format JSON");
-                    
+
                     if ui.button("📋 Copy").clicked() {
                         ui.output_mut(|o| o.copied_text = response.body.clone());
                     }
@@ -74,11 +82,11 @@ pub fn render_response_viewer(
                         } else {
                             response.body.clone()
                         };
-                        
+
                         ui.add(
                             egui::TextEdit::multiline(&mut body.as_str())
                                 .code_editor()
-                                .desired_width(f32::INFINITY)
+                                .desired_width(f32::INFINITY),
                         );
                     });
                 }
@@ -118,4 +126,3 @@ fn format_size(bytes: usize) -> String {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     }
 }
-

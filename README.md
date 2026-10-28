@@ -2,7 +2,7 @@
 
 A fast, file-based API testing client built in Rust, inspired by [Bruno](https://www.usebruno.com/).
 
-![Rust](https://img.shields.io/badge/Rust-1.70+-orange)
+![Rust](https://img.shields.io/badge/Rust-1.98.0-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 ## ✨ Features
@@ -61,14 +61,15 @@ src/
 
 ### Prerequisites
 
-- Rust 1.70 or later
+- Rustup (the repository pins Rust 1.98.0 in `rust-toolchain.toml`)
 - Cargo (comes with Rust)
+- Linux build packages: install the packages in `docker/build-packages.txt` with your package manager
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/rust-projs/rustapi.git
 cd rustapi
 
 # Build and run
@@ -82,6 +83,39 @@ cargo build --release
 ```
 
 The binary will be available at `target/release/rustapi`.
+
+### Docker (browser-accessible desktop)
+
+```bash
+docker compose up --build -d
+```
+
+Open [RustAPI in your browser](http://localhost:6080/vnc.html?autoconnect=true&resize=scale).
+This runs the native application on a virtual Linux display with noVNC. Collections,
+environments, and history persist in the `rustapi-data` volume. The viewer has no
+authentication; Compose binds it to `127.0.0.1`. Use a trusted tunnel for remote access.
+
+To call an API running on your host, use `host.docker.internal` instead of `localhost`.
+Use `docker compose down` to stop the app while retaining its data.
+
+### Tests and CI/CD
+
+```bash
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked
+python3 scripts/desktop-smoke.py target/debug/rustapi
+```
+
+On Windows use `python` and `target/debug/rustapi.exe`. On a headless Linux machine,
+run the desktop check with `xvfb-run -a` and `LIBGL_ALWAYS_SOFTWARE=1`.
+Tests use temporary storage and loopback HTTP servers, with no public API dependency.
+
+CI checks Linux, Windows x64, macOS Apple Silicon and Intel, plus the Docker desktop.
+Pushes to `main` publish per-commit previews; tags matching `v<Cargo.toml version>`
+publish versioned releases. All publishing waits for CI and packaged-app validation.
+See [CI/CD and release setup](docs/ci-cd.md) for artifacts, image tags, and setup details.
 
 ## 📖 Usage
 
@@ -152,6 +186,8 @@ RustAPI stores data in your system's data directory:
 - **macOS**: `~/Library/Application Support/rustapi/`
 - **Linux**: `~/.local/share/rustapi/`
 - **Windows**: `%APPDATA%\rustapi\`
+
+Set `RUSTAPI_DATA_DIR` to use a different directory (Docker uses `/data`).
 
 Structure:
 ```

@@ -74,7 +74,10 @@ impl AuthConfig {
                 if self.bearer_token.is_empty() {
                     None
                 } else {
-                    Some(("Authorization".to_string(), format!("Bearer {}", self.bearer_token)))
+                    Some((
+                        "Authorization".to_string(),
+                        format!("Bearer {}", self.bearer_token),
+                    ))
                 }
             }
             AuthType::BasicAuth => {
@@ -100,9 +103,9 @@ impl AuthConfig {
 
     /// Get API key as query parameter if applicable
     pub fn get_api_key_query_param(&self) -> Option<(String, String)> {
-        if self.auth_type == AuthType::ApiKey 
-            && self.api_key_location == ApiKeyLocation::QueryParam 
-            && !self.api_key_name.is_empty() 
+        if self.auth_type == AuthType::ApiKey
+            && self.api_key_location == ApiKeyLocation::QueryParam
+            && !self.api_key_name.is_empty()
             && !self.api_key_value.is_empty()
         {
             Some((self.api_key_name.clone(), self.api_key_value.clone()))
@@ -143,12 +146,12 @@ impl<W: std::io::Write> Base64Encoder<W> {
 impl<W: std::io::Write> std::io::Write for Base64Encoder<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        
+
         let mut written = 0;
         for &byte in buf {
             self.buffer[self.buffer_len] = byte;
             self.buffer_len += 1;
-            
+
             if self.buffer_len == 3 {
                 let out = [
                     CHARS[(self.buffer[0] >> 2) as usize],
@@ -166,7 +169,7 @@ impl<W: std::io::Write> std::io::Write for Base64Encoder<W> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        
+
         if self.buffer_len > 0 {
             let out = match self.buffer_len {
                 1 => [
@@ -195,4 +198,3 @@ impl<W: std::io::Write> Drop for Base64Encoder<W> {
         let _ = self.flush();
     }
 }
-
