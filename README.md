@@ -3,7 +3,7 @@
 A fast, file-based API testing client built in Rust, inspired by [Bruno](https://www.usebruno.com/).
 
 ![Rust](https://img.shields.io/badge/Rust-1.98.0-orange)
-![License](https://img.shields.io/badge/License-MIT-blue)
+![License](https://img.shields.io/badge/License-GPL--3.0--or--later-blue)
 
 ## ✨ Features
 
@@ -69,7 +69,7 @@ src/
 
 ```bash
 # Clone the repository
-git clone https://github.com/rust-projs/rustapi.git
+git clone https://github.com/wulfnb/rustapi.git
 cd rustapi
 
 # Build and run
@@ -214,7 +214,12 @@ rustapi/
 
 ## 📝 License
 
-MIT License - feel free to use this project for any purpose.
+**GPL-3.0-or-later** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Anyone may use, modify, contribute to, and sell RustAPI. Distributing a GPL-covered
+derivative requires providing its corresponding source under the GPL. Private use
+does not require publication. Testing another product with RustAPI does not make
+that product a derivative. See [CONTRIBUTING.md](CONTRIBUTING.md) to participate.
 
 ## 🤝 Contributing
 
