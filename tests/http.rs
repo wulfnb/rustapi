@@ -69,6 +69,32 @@ fn request() -> ApiRequest {
     }
 }
 
+#[test]
+fn body_encodings_work_with_and_without_environment_variables() {
+    let mut env = Environment::new("test");
+    env.variables.push(KeyValue::new("value", "resolved"));
+    for environment in [None, Some(&env)] {
+        for body_type in [
+            BodyType::Json,
+            BodyType::Text,
+            BodyType::UrlEncoded,
+            BodyType::FormData,
+        ] {
+            let mut request = request();
+            request.method = HttpMethod::POST;
+            request.body_type = body_type;
+            request.body = "{{value}}".into();
+            request.form_data.push(KeyValue::new("field", "{{value}}"));
+            let (_, wire) = exchange(request, environment, "200 OK");
+            if environment.is_some() {
+                assert!(wire.contains("resolved"));
+            } else {
+                assert!(!wire.contains("resolved"));
+            }
+        }
+    }
+}
+
 macro_rules! method_case {
     ($name:ident, $method:ident) => {
         #[test]

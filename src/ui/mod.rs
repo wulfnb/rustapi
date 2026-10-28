@@ -20,3 +20,7 @@ pub use sidebar::*;
 pub use style::*;
 pub use tabs::*;
 pub use top_bar::*;
+
+#[cfg(test)]
+#[path = "../../tests/unit/ui.rs"]
+mod tests;

@@ -23,6 +23,7 @@ serde_json = "1.0"
 toml = "0.8"
 
 # Utilities
+base64 = "0.22"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5.0"

@@ -227,6 +227,17 @@ impl RustApiApp {
 
 impl eframe::App for RustApiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.render(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_state();
+    }
+}
+
+impl RustApiApp {
+    /// Render a frame independently of the native window adapter.
+    pub(crate) fn render(&mut self, ctx: &egui::Context) {
         // Process async messages
         while let Ok(msg) = self.async_receiver.try_recv() {
             match msg {
@@ -253,9 +264,6 @@ impl eframe::App for RustApiApp {
 
         // Set custom style
         apply_dark_theme(ctx);
-
-        // Render modals
-        self.render_modals(ctx);
 
         // Top panel with environment selector
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -374,10 +382,9 @@ impl eframe::App for RustApiApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_main_content(ui);
         });
-    }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.save_state();
+        // egui floating windows must follow the top-level panels.
+        self.render_modals(ctx);
     }
 }
 
@@ -596,3 +603,7 @@ impl RustApiApp {
             });
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/app.rs"]
+mod tests;

@@ -7,11 +7,19 @@ use std::time::Instant;
 
 /// Execute an HTTP request and return the response
 pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) -> ApiResponse {
-    let client = match Client::builder()
+    let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(30))
-        .build()
-    {
+        .build();
+    execute_with_client(request, environment, client)
+}
+
+fn execute_with_client(
+    request: &ApiRequest,
+    environment: Option<&Environment>,
+    client: Result<Client, reqwest::Error>,
+) -> ApiResponse {
+    let client = match client {
         Ok(c) => c,
         Err(e) => return ApiResponse::error(format!("Failed to create HTTP client: {}", e)),
     };
@@ -261,6 +269,17 @@ pub fn format_json(json_str: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_configuration_failure_is_reported() {
+        let client = Client::builder().user_agent("invalid\nvalue").build();
+        assert!(client.is_err());
+        let response = execute_with_client(&ApiRequest::default(), None, client);
+        assert!(response
+            .error
+            .unwrap()
+            .contains("Failed to create HTTP client"));
+    }
 
     macro_rules! query_case {
         ($name:ident, $base:expr, $expected:expr) => {
