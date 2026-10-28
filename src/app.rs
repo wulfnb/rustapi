@@ -191,6 +191,16 @@ impl RustApiApp {
         self.collections.push(collection);
     }
 
+    /// Import into the managed profile without rewriting the user's source file.
+    fn import_collection(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        let mut collection = storage::import_collection(path)?;
+        collection.file_path = None;
+        let saved_path = storage::save_collection(&collection, None)?;
+        collection.file_path = Some(saved_path.to_string_lossy().into_owned());
+        self.collections.push(collection);
+        Ok(())
+    }
+
     /// Delete collection
     fn delete_collection(&mut self, col_idx: usize) {
         if col_idx < self.collections.len() {
@@ -209,6 +219,63 @@ impl RustApiApp {
 
             for idx in tabs_to_close.into_iter().rev() {
                 self.tab_manager.close_tab(idx);
+            }
+        }
+    }
+
+    fn handle_sidebar_action(&mut self, action: SidebarAction) {
+        match action {
+            SidebarAction::SelectRequest(col_idx, req_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    if let Some(request) = collection.requests.get(req_idx) {
+                        self.tab_manager
+                            .open_tab(request.clone(), Some(col_idx), Some(req_idx));
+                    }
+                }
+            }
+            SidebarAction::AddRequest(col_idx) => {
+                self.add_request_to_collection(col_idx);
+            }
+            SidebarAction::DeleteRequest(col_idx, req_idx) => {
+                self.delete_request(col_idx, req_idx);
+            }
+            SidebarAction::DuplicateRequest(col_idx, req_idx) => {
+                self.duplicate_request(col_idx, req_idx);
+            }
+            SidebarAction::RenameRequest(col_idx, req_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    if let Some(request) = collection.requests.get(req_idx) {
+                        self.rename_value = request.name.clone();
+                        self.rename_target = RenameTarget::Request(col_idx, req_idx);
+                        self.show_rename_modal = true;
+                    }
+                }
+            }
+            SidebarAction::DeleteCollection(col_idx) => {
+                self.delete_collection(col_idx);
+            }
+            SidebarAction::RenameCollection(col_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    self.rename_value = collection.name.clone();
+                    self.rename_target = RenameTarget::Collection(col_idx);
+                    self.show_rename_modal = true;
+                }
+            }
+            SidebarAction::ExportCollection(col_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_title("Export collection")
+                        .add_filter("JSON", &["json"])
+                        .set_file_name(format!("{}.json", collection.name))
+                        .save_file()
+                    {
+                        let _ = storage::export_collection(collection, &path);
+                    }
+                }
+            }
+            SidebarAction::NewCollection => {
+                self.new_item_name.clear();
+                self.show_new_collection_modal = true;
             }
         }
     }
@@ -288,13 +355,11 @@ impl RustApiApp {
             }
             if show_import {
                 if let Some(path) = rfd::FileDialog::new()
+                    .set_title("Import collection")
                     .add_filter("JSON", &["json"])
                     .pick_file()
                 {
-                    if let Ok(collection) = storage::import_collection(&path) {
-                        let _ = storage::save_collection(&collection, None);
-                        self.collections.push(collection);
-                    }
+                    let _ = self.import_collection(&path);
                 }
             }
         });
@@ -319,62 +384,7 @@ impl RustApiApp {
                     current_col,
                     current_req,
                 ) {
-                    match action {
-                        SidebarAction::SelectRequest(col_idx, req_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                if let Some(request) = collection.requests.get(req_idx) {
-                                    self.tab_manager.open_tab(
-                                        request.clone(),
-                                        Some(col_idx),
-                                        Some(req_idx),
-                                    );
-                                }
-                            }
-                        }
-                        SidebarAction::AddRequest(col_idx) => {
-                            self.add_request_to_collection(col_idx);
-                        }
-                        SidebarAction::DeleteRequest(col_idx, req_idx) => {
-                            self.delete_request(col_idx, req_idx);
-                        }
-                        SidebarAction::DuplicateRequest(col_idx, req_idx) => {
-                            self.duplicate_request(col_idx, req_idx);
-                        }
-                        SidebarAction::RenameRequest(col_idx, req_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                if let Some(request) = collection.requests.get(req_idx) {
-                                    self.rename_value = request.name.clone();
-                                    self.rename_target = RenameTarget::Request(col_idx, req_idx);
-                                    self.show_rename_modal = true;
-                                }
-                            }
-                        }
-                        SidebarAction::DeleteCollection(col_idx) => {
-                            self.delete_collection(col_idx);
-                        }
-                        SidebarAction::RenameCollection(col_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                self.rename_value = collection.name.clone();
-                                self.rename_target = RenameTarget::Collection(col_idx);
-                                self.show_rename_modal = true;
-                            }
-                        }
-                        SidebarAction::ExportCollection(col_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("JSON", &["json"])
-                                    .set_file_name(format!("{}.json", collection.name))
-                                    .save_file()
-                                {
-                                    let _ = storage::export_collection(collection, &path);
-                                }
-                            }
-                        }
-                        SidebarAction::NewCollection => {
-                            self.new_item_name.clear();
-                            self.show_new_collection_modal = true;
-                        }
-                    }
+                    self.handle_sidebar_action(action);
                 }
             });
 

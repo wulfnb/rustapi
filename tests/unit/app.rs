@@ -29,6 +29,12 @@ fn application_manages_collections_requests_tabs_and_persistent_state() {
     app.delete_request(0, 99);
     app.duplicate_request(99, 0);
     app.duplicate_request(0, 99);
+    app.tab_manager
+        .open_tab(ApiRequest::default(), Some(99), Some(0));
+    app.save_current_request();
+    app.tab_manager
+        .open_tab(ApiRequest::default(), Some(0), Some(99));
+    app.save_current_request();
     app.save_state();
     let reloaded = RustApiApp::default();
     assert!(!reloaded.collections.is_empty());
@@ -57,6 +63,7 @@ fn application_renders_welcome_toolbar_editor_modals_and_history_actions() {
     h.refresh();
     h.click("Close");
     assert!(!h.state.show_history_panel);
+    h.click("▶ Send");
     h.click("< >");
     assert!(h.state.show_code_gen_modal);
     h.refresh();
@@ -64,6 +71,8 @@ fn application_renders_welcome_toolbar_editor_modals_and_history_actions() {
     h.right_click("My Collection");
     h.click("➕ Add Request");
     assert_eq!(h.state.collections[0].requests.len(), 1);
+    h.click_n("Request 1", 0);
+    h.click_n("×", 0);
     h.click("💾 Save");
     h.right_click_n("Request 1", 1);
     h.click("📋 Duplicate");
@@ -160,4 +169,47 @@ fn application_receives_network_results_and_saves_history() {
     h.refresh();
     h.state.is_loading = true;
     h.refresh();
+}
+
+#[test]
+fn imported_collections_survive_restart_without_modifying_the_source_file() {
+    let profile = Profile::new();
+    let source = profile.directory.path().join("external.json");
+    let original = serde_json::to_string(&Collection::new("Imported API")).unwrap();
+    std::fs::write(&source, &original).unwrap();
+    let mut app = RustApiApp::default();
+    app.import_collection(&source).unwrap();
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), original);
+    assert!(app
+        .collections
+        .last()
+        .unwrap()
+        .file_path
+        .as_ref()
+        .unwrap()
+        .contains("collections"));
+    assert_eq!(RustApiApp::default().collections[0].name, "Imported API");
+    std::fs::write(&source, "corrupt json").unwrap();
+    assert!(app.import_collection(&source).is_err());
+}
+
+#[test]
+fn sidebar_commands_reject_stale_indices_and_initialize_new_collection_dialog() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    for action in [
+        SidebarAction::SelectRequest(99, 0),
+        SidebarAction::SelectRequest(0, 99),
+        SidebarAction::RenameRequest(99, 0),
+        SidebarAction::RenameRequest(0, 99),
+        SidebarAction::RenameCollection(99),
+        SidebarAction::ExportCollection(99),
+    ] {
+        app.handle_sidebar_action(action);
+    }
+    assert!(!app.tab_manager.has_tabs());
+    assert!(!app.show_rename_modal);
+    app.new_item_name = "discard previous input".into();
+    app.handle_sidebar_action(SidebarAction::NewCollection);
+    assert!(app.show_new_collection_modal && app.new_item_name.is_empty());
 }

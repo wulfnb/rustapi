@@ -85,6 +85,7 @@ fn body_encodings_work_with_and_without_environment_variables() {
             request.body_type = body_type;
             request.body = "{{value}}".into();
             request.form_data.push(KeyValue::new("field", "{{value}}"));
+            request.form_data.push(KeyValue::default());
             let (_, wire) = exchange(request, environment, "200 OK");
             if environment.is_some() {
                 assert!(wire.contains("resolved"));
