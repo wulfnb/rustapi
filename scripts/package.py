@@ -53,8 +53,6 @@ if args.platform == "macos":
     if dmg_stage.exists():
         shutil.rmtree(dmg_stage)
     dmg_stage.mkdir()
-for notice in ("LICENSE", "NOTICE", "CONTRIBUTING.md"):
-    shutil.copy2(notice, stage)
     shutil.copytree(app, dmg_stage / app.name)
     (dmg_stage / "Applications").symlink_to("/Applications")
     subprocess.run(["hdiutil", "create", "-volname", "RustAPI", "-srcfolder", str(dmg_stage), "-ov", "-format", "UDZO", str(dist / (name + ".dmg"))], check=True)
