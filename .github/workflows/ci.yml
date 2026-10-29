@@ -110,7 +110,7 @@ jobs:
       - name: Real GUI, WebSocket, and persistent volume smoke test
         run: python scripts/docker-smoke.py rustapi:ci
       - name: Scan Docker image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: rustapi:ci
           format: 'table'
@@ -143,15 +143,20 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
-          tool: cargo-llvm-cov@0.9.1,cargo-audit@0.22.2,gitleaks@8.24.0
+          tool: cargo-llvm-cov@0.9.1,cargo-audit@0.22.2
       - name: Audit crate dependencies for security vulnerabilities
         run: cargo audit
-      - name: Scan repository for secret and credential leaks
-        run: gitleaks detect --verbose --config .gitleaks.toml
-      - name: Install pinned workflow linter
+      - name: Install gitleaks and workflow linter
         run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "https://github.com/gitleaks/gitleaks/releases/download/v8.24.0/gitleaks_8.24.0_linux_x64.tar.gz"
+          echo "cb49b7de5ee986510fe8666ca0273a6cc15eb82571f2f14832c9e8920751f3a4  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/bin" gitleaks
+          rm -f "$RUNNER_TEMP/gitleaks.tar.gz"
           GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Scan repository for secret and credential leaks
+        run: gitleaks detect --verbose --config .gitleaks.toml
       - name: Validate workflow and shell scripts
         run: |
           actionlint
