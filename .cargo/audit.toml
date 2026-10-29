@@ -8,3 +8,4 @@ ignore = [
     # RUSTSEC-2026-0194: Quadratic run time when checking start tag for duplicate attribute names (quick-xml)
     "RUSTSEC-2026-0194",
 ]
+

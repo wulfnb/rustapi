@@ -114,13 +114,14 @@ Release assets:
 - `RustAPI-macos-arm64.zip` and `.dmg`
 - `RustAPI-macos-x86_64.zip` and `.dmg`
 - `RustAPI-linux-x86_64.tar.gz`
-- `RustAPI-windows-x86_64.zip`
+- `RustAPI-windows-x86_64.zip` and `-Setup.exe` (Inno Setup installer)
 - `SHA256SUMS.txt`
+- `THIRD-PARTY-NOTICES.html` bundled in every release and app bundle
 
 macOS apps are ad-hoc signed and verified. They are **not Apple Developer ID signed or
 notarized**. The Linux archive is built on Ubuntu 24.04 and needs a compatible glibc,
 OpenSSL 3, and desktop graphics libraries; Docker supplies its own Debian runtime.
-Windows ZIPs are portable executables, not installers or Authenticode-signed packages.
+Windows distributions include both a portable ZIP and an Inno Setup installer; they are not Authenticode-signed.
 
 Public-repository release files and container digests receive GitHub build-provenance
 attestations. Private repositories skip attestations by default; set the repository
@@ -129,6 +130,19 @@ See [GitHub's attestation availability](https://docs.github.com/en/actions/how-t
 No assets or channel tags are published from pull-request workflows.
 Published GitHub releases are immutable to workflow reruns; an interrupted draft may
 be retried. Choose a new commit/version rather than overwriting a published release.
+
+## Future Plans & Roadmap
+
+### 1. Multi-Architecture Docker Images (`linux/amd64` and `linux/arm64`)
+* **Current status**: GitHub Actions hosted Linux runners build `linux/amd64` images. Local Docker builds natively support both ARM64 and AMD64 hosts (`docker build -t rustapi:local .`).
+* **Planned implementation**:
+  1. Once GitHub Actions hosted ARM64 Linux runners (`ubuntu-24.04-arm64`) are enabled for open-source workflows, split the Docker builder into a parallel matrix job for both architectures.
+  2. Assemble a unified multi-architecture OCI manifest using `docker buildx imagetools create` so pulling `ghcr.io/wulfnb/rustapi:latest` automatically resolves the native architecture on Raspberry Pi, AWS Graviton, and Apple Silicon Docker environments.
+  3. Run the container smoke test matrix across both architectures before release promotion.
+
+### 2. Code Signing & Distribution Integrity
+* **macOS Notarization**: Requires an active Apple Developer Program enrollment (\$99/year) to sign with a Developer ID Application certificate and submit binaries to Apple's `notarytool` automated notarization service.
+* **Windows Authenticode Signing**: Eliminating Microsoft Defender SmartScreen warnings ("Windows protected your PC") requires signing the executable and installer with a commercial Authenticode certificate (Standard or EV). Industry certificate authorities (DigiCert, Sectigo, SSL.com) require identity verification and hardware token/cloud HSM storage, typically costing \$200–\$450/year. Free alternatives for qualifying open-source projects include [SignPath.io](https://about.signpath.io/) or self-signing with an imported root CA.
 
 ## Repository setup
 

@@ -28,3 +28,4 @@ Name: desktopicon; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm
 
 [Run]
 Filename: "{app}\rustapi.exe"; Description: "Open RustAPI"; Flags: nowait postinstall skipifsilent
+
