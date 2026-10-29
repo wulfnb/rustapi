@@ -47,6 +47,8 @@ a collection or folder to add requests, edit variables/auth/scripts, move, renam
 export. New requests and history entries can be saved into a selected collection.
 Request editing has Params, Headers, Body, Auth, Tests, Scripts and Settings tabs.
 Use JSON Pointer paths such as `/user/id` for JSON assertions and extraction.
+Cmd/Ctrl+O opens JSON import; Cmd/Ctrl+Shift+E exports the active request's collection
+(or the first collection when no request is active).
 
 Workspaces contain:
 

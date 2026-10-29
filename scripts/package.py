@@ -20,7 +20,7 @@ stage = dist / name
 if stage.exists():
     shutil.rmtree(stage)
 stage.mkdir()
-for notice in ("LICENSE", "NOTICE"):
+for notice in ("LICENSE", "NOTICE", "CONTRIBUTING.md"):
     shutil.copy2(notice, stage)
 
 if args.platform == "macos":
@@ -41,6 +41,10 @@ if args.platform == "macos":
             "CFBundleVersion": version, "NSHighResolutionCapable": True,
         }, output)
     binary.chmod(0o755)
+    resources = contents / "Resources"
+    resources.mkdir()
+    for notice in ("LICENSE", "NOTICE"):
+        shutil.copy2(notice, resources)
     subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
     subprocess.run(["codesign", "--verify", "--strict", str(app)], check=True)
     shutil.copy2("README.md", stage)
@@ -50,8 +54,6 @@ if args.platform == "macos":
         shutil.rmtree(dmg_stage)
     dmg_stage.mkdir()
     shutil.copytree(app, dmg_stage / app.name)
-    for notice in ("LICENSE", "NOTICE"):
-        shutil.copy2(notice, dmg_stage)
     (dmg_stage / "Applications").symlink_to("/Applications")
     subprocess.run(["hdiutil", "create", "-volname", "RustAPI", "-srcfolder", str(dmg_stage), "-ov", "-format", "UDZO", str(dist / (name + ".dmg"))], check=True)
     subprocess.run(["hdiutil", "verify", str(dist / (name + ".dmg"))], check=True)

@@ -1,4 +1,4 @@
-use rustapi::{models::*, storage::*};
+use crate::{models::*, storage::*};
 use std::fs;
 use tempfile::tempdir;
 
@@ -6,7 +6,13 @@ use tempfile::tempdir;
 #[test]
 fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     let root = tempdir().unwrap();
+    std::env::remove_var("RUSTAPI_DATA_DIR");
+    assert!(get_app_data_dir().ends_with("rustapi"));
     std::env::set_var("RUSTAPI_DATA_DIR", root.path());
+    assert!(load_all_collections().is_empty());
+    assert!(load_all_environments().is_empty());
+    delete_environment(&Environment::new("absent")).unwrap();
+    delete_collection(&Collection::new("unsaved")).unwrap();
     init_storage().unwrap();
     assert_eq!(get_app_data_dir(), root.path());
     assert!(get_collections_dir().is_dir());
@@ -19,6 +25,9 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     env.id = "x".into();
     env.variables.push(KeyValue::new("token", "abc"));
     let env_path = save_environment(&env).unwrap();
+    env.name = "Renamed environment".into();
+    assert_eq!(save_environment(&env).unwrap(), env_path);
+    assert_eq!(load_all_environments().len(), 1);
     assert_eq!(env_path.parent().unwrap(), get_environments_dir());
     assert_eq!(
         load_environment(&env_path).unwrap().variables[0].value,
@@ -59,6 +68,7 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     );
     fs::write(get_collections_dir().join("broken.json"), "broken").unwrap();
     fs::write(get_environments_dir().join("broken.json"), "broken").unwrap();
+    fs::write(get_environments_dir().join("ignored.txt"), "ignored").unwrap();
     fs::write(get_collections_dir().join("ignored.txt"), "{}").unwrap();
     assert_eq!(load_all_collections().len(), 1);
     assert_eq!(load_all_environments().len(), 1);
@@ -68,6 +78,11 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     assert!(!path.exists());
     delete_environment(&env).unwrap();
     assert!(load_all_environments().is_empty());
+    delete_environment(&env).unwrap();
+    let unrelated = Environment::new("Unrelated");
+    save_environment(&unrelated).unwrap();
+    delete_environment(&env).unwrap();
+    assert_eq!(load_all_environments()[0].id, unrelated.id);
 
     for name in ["CON", "prn", "NUL", "COM1", "LPT9", "   "] {
         let path = save_collection(&Collection::new(name), None).unwrap();
@@ -77,8 +92,37 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
 
     fs::write(get_history_file(), "corrupt").unwrap();
     assert!(load_history().entries.is_empty());
+    fs::remove_file(get_history_file()).unwrap();
+    fs::create_dir(get_history_file()).unwrap();
+    assert!(load_history().entries.is_empty());
     fs::write(get_state_file(), "corrupt").unwrap();
     assert!(load_app_state().is_err());
+    for directory in [get_collections_dir(), get_environments_dir()] {
+        fs::remove_dir_all(&directory).unwrap();
+        fs::write(directory, "a file in place of a directory").unwrap();
+    }
+    assert!(load_all_collections().is_empty());
+    assert!(load_all_environments().is_empty());
+    delete_environment(&env).unwrap();
+    assert!(init_storage().is_err());
+    fs::remove_file(get_collections_dir()).unwrap();
+    assert!(init_storage().is_err());
+    assert!(save_environment(&env).is_err());
+    assert!(save_history(&history).is_err());
+    fs::remove_file(get_state_file()).unwrap();
+    fs::create_dir(get_state_file()).unwrap();
+    assert!(load_app_state().is_err());
+    assert!(save_app_state(&state).is_err());
+    let blocked = get_environments_dir().join("collection.json");
+    assert!(save_collection(&collection, Some(&blocked)).is_err());
+    let mut absent = Collection::new("Absent");
+    absent.file_path = Some(
+        root.path()
+            .join("absent.json")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    delete_collection(&absent).unwrap(); // Delete is idempotent for a previously removed file.
     std::env::remove_var("RUSTAPI_DATA_DIR");
 }
 
@@ -125,4 +169,5 @@ fn save_to_a_directory_reports_io_error() {
     let dir = tempdir().unwrap();
     assert!(save_collection(&Collection::new("test"), Some(dir.path())).is_err());
     assert!(export_collection(&Collection::new("test"), dir.path()).is_err());
+    assert!(save_collection(&Collection::new("test"), Some(std::path::Path::new("/"))).is_err());
 }

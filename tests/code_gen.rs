@@ -1,5 +1,55 @@
 use rustapi::{http::*, models::*};
 
+#[test]
+fn every_generator_handles_auth_body_fields_and_query_parameters() {
+    let mut env = Environment::new("test");
+    env.variables.push(KeyValue::new("value", "resolved"));
+    for language in CodeGenLanguage::all() {
+        assert!(!language.file_extension().is_empty());
+        assert!(!language.as_str().is_empty());
+        for auth_type in AuthType::all() {
+            for body_type in [
+                BodyType::None,
+                BodyType::Json,
+                BodyType::Text,
+                BodyType::FormData,
+                BodyType::UrlEncoded,
+                BodyType::Binary,
+            ] {
+                let request = ApiRequest {
+                    url: "https://test/resource".into(),
+                    method: HttpMethod::POST,
+                    body_type,
+                    body: "{\"name\":\"{{value}}\"}".into(),
+                    headers: vec![KeyValue::new("x-value", "{{value}}"), KeyValue::default()],
+                    query_params: vec![KeyValue::new("query", "{{value}}"), KeyValue::default()],
+                    form_data: vec![KeyValue::new("field", "{{value}}"), KeyValue::default()],
+                    auth: AuthConfig {
+                        auth_type: auth_type.clone(),
+                        bearer_token: "{{value}}".into(),
+                        basic_username: "{{value}}".into(),
+                        basic_password: "secret".into(),
+                        api_key_name: "x-api-key".into(),
+                        api_key_value: "{{value}}".into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                let code = generate_code(&request, *language, Some(&env));
+                if matches!(auth_type, AuthType::Inherit | AuthType::OAuth2) {
+                    assert!(code.contains("Resolve inherited auth"));
+                    continue;
+                }
+                assert!(code.contains("https://test/resource"));
+                assert!(code.contains("resolved"));
+                assert!(!code.contains("{{value}}"));
+                let without_env = generate_code(&request, *language, None);
+                assert!(without_env.contains("Unresolved variable: value"));
+            }
+        }
+    }
+}
+
 fn sample() -> (ApiRequest, Environment) {
     let mut env = Environment::new("test");
     env.variables = vec![

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A fast, file-based API testing client inspired by Bruno"
 repository = "https://github.com/wulfnb/rustapi"
-authors = ["Noufal Babu and contributors"]
+authors = ["Noufal Babu"]
 license = "GPL-3.0-or-later"
 
 [dependencies]

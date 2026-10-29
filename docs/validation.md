@@ -40,3 +40,24 @@ An optimized final release, notarization/signing with publisher credentials, rea
 provider credentials, all-platform packaged runtime proof, full GUI interaction coverage,
 and complete Postman API compatibility are not claimed. See
 [the compatibility contract](postman-compatibility.md) for supported behavior and limits.
+
+## Main merge baseline
+
+The coverage/licensing baseline merged from `7442481` is retained in
+[validation-main-7442481.md](validation-main-7442481.md). Its earlier coverage numbers
+are historical evidence for main, not measurements of the expanded REST implementation.
+The merged workflow retains main's 100 percent line/function gate.
+
+## Main conflict resolution and Windows sample-link fix
+
+Merged `7442481` while retaining the licensing, native-dialog test seam, history
+layout fix, package resources, and strict coverage workflow from main. UI/HTTP/storage
+tests now use stable IDs, strict variable/header validation, and the current desktop
+windows. The Linux native-dialog driver uses import/export keyboard commands rather
+than old toolbar coordinates.
+
+The merged baseline passed 117 Rust tests, warnings-denied Clippy, 15 Python tests
+with 100% Python statement/branch coverage, and all 24 actual generated HTTP samples.
+Rust samples are compiled by Cargo, which supplies native Windows import-library
+search paths missing from the previous direct-rustc invocation. The new Windows test
+validates the command path; hosted Windows runtime confirmation is still required.

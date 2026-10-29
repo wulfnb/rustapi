@@ -20,6 +20,28 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Native dialogs remain at the desktop boundary so command behavior is testable.
+trait CollectionDialogs {
+    fn import(&self) -> Option<std::path::PathBuf>;
+    fn export(&self, name: &str) -> Option<std::path::PathBuf>;
+}
+struct NativeCollectionDialogs;
+impl CollectionDialogs for NativeCollectionDialogs {
+    fn import(&self) -> Option<std::path::PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Import collection")
+            .add_filter("JSON", &["json"])
+            .pick_file()
+    }
+    fn export(&self, name: &str) -> Option<std::path::PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Export collection")
+            .add_filter("JSON", &["json"])
+            .set_file_name(format!("{name}.json"))
+            .save_file()
+    }
+}
+
 pub enum AsyncMessage {
     Response {
         epoch: u64,
@@ -64,6 +86,7 @@ enum Action {
     Reorder(String, Option<String>, String, bool),
 }
 pub struct RustApiApp {
+    dialogs: Box<dyn CollectionDialogs>,
     pub collections: Vec<Collection>,
     pub environments: Vec<Environment>,
     pub active_environment_id: Option<String>,
@@ -158,6 +181,7 @@ impl Default for RustApiApp {
             TabManager::new()
         });
         Self {
+            dialogs: Box::new(NativeCollectionDialogs),
             collections,
             environments,
             active_environment_id: state.active_environment_id,
@@ -454,11 +478,7 @@ impl RustApiApp {
     }
     fn export_collection(&mut self, id: &str, include_secrets: bool) {
         if let Some(c) = self.collections.iter().find(|c| c.id == id).cloned() {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("JSON", &["json"])
-                .set_file_name(format!("{}.json", c.name))
-                .save_file()
-            {
+            if let Some(path) = self.dialogs.export(&c.name) {
                 let c = if include_secrets {
                     c
                 } else {
@@ -747,6 +767,58 @@ impl RustApiApp {
 }
 impl eframe::App for RustApiApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        self.render(ctx);
+    }
+    fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
+        self.persist_drafts();
+        let state = AppState {
+            active_environment_id: self.active_environment_id.clone(),
+            recent_files: vec![],
+            window_size: None,
+        };
+        let result = storage::save_app_state(&state);
+        if let Err(e) = result {
+            eprintln!("Could not save app state: {e}");
+        }
+        let result = storage::save_history(&storage::load_history());
+        if let Err(e) = result {
+            eprintln!("Could not save history: {e}");
+        }
+    }
+}
+impl RustApiApp {
+    fn choose_import(&mut self) {
+        if let Some(path) = self.dialogs.import() {
+            let result = std::fs::read(path)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| rustapi::import::json(&bytes));
+            self.import(result);
+        }
+    }
+    pub(crate) fn render(&mut self, ctx: &egui::Context) {
+        let open = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+        let export = egui::KeyboardShortcut::new(
+            egui::Modifiers {
+                command: true,
+                shift: true,
+                ..Default::default()
+            },
+            egui::Key::E,
+        );
+        if ctx.input_mut(|i| i.consume_shortcut(&open)) {
+            self.choose_import();
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&export)) {
+            if let Some(id) = self
+                .tab_manager
+                .active_tab()
+                .and_then(|t| t.collection_id.clone())
+                .or_else(|| self.collections.first().map(|c| c.id.clone()))
+            {
+                self.export_collection(&id, false);
+            }
+        }
+
         self.process_messages();
         apply_dark_theme(ctx);
         if ctx.input(|i| i.viewport().close_requested())
@@ -996,22 +1068,6 @@ impl eframe::App for RustApiApp {
         self.authorize(ctx);
         self.windows(ctx);
     }
-    fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
-        self.persist_drafts();
-        let state = AppState {
-            active_environment_id: self.active_environment_id.clone(),
-            recent_files: vec![],
-            window_size: None,
-        };
-        let result = storage::save_app_state(&state);
-        if let Err(e) = result {
-            eprintln!("Could not save app state: {e}");
-        }
-        let result = storage::save_history(&storage::load_history());
-        if let Err(e) = result {
-            eprintln!("Could not save history: {e}");
-        }
-    }
 }
 #[allow(clippy::too_many_arguments)] // Recursive tree view carries the parent identity and ordering.
 fn render_tree(
@@ -1167,15 +1223,7 @@ impl RustApiApp {
                 .show(ctx, |ui| {
                     ui.label("JSON imports create a managed copy. Source files are unchanged.");
                     if ui.button("Choose collection or environment JSON").clicked() {
-                        if let Some(p) = rfd::FileDialog::new()
-                            .add_filter("JSON", &["json"])
-                            .pick_file()
-                        {
-                            let result = std::fs::read(p)
-                                .map_err(anyhow::Error::from)
-                                .and_then(|b| rustapi::import::json(&b));
-                            self.import(result);
-                        }
+                        self.choose_import();
                     }
                     ui.label("Or paste a cURL command");
                     ui.add(
@@ -1870,8 +1918,8 @@ mod tests {
     use super::*;
     #[test]
     fn identity_response_attribution_save_failure_and_draft_recovery() {
-        let profile = tempfile::tempdir().unwrap();
-        std::env::set_var("RUSTAPI_DATA_DIR", profile.path());
+        let profile_guard = crate::test_support::Profile::new();
+        let profile = &profile_guard.directory;
         let mut app = RustApiApp::default();
         let mut c = Collection::new("Collection");
         let a = ApiRequest::new("A");
@@ -1953,6 +2001,9 @@ mod tests {
         app.tab_manager.active_tab_mut().unwrap().collection_id = None;
         assert!(app.save_tab(&tabid, Some((second_id, None))));
         assert!(!app.tab_manager.active_tab().unwrap().is_modified);
-        std::env::remove_var("RUSTAPI_DATA_DIR");
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/app.rs"]
+mod interaction_tests;

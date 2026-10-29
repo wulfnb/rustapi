@@ -7,6 +7,8 @@ import http.server
 import json
 import os
 import shlex
+import shutil
+import tomllib
 from pathlib import Path
 import subprocess
 import sys
@@ -38,11 +40,25 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 base = f"http://127.0.0.1:{server.server_address[1]}"
 
-def dependency(name):
-    return max((build / "deps").glob(f"lib{name}-*.rlib"), key=lambda p: p.stat().st_mtime)
+def sample_project(directory):
+    # Let Cargo propagate platform-native linker paths (notably Windows import libs).
+    root = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((root / "Cargo.toml").read_text())
+    project = directory / "rust-sample"
+    (project / "src").mkdir(parents=True)
+    manifest = '[package]\nname = "rustapi-codegen-sample"\nversion = "0.0.0"\nedition = "2021"\n'
+    manifest += f'\n[dependencies.rustapi]\npath = {json.dumps(str(root))}\n'
+    for name in ("reqwest", "tokio"):
+        manifest += f"\n[dependencies.{name}]\n"
+        for key, value in config["dependencies"][name].items():
+            manifest += f"{key} = {json.dumps(value)}\n"
+    (project / "Cargo.toml").write_text(manifest)
+    # Retain the repository's resolved versions; Cargo only adds this temporary root.
+    shutil.copyfile(root / "Cargo.lock", project / "Cargo.lock")
+    return project
 
 def run(command):
-    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=180)
     if result.returncode:
         raise RuntimeError(f"{command[0]} failed:\n{result.stdout}\n{result.stderr}")
 
@@ -50,13 +66,15 @@ try:
     with tempfile.TemporaryDirectory(prefix="rustapi-codegen-") as temp:
         directory = Path(temp)
         run([str(build / "examples" / f"codegen-fixture{exe}"), temp, base])
+        project = sample_project(directory)
         for case in ("json", "text", "form", "urlencoded", "binary", "options"):
             for language in ("sh", "py", "mjs", "rs"):
                 source = directory / f"request-{case}.{language}"
                 before = len(records)
                 if language == "rs":
-                    binary = directory / f"sample{exe}"
-                    run(["rustc", "--edition=2021", "--crate-name=sample", str(source), "-L", f"dependency={build / 'deps'}", "--extern", f"reqwest={dependency('reqwest')}", "--extern", f"tokio={dependency('tokio')}", "-o", str(binary)])
+                    binary = build / f"rustapi-codegen-sample{exe}"
+                    shutil.copyfile(source, project / "src/main.rs")
+                    run(["cargo", "build", "--offline", "--manifest-path", str(project / "Cargo.toml"), "--target-dir", str(build.parent), "--bin", "rustapi-codegen-sample"])
                     run([str(binary)])
                     binary.unlink()
                 elif language == "sh" and os.name == "nt":

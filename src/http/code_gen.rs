@@ -13,6 +13,14 @@ impl CodeGenLanguage {
     pub fn all() -> &'static [Self] {
         &[Self::Curl, Self::Python, Self::JavaScript, Self::Rust]
     }
+    pub fn file_extension(&self) -> &'static str {
+        match self {
+            Self::Curl => "sh",
+            Self::Python => "py",
+            Self::JavaScript => "js",
+            Self::Rust => "rs",
+        }
+    }
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Curl => "cURL",

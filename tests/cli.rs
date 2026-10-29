@@ -119,3 +119,17 @@ fn headless_success_uses_the_shared_assertion_engine() {
     assert!(report.passed());
     server.finish();
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn missing_display_returns_a_startup_error_without_hanging() {
+    let profile = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rustapi"))
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .env("RUSTAPI_DATA_DIR", profile.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Error:"));
+}

@@ -14,6 +14,10 @@
 mod app;
 mod ui;
 
+#[cfg(test)]
+#[path = "../tests/support/egui.rs"]
+mod test_support;
+
 use rustapi::{http, models, storage};
 
 use app::RustApiApp;

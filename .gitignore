@@ -68,3 +68,7 @@ coverage/
 *:Zone.Identifier
 
 **/__pycache__/
+.coverage
+.coverage.*
+
+/.venv/

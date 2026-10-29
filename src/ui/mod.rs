@@ -14,3 +14,7 @@ pub use style::*;
 pub use tabs::*;
 
 pub use auth_editor::*;
+
+#[cfg(test)]
+#[path = "../../tests/unit/ui.rs"]
+mod tests;

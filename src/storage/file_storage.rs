@@ -20,7 +20,11 @@ pub fn get_app_data_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("RUSTAPI_DATA_DIR").filter(|p| !p.is_empty()) {
         return PathBuf::from(path);
     }
-    dirs::data_dir()
+    default_app_data_dir(dirs::data_dir())
+}
+
+fn default_app_data_dir(platform_dir: Option<PathBuf>) -> PathBuf {
+    platform_dir
         .unwrap_or_else(|| PathBuf::from("."))
         .join("rustapi")
 }
@@ -289,3 +293,22 @@ pub fn load_drafts<T: serde::de::DeserializeOwned + Default>() -> Result<T> {
         Ok(T::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn platform_paths_are_namespaced_with_a_relative_fallback() {
+        assert_eq!(
+            default_app_data_dir(None),
+            PathBuf::from(".").join("rustapi")
+        );
+        assert_eq!(
+            default_app_data_dir(Some(PathBuf::from("platform"))),
+            PathBuf::from("platform/rustapi")
+        );
+    }
+}
+#[cfg(test)]
+#[path = "../../tests/unit/storage.rs"]
+mod storage_tests;

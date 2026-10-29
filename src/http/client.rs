@@ -427,3 +427,28 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/http.rs"]
+mod request_tests;
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+    #[test]
+    fn client_configuration_failure_becomes_a_transport_error() {
+        let r = ApiRequest {
+            url: "http://127.0.0.1:1".into(),
+            settings: HttpSettings {
+                timeout_ms: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(HttpService::default()
+            .execute(&r, &Cancellation::default())
+            .error
+            .unwrap()
+            .contains("Timeout must"));
+    }
+}

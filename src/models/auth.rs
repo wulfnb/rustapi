@@ -1,7 +1,7 @@
 //! Authentication configuration models
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 
 /// Authentication type
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -125,86 +125,7 @@ impl AuthConfig {
     }
 }
 
-/// Simple base64 encoding
+/// Encode credentials using the standard RFC 4648 Base64 alphabet.
 fn base64_encode(input: &str) -> String {
-    use std::io::Write;
-    let mut buf = Vec::new();
-    {
-        let mut encoder = Base64Encoder::new(&mut buf);
-        encoder.write_all(input.as_bytes()).unwrap();
-    }
-    String::from_utf8(buf).unwrap()
-}
-
-/// Simple base64 encoder
-struct Base64Encoder<W: std::io::Write> {
-    writer: W,
-    buffer: [u8; 3],
-    buffer_len: usize,
-}
-
-impl<W: std::io::Write> Base64Encoder<W> {
-    fn new(writer: W) -> Self {
-        Self {
-            writer,
-            buffer: [0; 3],
-            buffer_len: 0,
-        }
-    }
-}
-
-impl<W: std::io::Write> std::io::Write for Base64Encoder<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-        let mut written = 0;
-        for &byte in buf {
-            self.buffer[self.buffer_len] = byte;
-            self.buffer_len += 1;
-
-            if self.buffer_len == 3 {
-                let out = [
-                    CHARS[(self.buffer[0] >> 2) as usize],
-                    CHARS[(((self.buffer[0] & 0x03) << 4) | (self.buffer[1] >> 4)) as usize],
-                    CHARS[(((self.buffer[1] & 0x0f) << 2) | (self.buffer[2] >> 6)) as usize],
-                    CHARS[(self.buffer[2] & 0x3f) as usize],
-                ];
-                self.writer.write_all(&out)?;
-                self.buffer_len = 0;
-            }
-            written += 1;
-        }
-        Ok(written)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-        if self.buffer_len > 0 {
-            let out = match self.buffer_len {
-                1 => [
-                    CHARS[(self.buffer[0] >> 2) as usize],
-                    CHARS[((self.buffer[0] & 0x03) << 4) as usize],
-                    b'=',
-                    b'=',
-                ],
-                2 => [
-                    CHARS[(self.buffer[0] >> 2) as usize],
-                    CHARS[(((self.buffer[0] & 0x03) << 4) | (self.buffer[1] >> 4)) as usize],
-                    CHARS[((self.buffer[1] & 0x0f) << 2) as usize],
-                    b'=',
-                ],
-                _ => unreachable!(),
-            };
-            self.writer.write_all(&out)?;
-            self.buffer_len = 0;
-        }
-        self.writer.flush()
-    }
-}
-
-impl<W: std::io::Write> Drop for Base64Encoder<W> {
-    fn drop(&mut self) {
-        let _ = self.flush();
-    }
+    STANDARD.encode(input)
 }

@@ -1,4 +1,4 @@
-use rustapi::{http::*, models::*};
+use crate::{http::*, models::*};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
@@ -66,6 +66,45 @@ fn request() -> ApiRequest {
     ApiRequest {
         url: "$SERVER/resource".into(),
         ..Default::default()
+    }
+}
+
+#[test]
+fn body_encodings_work_with_and_without_environment_variables() {
+    let mut env = Environment::new("test");
+    env.variables.push(KeyValue::new("value", "resolved"));
+    for environment in [None, Some(&env)] {
+        for body_type in [
+            BodyType::Json,
+            BodyType::Text,
+            BodyType::UrlEncoded,
+            BodyType::FormData,
+        ] {
+            let mut request = request();
+            request.method = HttpMethod::POST;
+            request.body_type = body_type;
+            request.body = if environment.is_some() {
+                "{{value}}"
+            } else {
+                "literal"
+            }
+            .into();
+            request.form_data.push(KeyValue::new(
+                "field",
+                if environment.is_some() {
+                    "{{value}}"
+                } else {
+                    "literal"
+                },
+            ));
+            request.form_data.push(KeyValue::default());
+            let (_, wire) = exchange(request, environment, "200 OK");
+            if environment.is_some() {
+                assert!(wire.contains("resolved"));
+            } else {
+                assert!(!wire.contains("resolved"));
+            }
+        }
     }
 }
 
@@ -155,15 +194,41 @@ fn headers_and_json_body_substitute_environment() {
 
 #[test]
 fn explicit_content_type_is_preserved() {
-    let mut request = request();
-    request.body_type = BodyType::Text;
-    request.body = "text".into();
-    request
-        .headers
-        .push(KeyValue::new("content-type", "application/custom"));
-    let (_, wire) = exchange(request, None, "200 OK");
-    assert!(wire.contains("content-type: application/custom\r\n"));
-    assert!(wire.ends_with("text"));
+    for body_type in [BodyType::Text, BodyType::Json] {
+        let mut request = request();
+        request.body_type = body_type;
+        request.body = "text".into();
+        request
+            .headers
+            .push(KeyValue::new("content-type", "application/custom"));
+        let (_, wire) = exchange(request, None, "200 OK");
+        assert!(wire.contains("content-type: application/custom\r\n"));
+        assert!(wire.ends_with("text"));
+    }
+}
+
+#[test]
+fn invalid_header_names_and_values_are_rejected() {
+    for (key, value) in [("invalid name", "value"), ("x-test", "invalid\nvalue")] {
+        let mut r = request();
+        r.url = "http://127.0.0.1:1".into();
+        r.headers.push(KeyValue::new(key, value));
+        assert!(execute_request(&r, None)
+            .error
+            .unwrap()
+            .contains("Invalid header"));
+        r.headers.clear();
+        r.auth = AuthConfig {
+            auth_type: AuthType::ApiKey,
+            api_key_name: key.into(),
+            api_key_value: value.into(),
+            ..Default::default()
+        };
+        assert!(execute_request(&r, None)
+            .error
+            .unwrap()
+            .contains("Invalid auth header"));
+    }
 }
 
 #[test]
