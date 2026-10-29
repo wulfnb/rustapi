@@ -36,11 +36,15 @@ fn every_generator_handles_auth_body_fields_and_query_parameters() {
                     ..Default::default()
                 };
                 let code = generate_code(&request, *language, Some(&env));
+                if matches!(auth_type, AuthType::Inherit | AuthType::OAuth2) {
+                    assert!(code.contains("Resolve inherited auth"));
+                    continue;
+                }
                 assert!(code.contains("https://test/resource"));
                 assert!(code.contains("resolved"));
                 assert!(!code.contains("{{value}}"));
                 let without_env = generate_code(&request, *language, None);
-                assert!(without_env.contains("{{value}}"));
+                assert!(without_env.contains("Unresolved variable: value"));
             }
         }
     }
@@ -92,14 +96,14 @@ language_case!(
 language_case!(
     rust_post_with_environment,
     Rust,
-    ".post(\"https://api.test/users\")"
+    "reqwest::Method::POST, \"https://api.test/users\""
 );
 
 #[test]
 fn curl_escapes_single_quotes_in_body() {
-    let (mut request, _) = sample();
+    let (mut request, env) = sample();
     request.body = "{\"name\":\"O'Reilly\"}".into();
-    let code = generate_code(&request, CodeGenLanguage::Curl, None);
+    let code = generate_code(&request, CodeGenLanguage::Curl, Some(&env));
     assert!(code.contains("O'\\''Reilly"));
 }
 

@@ -75,7 +75,7 @@ def import_file(main, path=None):
     xdo("windowactivate", "--sync", main)
     xdo("windowfocus", "--sync", main)
     time.sleep(0.3)
-    click(main, int(geometry(main)["WIDTH"]) - 50, 20)
+    xdo("key", "ctrl+o")
     choose_file("^Import collection$", path)
 
 
@@ -83,10 +83,7 @@ def export_file(main, path=None):
     xdo("windowactivate", "--sync", main)
     xdo("windowfocus", "--sync", main)
     time.sleep(0.3)
-    click(main, 80, 142, 3)
-    time.sleep(0.2)
-    subprocess.run(["scrot", "--overwrite", str(args.output / "native-context.png")], check=True)
-    click(main, 125, 191)
+    xdo("key", "ctrl+shift+e")
     choose_file("^Export collection$", path)
 
 
@@ -116,14 +113,14 @@ with tempfile.TemporaryDirectory(prefix="rustapi-native-") as temporary:
         print(f"Main window ready after {time.monotonic() - started:.1f}s", flush=True)
         print("Main window:", xdo("getwindowgeometry", "--shell", main), flush=True)
         import_file(main, imported)
-        saved = profile / "collections" / "Native imported.json"
-        wait_for(saved.is_file, "imported collection to persist")
+        saved=wait_for(lambda:next(iter((profile/"collections").glob("*.json")),None),"imported collection to persist")
         assert imported.read_text() == original
-        assert json.loads(saved.read_text())["id"] == fixture["id"]
+        assert json.loads(saved.read_text())["id"] != fixture["id"]
+        assert json.loads(saved.read_text())["name"] == fixture["name"]
         import_file(main)
         export_file(main, exported)
         wait_for(exported.is_file, "exported collection")
-        assert json.loads(exported.read_text())["name"] == "My Collection"
+        assert json.loads(exported.read_text())["name"] == "Native imported"
         export_file(main)
         xdo("windowactivate", "--sync", main)
         xdo("key", "alt+F4")

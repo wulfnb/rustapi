@@ -11,6 +11,9 @@ pub enum AuthType {
     BearerToken,
     BasicAuth,
     ApiKey,
+    Inherit,
+    OAuth2,
+    Unsupported,
 }
 
 impl AuthType {
@@ -20,6 +23,8 @@ impl AuthType {
             AuthType::BearerToken,
             AuthType::BasicAuth,
             AuthType::ApiKey,
+            AuthType::Inherit,
+            AuthType::OAuth2,
         ]
     }
 
@@ -29,6 +34,9 @@ impl AuthType {
             AuthType::BearerToken => "Bearer Token",
             AuthType::BasicAuth => "Basic Auth",
             AuthType::ApiKey => "API Key",
+            AuthType::Inherit => "Inherit",
+            AuthType::OAuth2 => "OAuth 2.0",
+            AuthType::Unsupported => "Unsupported imported auth",
         }
     }
 }
@@ -63,13 +71,15 @@ pub struct AuthConfig {
     pub api_key_name: String,
     pub api_key_value: String,
     pub api_key_location: ApiKeyLocation,
+    #[serde(default)]
+    pub oauth: super::OAuthConfig,
 }
 
 impl AuthConfig {
     /// Generate authorization header value if applicable
     pub fn get_auth_header(&self) -> Option<(String, String)> {
         match self.auth_type {
-            AuthType::None => None,
+            AuthType::None | AuthType::Inherit | AuthType::OAuth2 | AuthType::Unsupported => None,
             AuthType::BearerToken => {
                 if self.bearer_token.is_empty() {
                     None

@@ -62,7 +62,10 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
 
     let collection = Collection::new("API / test");
     let path = save_collection(&collection, None).unwrap();
-    assert_eq!(path.file_name().unwrap(), "API _ test.json");
+    assert_eq!(
+        path.file_name().unwrap().to_string_lossy(),
+        format!("{}.json", collection.id)
+    );
     fs::write(get_collections_dir().join("broken.json"), "broken").unwrap();
     fs::write(get_environments_dir().join("broken.json"), "broken").unwrap();
     fs::write(get_environments_dir().join("ignored.txt"), "ignored").unwrap();
@@ -119,7 +122,7 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
             .to_string_lossy()
             .into_owned(),
     );
-    assert!(delete_collection(&absent).is_err());
+    delete_collection(&absent).unwrap(); // Delete is idempotent for a previously removed file.
     std::env::remove_var("RUSTAPI_DATA_DIR");
 }
 
@@ -132,7 +135,7 @@ fn collection_export_import_and_nested_save_round_trip() {
     save_collection(&collection, Some(&path)).unwrap();
     let loaded = import_collection(&path).unwrap();
     assert_eq!(loaded.requests[0].id, collection.requests[0].id);
-    assert_eq!(loaded.file_path.as_deref(), path.to_str());
+    assert!(loaded.file_path.is_none());
     let exported = dir.path().join("export.json");
     export_collection(&loaded, &exported).unwrap();
     assert_eq!(

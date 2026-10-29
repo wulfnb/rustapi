@@ -83,8 +83,20 @@ fn body_encodings_work_with_and_without_environment_variables() {
             let mut request = request();
             request.method = HttpMethod::POST;
             request.body_type = body_type;
-            request.body = "{{value}}".into();
-            request.form_data.push(KeyValue::new("field", "{{value}}"));
+            request.body = if environment.is_some() {
+                "{{value}}"
+            } else {
+                "literal"
+            }
+            .into();
+            request.form_data.push(KeyValue::new(
+                "field",
+                if environment.is_some() {
+                    "{{value}}"
+                } else {
+                    "literal"
+                },
+            ));
             request.form_data.push(KeyValue::default());
             let (_, wire) = exchange(request, environment, "200 OK");
             if environment.is_some() {
@@ -196,20 +208,26 @@ fn explicit_content_type_is_preserved() {
 }
 
 #[test]
-fn invalid_header_names_and_values_are_ignored() {
+fn invalid_header_names_and_values_are_rejected() {
     for (key, value) in [("invalid name", "value"), ("x-test", "invalid\nvalue")] {
-        let mut request = request();
-        request.auth = AuthConfig {
+        let mut r = request();
+        r.url = "http://127.0.0.1:1".into();
+        r.headers.push(KeyValue::new(key, value));
+        assert!(execute_request(&r, None)
+            .error
+            .unwrap()
+            .contains("Invalid header"));
+        r.headers.clear();
+        r.auth = AuthConfig {
             auth_type: AuthType::ApiKey,
             api_key_name: key.into(),
             api_key_value: value.into(),
             ..Default::default()
         };
-        request.headers.push(KeyValue::new(key, value));
-        let (response, wire) = exchange(request, None, "200 OK");
-        assert_eq!(response.status, 200);
-        assert!(!wire.contains("invalid"));
-        assert!(!wire.contains("x-test: invalid"));
+        assert!(execute_request(&r, None)
+            .error
+            .unwrap()
+            .contains("Invalid auth header"));
     }
 }
 

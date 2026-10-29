@@ -84,7 +84,10 @@ impl<S, F: FnMut(&Context, &mut S)> Harness<S, F> {
         let mut candidates: Vec<_> = self
             .nodes()
             .iter()
-            .filter(|(_, node)| node.name() == Some(name) && node.bounds().is_some())
+            .filter(|(_, node)| {
+                (node.label() == Some(name) || node.value() == Some(name))
+                    && node.bounds().is_some()
+            })
             .collect();
         candidates.sort_by(|(_, a), (_, b)| {
             let a = a.bounds().unwrap();
@@ -96,7 +99,7 @@ impl<S, F: FnMut(&Context, &mut S)> Harness<S, F> {
                 "Missing widget {name:?} #{index}. Nodes: {:?}",
                 self.nodes()
                     .iter()
-                    .map(|(_, n)| (n.role(), n.name(), n.value()))
+                    .map(|(_, n)| (n.role(), n.label().or(n.value()), n.value()))
                     .collect::<Vec<_>>()
             )
         });

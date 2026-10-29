@@ -1,8 +1,6 @@
-//! Code generation for various languages
-
-use crate::models::{ApiRequest, AuthType, BodyType, Environment};
-
-/// Code generation target language
+//! Code samples use the same resolved variables, URL, auth and body as execution.
+use crate::models::*;
+use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CodeGenLanguage {
     #[default]
@@ -11,480 +9,302 @@ pub enum CodeGenLanguage {
     JavaScript,
     Rust,
 }
-
 impl CodeGenLanguage {
-    pub fn all() -> &'static [CodeGenLanguage] {
-        &[
-            CodeGenLanguage::Curl,
-            CodeGenLanguage::Python,
-            CodeGenLanguage::JavaScript,
-            CodeGenLanguage::Rust,
-        ]
+    pub fn all() -> &'static [Self] {
+        &[Self::Curl, Self::Python, Self::JavaScript, Self::Rust]
     }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            CodeGenLanguage::Curl => "cURL",
-            CodeGenLanguage::Python => "Python",
-            CodeGenLanguage::JavaScript => "JavaScript",
-            CodeGenLanguage::Rust => "Rust",
-        }
-    }
-
     pub fn file_extension(&self) -> &'static str {
         match self {
-            CodeGenLanguage::Curl => "sh",
-            CodeGenLanguage::Python => "py",
-            CodeGenLanguage::JavaScript => "js",
-            CodeGenLanguage::Rust => "rs",
+            Self::Curl => "sh",
+            Self::Python => "py",
+            Self::JavaScript => "js",
+            Self::Rust => "rs",
+        }
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Curl => "cURL",
+            Self::Python => "Python",
+            Self::JavaScript => "JavaScript",
+            Self::Rust => "Rust",
         }
     }
 }
-
-/// Generate code for a request
+fn quoted(v: &str) -> String {
+    serde_json::to_string(v).expect("String serialization cannot fail")
+}
+fn shell(v: &str) -> String {
+    format!("'{}'", v.replace('\'', "'\\''"))
+}
 pub fn generate_code(
     request: &ApiRequest,
     language: CodeGenLanguage,
-    environment: Option<&Environment>,
+    env: Option<&Environment>,
 ) -> String {
+    match crate::variables::Variables::for_request(request, env).resolve_request(request) {
+        Ok(r) => generate(&r, language),
+        Err(e) => format!("Cannot generate code: {e}"),
+    }
+}
+fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
+    if matches!(
+        r.auth.auth_type,
+        AuthType::Inherit | AuthType::OAuth2 | AuthType::Unsupported
+    ) {
+        return "Resolve inherited auth or acquire an OAuth token and choose Bearer Token before exporting code.".into();
+    }
+    let mut params = r.query_params.clone();
+    if let Some((k, v)) = r.auth.get_api_key_query_param() {
+        params.push(KeyValue::new(k, v));
+    }
+    let url = super::client::build_url_with_params(&r.url, &params, None);
+    let mut headers = BTreeMap::new();
+    if let Some((k, v)) = r.auth.get_auth_header() {
+        headers.insert(k.to_ascii_lowercase(), v);
+    }
+    for h in &r.headers {
+        if h.enabled && !h.key.is_empty() {
+            headers.insert(h.key.to_ascii_lowercase(), h.value.clone());
+        }
+    }
+    if matches!(
+        r.body_type,
+        BodyType::Json | BodyType::Text | BodyType::Binary
+    ) {
+        headers
+            .entry("content-type".into())
+            .or_insert_with(|| r.body_type.content_type().unwrap_or_default().into());
+    }
+    let form: Vec<_> = r
+        .form_data
+        .iter()
+        .filter(|v| v.enabled && !v.key.is_empty())
+        .collect();
     match language {
-        CodeGenLanguage::Curl => generate_curl(request, environment),
-        CodeGenLanguage::Python => generate_python(request, environment),
-        CodeGenLanguage::JavaScript => generate_javascript(request, environment),
-        CodeGenLanguage::Rust => generate_rust(request, environment),
-    }
-}
-
-/// Generate cURL command
-fn generate_curl(request: &ApiRequest, environment: Option<&Environment>) -> String {
-    let mut parts = vec!["curl".to_string()];
-
-    // Method
-    if request.method != crate::models::HttpMethod::GET {
-        parts.push(format!("-X {}", request.method.as_str()));
-    }
-
-    // URL
-    let url = substitute(environment, &request.url);
-
-    // Query params
-    let mut full_url = url.clone();
-    let enabled_params: Vec<_> = request
-        .query_params
-        .iter()
-        .filter(|p| p.enabled && !p.key.is_empty())
-        .collect();
-
-    if !enabled_params.is_empty() {
-        let query = enabled_params
-            .iter()
-            .map(|p| {
-                format!(
-                    "{}={}",
-                    urlencoding::encode(&p.key),
-                    urlencoding::encode(&substitute(environment, &p.value))
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("&");
-
-        if full_url.contains('?') {
-            full_url = format!("{}&{}", full_url, query);
-        } else {
-            full_url = format!("{}?{}", full_url, query);
-        }
-    }
-
-    // Auth headers
-    match request.auth.auth_type {
-        AuthType::BearerToken if !request.auth.bearer_token.is_empty() => {
-            let token = substitute(environment, &request.auth.bearer_token);
-            parts.push(format!("-H \"Authorization: Bearer {}\"", token));
-        }
-        AuthType::BasicAuth => {
-            let user = substitute(environment, &request.auth.basic_username);
-            let pass = substitute(environment, &request.auth.basic_password);
-            parts.push(format!("-u \"{}:{}\"", user, pass));
-        }
-        AuthType::ApiKey
-            if request.auth.api_key_location == crate::models::ApiKeyLocation::Header =>
-        {
-            let key = substitute(environment, &request.auth.api_key_name);
-            let value = substitute(environment, &request.auth.api_key_value);
-            parts.push(format!("-H \"{}: {}\"", key, value));
-        }
-        _ => {}
-    }
-
-    // Headers
-    for header in &request.headers {
-        if header.enabled && !header.key.is_empty() {
-            let value = substitute(environment, &header.value);
-            parts.push(format!("-H \"{}: {}\"", header.key, value));
-        }
-    }
-
-    // Body
-    match request.body_type {
-        BodyType::Json => {
-            parts.push("-H \"Content-Type: application/json\"".to_string());
-            let body = substitute(environment, &request.body);
-            parts.push(format!("-d '{}'", body.replace('\'', "'\\''")));
-        }
-        BodyType::Text => {
-            parts.push("-H \"Content-Type: text/plain\"".to_string());
-            let body = substitute(environment, &request.body);
-            parts.push(format!("-d '{}'", body.replace('\'', "'\\''")));
-        }
-        BodyType::UrlEncoded => {
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = substitute(environment, &kv.value);
-                    parts.push(format!("-d \"{}={}\"", kv.key, value));
-                }
+        CodeGenLanguage::Curl => {
+            let mut p = vec![format!("curl -X {}", r.method.as_str())];
+            for (k, v) in &headers {
+                p.push(format!("-H {}", shell(&format!("{k}: {v}"))));
             }
-        }
-        BodyType::FormData => {
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = substitute(environment, &kv.value);
-                    parts.push(format!("-F \"{}={}\"", kv.key, value));
+            match r.body_type {
+                BodyType::Json | BodyType::Text => p.push(format!("--data-raw {}", shell(&r.body))),
+                BodyType::Binary => p.push(format!(
+                    "--data-binary {}",
+                    shell(&if r.binary_file.is_empty() {
+                        r.body.clone()
+                    } else {
+                        format!("@{}", r.binary_file)
+                    })
+                )),
+                BodyType::UrlEncoded => {
+                    for f in &form {
+                        p.push(format!(
+                            "--data-urlencode {}",
+                            shell(&format!("{}={}", f.key, f.value))
+                        ));
+                    }
                 }
-            }
-        }
-        _ => {}
-    }
-
-    parts.push(format!("\"{}\"", full_url));
-
-    parts.join(" \\\n  ")
-}
-
-/// Generate Python requests code
-fn generate_python(request: &ApiRequest, environment: Option<&Environment>) -> String {
-    let mut code = String::from("import requests\n\n");
-
-    let url = substitute(environment, &request.url);
-    code.push_str(&format!("url = \"{}\"\n\n", url));
-
-    // Headers
-    let mut headers = vec![];
-
-    // Auth
-    match request.auth.auth_type {
-        AuthType::BearerToken if !request.auth.bearer_token.is_empty() => {
-            let token = substitute(environment, &request.auth.bearer_token);
-            headers.push(format!("    \"Authorization\": \"Bearer {}\"", token));
-        }
-        AuthType::ApiKey
-            if request.auth.api_key_location == crate::models::ApiKeyLocation::Header =>
-        {
-            let key = substitute(environment, &request.auth.api_key_name);
-            let value = substitute(environment, &request.auth.api_key_value);
-            headers.push(format!("    \"{}\": \"{}\"", key, value));
-        }
-        _ => {}
-    }
-
-    for header in &request.headers {
-        if header.enabled && !header.key.is_empty() {
-            let value = substitute(environment, &header.value);
-            headers.push(format!("    \"{}\": \"{}\"", header.key, value));
-        }
-    }
-
-    if !headers.is_empty() {
-        code.push_str("headers = {\n");
-        code.push_str(&headers.join(",\n"));
-        code.push_str("\n}\n\n");
-    }
-
-    // Query params
-    let enabled_params: Vec<_> = request
-        .query_params
-        .iter()
-        .filter(|p| p.enabled && !p.key.is_empty())
-        .collect();
-
-    if !enabled_params.is_empty() {
-        code.push_str("params = {\n");
-        for p in &enabled_params {
-            let value = substitute(environment, &p.value);
-            code.push_str(&format!("    \"{}\": \"{}\",\n", p.key, value));
-        }
-        code.push_str("}\n\n");
-    }
-
-    // Body
-    let has_body = matches!(
-        request.body_type,
-        BodyType::Json | BodyType::Text | BodyType::FormData | BodyType::UrlEncoded
-    );
-    match request.body_type {
-        BodyType::Json => {
-            let body = substitute(environment, &request.body);
-            code.push_str(&format!("data = {}\n\n", body));
-        }
-        BodyType::Text => {
-            let body = substitute(environment, &request.body);
-            code.push_str(&format!("data = \"\"\"{}\"\"\"\n\n", body));
-        }
-        BodyType::UrlEncoded | BodyType::FormData => {
-            code.push_str("data = {\n");
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = substitute(environment, &kv.value);
-                    code.push_str(&format!("    \"{}\": \"{}\",\n", kv.key, value));
+                BodyType::FormData => {
+                    for f in &form {
+                        p.push(format!(
+                            "{} {}",
+                            if f.file { "--form" } else { "--form-string" },
+                            shell(&format!(
+                                "{}={}{}",
+                                f.key,
+                                if f.file { "@" } else { "" },
+                                f.value
+                            ))
+                        ));
+                    }
                 }
+                BodyType::None => {}
             }
-            code.push_str("}\n\n");
-        }
-        _ => {}
-    }
-
-    // Auth for basic
-    let auth_str = if request.auth.auth_type == AuthType::BasicAuth {
-        let user = substitute(environment, &request.auth.basic_username);
-        let pass = substitute(environment, &request.auth.basic_password);
-        format!(", auth=(\"{}\", \"{}\")", user, pass)
-    } else {
-        String::new()
-    };
-
-    // Request call
-    let method = request.method.as_str().to_lowercase();
-    let mut call_parts = vec![format!("response = requests.{}(url", method)];
-
-    if !headers.is_empty() {
-        call_parts.push(", headers=headers".to_string());
-    }
-    if !enabled_params.is_empty() {
-        call_parts.push(", params=params".to_string());
-    }
-    if has_body {
-        if request.body_type == BodyType::Json {
-            call_parts.push(", json=data".to_string());
-        } else {
-            call_parts.push(", data=data".to_string());
-        }
-    }
-    call_parts.push(auth_str);
-    call_parts.push(")".to_string());
-
-    code.push_str(&call_parts.join(""));
-    code.push_str("\n\nprint(response.status_code)\nprint(response.text)\n");
-
-    code
-}
-
-/// Generate JavaScript fetch code
-fn generate_javascript(request: &ApiRequest, environment: Option<&Environment>) -> String {
-    let url = substitute(environment, &request.url);
-
-    let mut code = String::new();
-
-    // Build URL with params
-    let enabled_params: Vec<_> = request
-        .query_params
-        .iter()
-        .filter(|p| p.enabled && !p.key.is_empty())
-        .collect();
-
-    if !enabled_params.is_empty() {
-        code.push_str(&format!("const url = new URL(\"{}\");\n", url));
-        for p in &enabled_params {
-            let value = substitute(environment, &p.value);
-            code.push_str(&format!(
-                "url.searchParams.append(\"{}\", \"{}\");\n",
-                p.key, value
+            if !r.settings.verify_tls {
+                p.push("--insecure".into());
+            }
+            if r.settings.follow_redirects {
+                p.push("--location".into());
+            }
+            p.push(format!(
+                "--max-time {}",
+                r.settings.timeout_ms as f64 / 1000.
             ));
+            if !r.settings.proxy.is_empty() {
+                p.push(format!("--proxy {}", shell(&r.settings.proxy)));
+            }
+            if !r.settings.ca_file.is_empty() {
+                p.push(format!("--cacert {}", shell(&r.settings.ca_file)));
+            }
+            if !r.settings.identity_file.is_empty() {
+                p.push(format!("--cert {}", shell(&r.settings.identity_file)));
+            }
+            p.push(shell(&url));
+            p.join(" \\\n  ")
         }
-        code.push('\n');
-    } else {
-        code.push_str(&format!("const url = \"{}\";\n\n", url));
-    }
-
-    // Options object
-    code.push_str("const options = {\n");
-    code.push_str(&format!("  method: \"{}\",\n", request.method.as_str()));
-
-    // Headers
-    let mut headers = vec![];
-
-    match request.auth.auth_type {
-        AuthType::BearerToken if !request.auth.bearer_token.is_empty() => {
-            let token = substitute(environment, &request.auth.bearer_token);
-            headers.push(format!("    \"Authorization\": \"Bearer {}\"", token));
-        }
-        AuthType::BasicAuth => {
-            let user = substitute(environment, &request.auth.basic_username);
-            let pass = substitute(environment, &request.auth.basic_password);
-            headers.push(format!(
-                "    \"Authorization\": \"Basic \" + btoa(\"{}:{}\")",
-                user, pass
-            ));
-        }
-        AuthType::ApiKey
-            if request.auth.api_key_location == crate::models::ApiKeyLocation::Header =>
-        {
-            let key = substitute(environment, &request.auth.api_key_name);
-            let value = substitute(environment, &request.auth.api_key_value);
-            headers.push(format!("    \"{}\": \"{}\"", key, value));
-        }
-        _ => {}
-    }
-
-    for header in &request.headers {
-        if header.enabled && !header.key.is_empty() {
-            let value = substitute(environment, &header.value);
-            headers.push(format!("    \"{}\": \"{}\"", header.key, value));
-        }
-    }
-
-    if request.body_type == BodyType::Json {
-        headers.push("    \"Content-Type\": \"application/json\"".to_string());
-    }
-
-    if !headers.is_empty() {
-        code.push_str("  headers: {\n");
-        code.push_str(&headers.join(",\n"));
-        code.push_str("\n  },\n");
-    }
-
-    // Body
-    match request.body_type {
-        BodyType::Json => {
-            let body = substitute(environment, &request.body);
-            code.push_str(&format!("  body: JSON.stringify({}),\n", body));
-        }
-        BodyType::Text => {
-            let body = substitute(environment, &request.body);
-            code.push_str(&format!("  body: `{}`,\n", body));
-        }
-        BodyType::UrlEncoded => {
-            code.push_str("  body: new URLSearchParams({\n");
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = substitute(environment, &kv.value);
-                    code.push_str(&format!("    \"{}\": \"{}\",\n", kv.key, value));
+        CodeGenLanguage::Python => {
+            let mut p=format!("import json\nimport requests\nfrom contextlib import ExitStack\n\nurl = {}\nheaders = json.loads({})\nwith ExitStack() as stack:\n",quoted(&url),quoted(&serde_json::to_string(&headers).unwrap()));
+            let mut args = String::new();
+            match r.body_type {
+                BodyType::Json | BodyType::Text => {
+                    args = format!(", data={}.encode('utf-8')", quoted(&r.body))
                 }
-            }
-            code.push_str("  }),\n");
-        }
-        _ => {}
-    }
-
-    code.push_str("};\n\n");
-
-    // Fetch call
-    code.push_str("fetch(url, options)\n");
-    code.push_str("  .then(response => response.json())\n");
-    code.push_str("  .then(data => console.log(data))\n");
-    code.push_str("  .catch(error => console.error('Error:', error));\n");
-
-    code
-}
-
-/// Generate Rust reqwest code
-fn generate_rust(request: &ApiRequest, environment: Option<&Environment>) -> String {
-    let url = substitute(environment, &request.url);
-
-    let mut code = String::from("use reqwest;\n\n");
-    code.push_str("#[tokio::main]\n");
-    code.push_str("async fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
-    code.push_str("    let client = reqwest::Client::new();\n\n");
-
-    let method = request.method.as_str().to_lowercase();
-    code.push_str(&format!(
-        "    let response = client.{}(\"{}\")\n",
-        method, url
-    ));
-
-    // Auth
-    match request.auth.auth_type {
-        AuthType::BearerToken if !request.auth.bearer_token.is_empty() => {
-            let token = substitute(environment, &request.auth.bearer_token);
-            code.push_str(&format!("        .bearer_auth(\"{}\")\n", token));
-        }
-        AuthType::BasicAuth => {
-            let user = substitute(environment, &request.auth.basic_username);
-            let pass = substitute(environment, &request.auth.basic_password);
-            code.push_str(&format!(
-                "        .basic_auth(\"{}\", Some(\"{}\"))\n",
-                user, pass
-            ));
-        }
-        AuthType::ApiKey
-            if request.auth.api_key_location == crate::models::ApiKeyLocation::Header =>
-        {
-            let key = substitute(environment, &request.auth.api_key_name);
-            let value = substitute(environment, &request.auth.api_key_value);
-            code.push_str(&format!("        .header(\"{}\", \"{}\")\n", key, value));
-        }
-        _ => {}
-    }
-
-    // Headers
-    for header in &request.headers {
-        if header.enabled && !header.key.is_empty() {
-            let value = substitute(environment, &header.value);
-            code.push_str(&format!(
-                "        .header(\"{}\", \"{}\")\n",
-                header.key, value
-            ));
-        }
-    }
-
-    // Query params
-    for p in &request.query_params {
-        if p.enabled && !p.key.is_empty() {
-            let value = substitute(environment, &p.value);
-            code.push_str(&format!(
-                "        .query(&[(\"{}\", \"{}\")])\n",
-                p.key, value
-            ));
-        }
-    }
-
-    // Body
-    match request.body_type {
-        BodyType::Json => {
-            let body = substitute(environment, &request.body);
-            code.push_str(&format!("        .body(r#\"{}\"#)\n", body));
-            code.push_str("        .header(\"Content-Type\", \"application/json\")\n");
-        }
-        BodyType::Text => {
-            let body = substitute(environment, &request.body);
-            code.push_str(&format!("        .body(\"{}\")\n", body));
-        }
-        BodyType::UrlEncoded => {
-            code.push_str("        .form(&[\n");
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = substitute(environment, &kv.value);
-                    code.push_str(&format!("            (\"{}\", \"{}\"),\n", kv.key, value));
+                BodyType::Binary => {
+                    args = if r.binary_file.is_empty() {
+                        format!(", data={}.encode('utf-8')", quoted(&r.body))
+                    } else {
+                        format!(
+                            ", data=stack.enter_context(open({}, 'rb'))",
+                            quoted(&r.binary_file)
+                        )
+                    }
                 }
+                BodyType::UrlEncoded => {
+                    args = format!(
+                        ", data=[{}]",
+                        form.iter()
+                            .map(|f| format!("({}, {})", quoted(&f.key), quoted(&f.value)))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+                BodyType::FormData => {
+                    args = format!(
+                        ", files=[{}]",
+                        form.iter()
+                            .map(|f| if f.file {
+                                format!(
+                                    "({}, ({}, stack.enter_context(open({}, 'rb'))))",
+                                    quoted(&f.key),
+                                    quoted(
+                                        std::path::Path::new(&f.value)
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .as_ref()
+                                    ),
+                                    quoted(&f.value)
+                                )
+                            } else {
+                                format!("({}, (None, {}))", quoted(&f.key), quoted(&f.value))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+                BodyType::None => {}
             }
-            code.push_str("        ])\n");
+            let verify = if !r.settings.verify_tls {
+                "False".into()
+            } else if !r.settings.ca_file.is_empty() {
+                quoted(&r.settings.ca_file)
+            } else {
+                "True".into()
+            };
+            p.push_str(&format!("    response = requests.{}(url, headers=headers{}, timeout={}, allow_redirects={}, verify={}{}{})\n    print(response.status_code)\n    print(response.text)\n",r.method.as_str().to_lowercase(),args,r.settings.timeout_ms as f64/1000.,if r.settings.follow_redirects{"True"}else{"False"},verify,if r.settings.proxy.is_empty(){String::new()}else{format!(", proxies={{'http': {}, 'https': {}}}",quoted(&r.settings.proxy),quoted(&r.settings.proxy))},if r.settings.identity_file.is_empty(){String::new()}else{format!(", cert={}",quoted(&r.settings.identity_file))}));
+            p
         }
-        _ => {}
-    }
-
-    code.push_str("        .send()\n");
-    code.push_str("        .await?;\n\n");
-    code.push_str("    println!(\"Status: {}\", response.status());\n");
-    code.push_str("    println!(\"Body: {}\", response.text().await?);\n\n");
-    code.push_str("    Ok(())\n");
-    code.push_str("}\n");
-
-    code
-}
-
-/// Helper to substitute environment variables
-fn substitute(environment: Option<&Environment>, value: &str) -> String {
-    if let Some(env) = environment {
-        env.substitute(value)
-    } else {
-        value.to_string()
+        CodeGenLanguage::JavaScript => {
+            let mut p=format!("// Fetch API. Browser CORS and forbidden-header rules apply.\n// Use Node 20+ for file imports. Custom TLS/proxy options require a runtime-specific dispatcher.\nconst url = {};\nconst headers = {};\n",quoted(&url),serde_json::to_string_pretty(&headers).unwrap());
+            let body = match r.body_type {
+                BodyType::Json | BodyType::Text => quoted(&r.body),
+                BodyType::Binary => {
+                    if r.binary_file.is_empty() {
+                        quoted(&r.body)
+                    } else {
+                        p.push_str(&format!("const {{readFile}} = await import('node:fs/promises');\nconst body = await readFile({});\n",quoted(&r.binary_file)));
+                        "body".into()
+                    }
+                }
+                BodyType::UrlEncoded => format!(
+                    "new URLSearchParams({})",
+                    serde_json::to_string(
+                        &form.iter().map(|f| (&f.key, &f.value)).collect::<Vec<_>>()
+                    )
+                    .unwrap()
+                ),
+                BodyType::FormData => {
+                    p.push_str("const body = new FormData();\n");
+                    for f in &form {
+                        if f.file {
+                            p.push_str(&format!("body.append({}, new Blob([await (await import('node:fs/promises')).readFile({})]), {});\n",quoted(&f.key),quoted(&f.value),quoted(std::path::Path::new(&f.value).file_name().unwrap_or_default().to_string_lossy().as_ref())));
+                        } else {
+                            p.push_str(&format!(
+                                "body.append({}, {});\n",
+                                quoted(&f.key),
+                                quoted(&f.value)
+                            ));
+                        }
+                    }
+                    "body".into()
+                }
+                BodyType::None => String::new(),
+            };
+            let body = if body.is_empty() {
+                String::new()
+            } else {
+                format!(", body: {body}")
+            };
+            p.push_str(&format!("const options = {{method: {}, headers, redirect: {}, signal: AbortSignal.timeout({}){}}};\nconst response = await fetch(url, options);\nconsole.log(response.status);\nconsole.log(await response.text());\n",quoted(r.method.as_str()),quoted(if r.settings.follow_redirects{"follow"}else{"manual"}),r.settings.timeout_ms,body));
+            p
+        }
+        CodeGenLanguage::Rust => {
+            fn quoted(v: &str) -> String {
+                format!("{v:?}")
+            }
+            let mut p=String::from("// Dependencies: reqwest 0.12 with multipart,rustls-tls; tokio with full\nuse reqwest;\n#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
+            p.push_str(&format!("    let mut config = reqwest::Client::builder().use_rustls_tls().timeout(std::time::Duration::from_millis({})).danger_accept_invalid_certs({}).redirect({});\n",r.settings.timeout_ms,!r.settings.verify_tls,if r.settings.follow_redirects{"reqwest::redirect::Policy::limited(10)"}else{"reqwest::redirect::Policy::none()"}));
+            if !r.settings.proxy.is_empty() {
+                p.push_str(&format!(
+                    "    config = config.proxy(reqwest::Proxy::all({})?);\n",
+                    quoted(&r.settings.proxy)
+                ));
+            }
+            if !r.settings.ca_file.is_empty() {
+                p.push_str(&format!("    for cert in reqwest::Certificate::from_pem_bundle(&std::fs::read({})?)? {{ config = config.add_root_certificate(cert); }}\n",quoted(&r.settings.ca_file)));
+            }
+            if !r.settings.identity_file.is_empty() {
+                p.push_str(&format!("    config = config.identity(reqwest::Identity::from_pem(&std::fs::read({})?)?);\n",quoted(&r.settings.identity_file)));
+            }
+            p.push_str(&format!("    let client = config.build()?;\n    let mut request = client.request(reqwest::Method::{}, {});\n",r.method.as_str(),quoted(&url)));
+            for (k, v) in headers {
+                p.push_str(&format!(
+                    "    request = request.header({}, {});\n",
+                    quoted(&k),
+                    quoted(&v)
+                ));
+            }
+            match r.body_type {
+                BodyType::Json | BodyType::Text => p.push_str(&format!(
+                    "    request = request.body({});\n",
+                    quoted(&r.body)
+                )),
+                BodyType::Binary => p.push_str(&format!(
+                    "    request = request.body({});\n",
+                    if r.binary_file.is_empty() {
+                        format!("{}.as_bytes().to_vec()", quoted(&r.body))
+                    } else {
+                        format!("std::fs::read({})?", quoted(&r.binary_file))
+                    }
+                )),
+                BodyType::UrlEncoded => p.push_str(&format!(
+                    "    request = request.form(&[{}]);\n",
+                    form.iter()
+                        .map(|f| format!("({}, {})", quoted(&f.key), quoted(&f.value)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+                BodyType::FormData => {
+                    p.push_str("    let mut form = reqwest::multipart::Form::new();\n");
+                    for f in form {
+                        p.push_str(&if f.file{format!("    form = form.part({}, reqwest::multipart::Part::bytes(std::fs::read({})?).file_name({}));\n",quoted(&f.key),quoted(&f.value),quoted(std::path::Path::new(&f.value).file_name().unwrap_or_default().to_string_lossy().as_ref()))}else{format!("    form = form.text({}, {});\n",quoted(&f.key),quoted(&f.value))});
+                    }
+                    p.push_str("    request = request.multipart(form);\n");
+                }
+                BodyType::None => {}
+            }
+            p.push_str("    let response = request.send().await?;\n    println!(\"Status: {}\", response.status());\n    println!(\"Body: {}\", response.text().await?);\n    Ok(())\n}\n");
+            p
+        }
     }
 }

@@ -12,6 +12,9 @@ pub enum RequestTab {
     Headers,
     Body,
     Auth,
+    Tests,
+    Scripts,
+    Settings,
 }
 
 /// Render the request editor
@@ -20,7 +23,7 @@ pub fn render_request_editor(
     request: &mut ApiRequest,
     current_tab: &mut RequestTab,
     on_save: &mut bool,
-    has_save_target: bool,
+    _has_save_target: bool,
 ) {
     // Tabs
     ui.horizontal(|ui| {
@@ -49,8 +52,15 @@ pub fn render_request_editor(
             *current_tab = RequestTab::Auth;
         }
 
+        for (tab, label) in [
+            (RequestTab::Tests, "Tests"),
+            (RequestTab::Scripts, "Scripts"),
+            (RequestTab::Settings, "Settings"),
+        ] {
+            ui.selectable_value(current_tab, tab, label);
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if has_save_target && ui.button("💾 Save").clicked() {
+            if ui.button("💾 Save").clicked() {
                 *on_save = true;
             }
         });
@@ -70,8 +80,35 @@ pub fn render_request_editor(
         RequestTab::Body => {
             render_body_editor(ui, request);
         }
-        RequestTab::Auth => {
-            render_auth_editor(ui, &mut request.auth);
+        RequestTab::Auth => { render_auth_editor(ui, &mut request.auth); }
+        RequestTab::Tests => {
+            ui.label("All enabled checks must pass. JSON targets use JSON Pointer, e.g. /user/id.");
+            let mut remove=None;
+            for (i,c) in request.checks.iter_mut().enumerate() { ui.push_id(i,|ui| {
+                ui.text_edit_singleline(&mut c.name);
+                egui::ComboBox::from_id_salt("kind").selected_text(format!("{:?}",c.kind)).show_ui(ui,|ui|{for k in [crate::models::AssertionKind::Status,crate::models::AssertionKind::Header,crate::models::AssertionKind::Json,crate::models::AssertionKind::BodyContains,crate::models::AssertionKind::MaxTime]{let label=format!("{k:?}");ui.selectable_value(&mut c.kind,k,label);}});
+                ui.horizontal(|ui|{ui.label("Target");ui.text_edit_singleline(&mut c.target);ui.label("Expected");ui.text_edit_singleline(&mut c.expected);if ui.small_button("Remove").clicked(){remove=Some(i);}});
+            }); }
+            if let Some(i)=remove {request.checks.remove(i);}
+            if ui.button("Add assertion").clicked(){request.checks.push(Default::default());}
+            ui.separator();ui.label("Extract JSON values into local variables for later requests");
+            let mut remove=None;for(i,e)in request.extractors.iter_mut().enumerate(){ui.horizontal(|ui|{ui.text_edit_singleline(&mut e.variable);ui.text_edit_singleline(&mut e.pointer);if ui.small_button("Remove").clicked(){remove=Some(i);}});}if let Some(i)=remove{request.extractors.remove(i);}
+            if ui.button("Add extraction").clicked(){request.extractors.push(Default::default());}
+        }
+        RequestTab::Scripts => {
+            ui.label("Synchronous pm.test / pm.expect, response and variable APIs. 250 ms / 16 MiB limit.");
+            ui.label("Pre-request");ui.add(egui::TextEdit::multiline(&mut request.pre_script).code_editor().desired_width(f32::INFINITY));
+            ui.label("Post-response");ui.add(egui::TextEdit::multiline(&mut request.post_script).code_editor().desired_width(f32::INFINITY));
+        }
+        RequestTab::Settings => {
+            let s=&mut request.settings;
+            ui.horizontal(|ui|{ui.label("Timeout (ms)");ui.add(egui::DragValue::new(&mut s.timeout_ms).range(1..=3_600_000));});
+            ui.checkbox(&mut s.follow_redirects,"Follow redirects");ui.checkbox(&mut s.verify_tls,"Verify TLS certificates");
+            if !s.verify_tls{ui.colored_label(egui::Color32::YELLOW,"TLS verification disabled for this request");}
+            ui.label("Proxy URL (empty uses system configuration)");ui.text_edit_singleline(&mut s.proxy);
+            ui.label("Custom CA PEM file");ui.text_edit_singleline(&mut s.ca_file);
+            ui.label("Client certificate + private key PEM file");ui.text_edit_singleline(&mut s.identity_file);
+            ui.horizontal(|ui|{ui.label("Maximum response bytes");ui.add(egui::DragValue::new(&mut s.max_response_bytes).range(1..=256*1024*1024));});
         }
     });
 }
@@ -151,11 +188,26 @@ fn render_body_editor(ui: &mut Ui, request: &mut ApiRequest) {
         }
         BodyType::FormData | BodyType::UrlEncoded => {
             render_key_value_editor(ui, &mut request.form_data);
+            if request.body_type == BodyType::FormData {
+                for f in &mut request.form_data {
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut f.file, format!("{} is a file", f.key));
+                        if f.file && ui.button("Choose file").clicked() {
+                            if let Some(p) = rfd::FileDialog::new().pick_file() {
+                                f.value = p.to_string_lossy().into();
+                            }
+                        }
+                    });
+                }
+            }
         }
         BodyType::Binary => {
             ui.label("Binary body - select a file to upload.");
+            ui.text_edit_singleline(&mut request.binary_file);
             if ui.button("📁 Select File").clicked() {
-                // TODO: Implement file selection
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    request.binary_file = path.to_string_lossy().into();
+                }
             }
         }
     }
@@ -199,7 +251,8 @@ pub fn render_url_bar(
         let url_response = ui.add(url_edit);
 
         // Send on Enter
-        if url_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if !is_loading && url_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+        {
             *on_send = true;
         }
 

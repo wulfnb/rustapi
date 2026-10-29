@@ -19,6 +19,54 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
     ui.add_space(8.0);
 
     match auth.auth_type {
+        AuthType::Unsupported => {
+            ui.colored_label(
+                egui::Color32::LIGHT_RED,
+                "Choose a supported authentication type before sending.",
+            );
+        }
+        AuthType::Inherit => {
+            ui.label("Use the nearest folder or collection authentication.");
+        }
+        AuthType::OAuth2 => {
+            let c = &mut auth.oauth;
+            egui::ComboBox::from_id_salt("oauth_grant")
+                .selected_text(if c.grant == "authorization_code" {
+                    "Authorization code + PKCE"
+                } else {
+                    "Client credentials"
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut c.grant,
+                        "client_credentials".into(),
+                        "Client credentials",
+                    );
+                    ui.selectable_value(
+                        &mut c.grant,
+                        "authorization_code".into(),
+                        "Authorization code + PKCE",
+                    );
+                });
+            for (label, field) in [
+                ("Authorization URL", &mut c.authorization_url),
+                ("Token URL", &mut c.token_url),
+                ("Client ID", &mut c.client_id),
+                ("Scope", &mut c.scope),
+            ] {
+                ui.label(label);
+                ui.text_edit_singleline(field);
+            }
+            ui.label("Client secret (or {{vault:name}} reference)");
+            ui.add(egui::TextEdit::singleline(&mut c.client_secret).password(true));
+            if c.grant == "authorization_code" {
+                ui.label("Register a loopback redirect URI with your OAuth provider. The chosen URI is shown after authorization starts.");
+                ui.text_edit_singleline(&mut c.redirect_uri);
+                if ui.button("Authorize in browser (PKCE)").clicked() {
+                    c.authorization_requested = true;
+                }
+            }
+        }
         AuthType::None => {
             ui.label("No authentication configured.");
         }

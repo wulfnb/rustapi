@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.98.0-slim-bookworm AS build
+FROM rust:1.99.0-slim-bookworm AS build
 WORKDIR /source
 COPY docker/build-packages.txt /tmp/build-packages.txt
 RUN apt-get update && xargs -a /tmp/build-packages.txt apt-get install -y --no-install-recommends \
@@ -7,7 +7,9 @@ RUN apt-get update && xargs -a /tmp/build-packages.txt apt-get install -y --no-i
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY src ./src
 COPY tests ./tests
+COPY examples ./examples
 FROM build AS test
+ENV CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 ENV HTTP_PROXY="" HTTPS_PROXY="" ALL_PROXY="" NO_PROXY="127.0.0.1,localhost"
 RUN cargo test --locked --all-targets
 

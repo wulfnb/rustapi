@@ -149,3 +149,8 @@ builder version in sync. The tracked Cargo.lock is used with `--locked` througho
 
 The workflow publishes releases and images; deployment to a server is a separate
 operation and needs a destination and deployment credentials.
+
+Generated Rust samples are built as a temporary Cargo project using the repository's
+locked dependency graph and target cache. This preserves platform-native linker
+configuration, including the MSVC Windows SDK import-library paths. Python coverage
+includes command failure, cleanup, POSIX and Windows execution paths for this driver.

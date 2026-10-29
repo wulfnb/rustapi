@@ -1,21 +1,31 @@
-//! Main application state and update loop
-
-use crate::http::{execute_request, CodeGenLanguage};
-use crate::models::*;
-use crate::storage::{self, AppState};
-use crate::ui::*;
+//! Desktop adapter over the shared workspace and execution services.
+use crate::{
+    http::CodeGenLanguage,
+    models::*,
+    storage::{self, AppState},
+    ui::*,
+};
 use eframe::egui;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::thread;
+use rustapi::{
+    http::{Cancellation, HttpService},
+    runner::{RunOptions, RunReport},
+    variables::Variables,
+};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
-/// Keep native dialogs at the UI boundary so commands can be exercised independently.
+// Native dialogs remain at the desktop boundary so command behavior is testable.
 trait CollectionDialogs {
     fn import(&self) -> Option<std::path::PathBuf>;
     fn export(&self, name: &str) -> Option<std::path::PathBuf>;
 }
-
 struct NativeCollectionDialogs;
-
 impl CollectionDialogs for NativeCollectionDialogs {
     fn import(&self) -> Option<std::path::PathBuf> {
         rfd::FileDialog::new()
@@ -23,7 +33,6 @@ impl CollectionDialogs for NativeCollectionDialogs {
             .add_filter("JSON", &["json"])
             .pick_file()
     }
-
     fn export(&self, name: &str) -> Option<std::path::PathBuf> {
         rfd::FileDialog::new()
             .set_title("Export collection")
@@ -33,605 +42,1968 @@ impl CollectionDialogs for NativeCollectionDialogs {
     }
 }
 
-/// Message for async operations
 pub enum AsyncMessage {
-    ResponseReceived(ApiResponse),
+    Response {
+        epoch: u64,
+        tab_id: String,
+        execution: String,
+        request: Box<ApiRequest>,
+        response: Box<ApiResponse>,
+        variables: Variables,
+        before: Box<Variables>,
+        environment_id: Option<String>,
+        collection_id: Option<String>,
+    },
+    RunProgress {
+        epoch: u64,
+        entry: rustapi::runner::RunEntry,
+    },
+    Run {
+        epoch: u64,
+        result: Result<RunReport, String>,
+    },
+    Authorized {
+        epoch: u64,
+        tab_id: String,
+        result: Result<String, String>,
+    },
 }
-
-/// Main application state
+#[derive(Clone)]
+enum Action {
+    Open(String, Box<ApiRequest>),
+    Add(String, Option<String>),
+    Delete(String, String),
+    Duplicate(String, String),
+    NewFolder(String, Option<String>),
+    Edit(String, Option<String>),
+    Rename(String, String, bool),
+    DeleteFolder(String, String),
+    DeleteCollection(String),
+    Export(String),
+    ExportCredentials(String),
+    Move(String, String),
+    MoveFolder(String, String),
+    Reorder(String, Option<String>, String, bool),
+}
 pub struct RustApiApp {
     dialogs: Box<dyn CollectionDialogs>,
-    // Collections and environments
     pub collections: Vec<Collection>,
     pub environments: Vec<Environment>,
     pub active_environment_id: Option<String>,
-
-    // Tab management
     pub tab_manager: TabManager,
-
-    // Response state
-    pub is_loading: bool,
-
-    // History
-    pub history: RequestHistory,
-
-    // UI state
-    pub request_tab: RequestTab,
-    pub response_tab: ResponseTab,
-    pub show_new_collection_modal: bool,
-    pub show_environment_editor: bool,
-    pub show_rename_modal: bool,
-    pub show_code_gen_modal: bool,
-    pub show_history_panel: bool,
-    pub rename_target: RenameTarget,
-    pub rename_value: String,
-    pub new_item_name: String,
-    pub sidebar_width: f32,
-    pub response_format_json: bool,
-    pub search_query: String,
-    pub code_gen_language: CodeGenLanguage,
-
-    // Async communication
-    pub async_sender: Sender<AsyncMessage>,
-    pub async_receiver: Receiver<AsyncMessage>,
+    service: Arc<HttpService>,
+    sender: Sender<AsyncMessage>,
+    receiver: Receiver<AsyncMessage>,
+    epoch: u64,
+    variables: BTreeMap<String, String>,
+    error: Option<String>,
+    notice: String,
+    request_tab: RequestTab,
+    response_tab: ResponseTab,
+    format_json: bool,
+    search: String,
+    response_search: String,
+    show_history: bool,
+    show_environments: bool,
+    show_import: bool,
+    import_text: String,
+    show_new_collection: bool,
+    new_name: String,
+    save_as: Option<String>,
+    save_collection: Option<String>,
+    save_folder: Option<String>,
+    close_pending: Option<String>,
+    exit_pending: bool,
+    allow_exit: bool,
+    edit: Option<(String, Option<String>)>,
+    edit_draft: Option<Collection>,
+    rename: Option<(String, String, bool, String)>,
+    move_request: Option<(String, String)>,
+    moving_folder: bool,
+    move_collection: Option<String>,
+    move_folder: Option<String>,
+    show_runner: bool,
+    run_collection: Option<String>,
+    run_folder: Option<String>,
+    run_options: RunOptions,
+    data_path: String,
+    run_cancel: Option<Cancellation>,
+    report: Option<RunReport>,
+    show_vault: bool,
+    vault_password: String,
+    secrets: BTreeMap<String, String>,
+    vault_unlocked: bool,
+    secret_name: String,
+    secret_value: String,
+    show_cookies: bool,
+    cookie_url: String,
+    cookie_value: String,
+    show_code: bool,
+    code_language: CodeGenLanguage,
+    include_secrets: bool,
+    last_draft: Instant,
 }
-
 impl Default for RustApiApp {
     fn default() -> Self {
-        let (tx, rx) = channel();
-
-        // Initialize storage and load data
-        let _ = storage::init_storage();
+        let (sender, receiver) = channel();
+        let mut errors = vec![];
+        if let Err(e) = storage::init_storage() {
+            errors.push(e.to_string());
+        }
         let collections = storage::load_all_collections();
         let environments = storage::load_all_environments();
-        let state = storage::load_app_state().unwrap_or_default();
-        let history = storage::load_history();
-
+        for directory in [
+            storage::get_collections_dir(),
+            storage::get_environments_dir(),
+        ] {
+            if let Ok(entries) = std::fs::read_dir(&directory) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.extension().is_some_and(|e| e == "json") {
+                        let result = if directory == storage::get_collections_dir() {
+                            storage::load_collection(&p).map(|_| ())
+                        } else {
+                            storage::load_environment(&p).map(|_| ())
+                        };
+                        if let Err(e) = result {
+                            errors.push(e.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        let state = storage::load_app_state().unwrap_or_else(|e| {
+            errors.push(e.to_string());
+            AppState::default()
+        });
+        let tab_manager = storage::load_drafts::<TabManager>().unwrap_or_else(|e| {
+            errors.push(format!("Draft recovery failed: {e}"));
+            TabManager::new()
+        });
         Self {
             dialogs: Box::new(NativeCollectionDialogs),
-            collections: if collections.is_empty() {
-                vec![Collection::new("My Collection")]
-            } else {
-                collections
-            },
+            collections,
             environments,
             active_environment_id: state.active_environment_id,
-            tab_manager: TabManager::new(),
-            is_loading: false,
-            history,
-            request_tab: RequestTab::default(),
-            response_tab: ResponseTab::default(),
-            show_new_collection_modal: false,
-            show_environment_editor: false,
-            show_rename_modal: false,
-            show_code_gen_modal: false,
-            show_history_panel: false,
-            rename_target: RenameTarget::None,
-            rename_value: String::new(),
-            new_item_name: String::new(),
-            sidebar_width: 280.0,
-            response_format_json: true,
-            search_query: String::new(),
-            code_gen_language: CodeGenLanguage::default(),
-            async_sender: tx,
-            async_receiver: rx,
+            tab_manager,
+            service: Arc::new(HttpService::default()),
+            sender,
+            receiver,
+            epoch: 0,
+            variables: BTreeMap::new(),
+            error: (!errors.is_empty()).then(|| errors.join("\n")),
+            notice: String::new(),
+            request_tab: Default::default(),
+            response_tab: Default::default(),
+            format_json: true,
+            search: String::new(),
+            response_search: String::new(),
+            show_history: false,
+            show_environments: false,
+            show_import: false,
+            import_text: String::new(),
+            show_new_collection: false,
+            new_name: String::new(),
+            save_as: None,
+            save_collection: None,
+            save_folder: None,
+            close_pending: None,
+            exit_pending: false,
+            allow_exit: false,
+            edit: None,
+            edit_draft: None,
+            rename: None,
+            move_request: None,
+            moving_folder: false,
+            move_collection: None,
+            move_folder: None,
+            show_runner: false,
+            run_collection: None,
+            run_folder: None,
+            run_options: Default::default(),
+            data_path: String::new(),
+            run_cancel: None,
+            report: None,
+            show_vault: false,
+            vault_password: String::new(),
+            secrets: BTreeMap::new(),
+            vault_unlocked: false,
+            secret_name: String::new(),
+            secret_value: String::new(),
+            show_cookies: false,
+            cookie_url: String::new(),
+            cookie_value: String::new(),
+            show_code: false,
+            code_language: Default::default(),
+            include_secrets: false,
+            last_draft: Instant::now(),
         }
     }
 }
-
 impl RustApiApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_: &eframe::CreationContext<'_>) -> Self {
         Self::default()
     }
-
-    /// Get the active environment
-    fn get_active_environment(&self) -> Option<&Environment> {
+    fn result<T>(&mut self, result: anyhow::Result<T>) -> Option<T> {
+        match result {
+            Ok(v) => Some(v),
+            Err(e) => {
+                self.error = Some(format!("{e:#}"));
+                None
+            }
+        }
+    }
+    fn persist_collection(c: &mut Collection) -> anyhow::Result<()> {
+        c.updated_at = chrono::Utc::now();
+        let path = storage::save_collection(c, None)?;
+        c.file_path = Some(path.to_string_lossy().into());
+        Ok(())
+    }
+    fn commit_collection(&mut self, mut c: Collection) -> bool {
+        if self.result(Self::persist_collection(&mut c)).is_some() {
+            if let Some(current) = self.collections.iter_mut().find(|v| v.id == c.id) {
+                *current = c;
+            } else {
+                self.collections.push(c);
+            }
+            true
+        } else {
+            false
+        }
+    }
+    fn environment(&self) -> Option<&Environment> {
         self.active_environment_id
             .as_ref()
             .and_then(|id| self.environments.iter().find(|e| &e.id == id))
     }
-
-    /// Send the current request
+    fn contextual_request(&self, tab: &OpenRequestTab) -> ApiRequest {
+        if let Some(mut c) = tab
+            .collection_id
+            .as_ref()
+            .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+            .cloned()
+        {
+            if let Some(r) = c.request_mut(&tab.request.id) {
+                *r = tab.request.clone();
+                if let Some(r) = c
+                    .ordered_requests(None)
+                    .into_iter()
+                    .find(|r| r.id == tab.request.id)
+                {
+                    return r;
+                }
+            }
+        }
+        tab.request.clone()
+    }
     fn send_request(&mut self) {
-        let tab = match self.tab_manager.active_tab() {
-            Some(t) => t,
-            None => return,
+        let Some(tab) = self.tab_manager.active_tab() else {
+            return;
         };
-
-        if tab.request.url.is_empty() {
+        if tab.pending.is_some() || tab.request.url.trim().is_empty() {
             return;
         }
-
-        self.is_loading = true;
-
-        let request = tab.request.clone();
-        let environment = self.get_active_environment().cloned();
-        let sender = self.async_sender.clone();
-
-        thread::spawn(move || {
-            let response = execute_request(&request, environment.as_ref());
-            let _ = sender.send(AsyncMessage::ResponseReceived(response));
+        let tab_id = tab.id.clone();
+        let collection_id = tab.collection_id.clone();
+        let environment_id = self.active_environment_id.clone();
+        let request = self.contextual_request(tab);
+        let mut variables = Variables::for_request(&request, self.environment());
+        variables.local = self.variables.clone();
+        variables.secrets = self.secrets.clone();
+        let before = Box::new(Variables {
+            collection: variables.collection.clone(),
+            environment: variables.environment.clone(),
+            local: variables.local.clone(),
+            ..Default::default()
+        });
+        let execution = uuid::Uuid::new_v4().to_string();
+        let cancel = Cancellation::default();
+        self.tab_manager.active_tab_mut().unwrap().pending =
+            Some((execution.clone(), cancel.clone()));
+        let service = self.service.clone();
+        let sender = self.sender.clone();
+        let epoch = self.epoch;
+        std::thread::spawn(move || {
+            let response = rustapi::runner::execute(&service, &request, &mut variables, &cancel);
+            let _ = sender.send(AsyncMessage::Response {
+                epoch,
+                tab_id,
+                execution,
+                request: Box::new(request),
+                response: Box::new(response),
+                variables,
+                before,
+                environment_id,
+                collection_id,
+            });
         });
     }
-
-    /// Save current request to collection
-    fn save_current_request(&mut self) {
-        if let Some(tab) = self.tab_manager.active_tab() {
-            if let (Some(col_idx), Some(req_idx)) = (tab.collection_idx, tab.request_idx) {
-                if let Some(collection) = self.collections.get_mut(col_idx) {
-                    if let Some(request) = collection.requests.get_mut(req_idx) {
-                        *request = tab.request.clone();
-                        request.updated_at = chrono::Utc::now();
-                        let _ = storage::save_collection(collection, None);
-                        self.tab_manager.mark_saved();
+    fn process_messages(&mut self) {
+        while let Ok(message) = self.receiver.try_recv() {
+            match message {
+                AsyncMessage::Response {
+                    epoch,
+                    tab_id,
+                    execution,
+                    request,
+                    response,
+                    variables,
+                    before,
+                    environment_id,
+                    collection_id,
+                } if epoch == self.epoch => {
+                    // The immutable sent snapshot is recorded even if its originating tab was closed.
+                    let mut history = storage::load_history();
+                    history.add(*request, Some((*response).clone()));
+                    let result = storage::save_history(&history);
+                    self.result(result);
+                    if let Some(tab) = self.tab_manager.tabs.iter_mut().find(|t| {
+                        t.id == tab_id && t.pending.as_ref().is_some_and(|(id, _)| id == &execution)
+                    }) {
+                        tab.response = Some(*response);
+                        tab.pending = None;
+                        merge_changes(&before.local, &variables.local, &mut self.variables);
+                        if let Some(env) = environment_id
+                            .as_ref()
+                            .and_then(|id| self.environments.iter_mut().find(|e| &e.id == id))
+                        {
+                            env.variables.retain(|v| {
+                                !before.environment.contains_key(&v.key)
+                                    || variables.environment.contains_key(&v.key)
+                            });
+                            for (k, v) in &variables.environment {
+                                if before.environment.get(k) != Some(v) {
+                                    if let Some(field) =
+                                        env.variables.iter_mut().find(|f| &f.key == k)
+                                    {
+                                        field.value = v.clone();
+                                        field.enabled = true;
+                                    } else {
+                                        env.variables.push(KeyValue::new(k, v));
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(c) = collection_id
+                            .as_ref()
+                            .and_then(|id| self.collections.iter_mut().find(|c| &c.id == id))
+                        {
+                            let mut current = c.variables.clone().into_iter().collect();
+                            merge_changes(&before.collection, &variables.collection, &mut current);
+                            c.variables = current.into_iter().collect();
+                        }
                     }
                 }
-            }
-        }
-    }
-
-    /// Add new request to collection
-    fn add_request_to_collection(&mut self, col_idx: usize) {
-        if let Some(collection) = self.collections.get_mut(col_idx) {
-            let request = ApiRequest::new(format!("Request {}", collection.requests.len() + 1));
-            collection.requests.push(request.clone());
-            let _ = storage::save_collection(collection, None);
-
-            let req_idx = collection.requests.len() - 1;
-            self.tab_manager
-                .open_tab(request, Some(col_idx), Some(req_idx));
-        }
-    }
-
-    /// Duplicate a request
-    fn duplicate_request(&mut self, col_idx: usize, req_idx: usize) {
-        if let Some(collection) = self.collections.get_mut(col_idx) {
-            if let Some(request) = collection.requests.get(req_idx) {
-                let new_request = request.duplicate();
-                collection.requests.push(new_request);
-                let _ = storage::save_collection(collection, None);
-            }
-        }
-    }
-
-    /// Delete request from collection
-    fn delete_request(&mut self, col_idx: usize, req_idx: usize) {
-        if let Some(collection) = self.collections.get_mut(col_idx) {
-            if req_idx < collection.requests.len() {
-                collection.requests.remove(req_idx);
-                let _ = storage::save_collection(collection, None);
-
-                // Close tab if open
-                if let Some(tab_idx) = self.tab_manager.tabs.iter().position(|t| {
-                    t.collection_idx == Some(col_idx) && t.request_idx == Some(req_idx)
-                }) {
-                    self.tab_manager.close_tab(tab_idx);
+                AsyncMessage::RunProgress { epoch, entry } if epoch == self.epoch => {
+                    self.report
+                        .get_or_insert_with(Default::default)
+                        .entries
+                        .push(entry);
                 }
+                AsyncMessage::Run { epoch, result } if epoch == self.epoch => {
+                    self.run_cancel = None;
+                    match result {
+                        Ok(report) => self.report = Some(report),
+                        Err(e) => self.error = Some(e),
+                    }
+                }
+                AsyncMessage::Authorized {
+                    epoch,
+                    tab_id,
+                    result,
+                } if epoch == self.epoch => match result {
+                    Ok(code) => {
+                        if let Some(tab) = self.tab_manager.tabs.iter_mut().find(|t| t.id == tab_id)
+                        {
+                            tab.request.auth.oauth.code = code;
+                            tab.is_modified = true;
+                            self.notice =
+                                "OAuth authorized. Send the request to exchange the code.".into();
+                        }
+                    }
+                    Err(e) => self.error = Some(e),
+                },
+                _ => {}
             }
         }
     }
-
-    /// Create new collection
-    fn create_collection(&mut self, name: String) {
-        let collection = Collection::new(name);
-        let _ = storage::save_collection(&collection, None);
-        self.collections.push(collection);
+    fn save_tab(&mut self, id: &str, target: Option<(String, Option<String>)>) -> bool {
+        let Some(tab) = self.tab_manager.tabs.iter().find(|t| t.id == id).cloned() else {
+            return false;
+        };
+        let Some((collection_id, folder)) =
+            target.or_else(|| tab.collection_id.clone().map(|c| (c, None)))
+        else {
+            self.save_as = Some(id.into());
+            self.save_collection = self.collections.first().map(|c| c.id.clone());
+            self.save_folder = None;
+            return false;
+        };
+        let Some(mut c) = self
+            .collections
+            .iter()
+            .find(|c| c.id == collection_id)
+            .cloned()
+        else {
+            self.error = Some("Collection no longer exists; use Save As".into());
+            return false;
+        };
+        let mut r = tab.request.clone();
+        if tab.collection_id.as_ref() != Some(&collection_id) && c.request(&r.id).is_some() {
+            r.id = uuid::Uuid::new_v4().to_string();
+        }
+        let saved_request_id = r.id.clone();
+        r.updated_at = chrono::Utc::now();
+        if let Some(existing) = c.request_mut(&r.id) {
+            *existing = r;
+        } else if let Some(folder) = folder {
+            let Some(f) = c.folder_mut(&folder) else {
+                self.error = Some("Folder no longer exists".into());
+                return false;
+            };
+            f.requests.push(r);
+        } else {
+            c.requests.push(r);
+        }
+        if !self.commit_collection(c) {
+            return false;
+        }
+        if let Some(t) = self.tab_manager.tabs.iter_mut().find(|t| t.id == id) {
+            t.collection_id = Some(collection_id);
+            t.request.id = saved_request_id;
+            t.is_modified = false;
+        }
+        self.persist_drafts();
+        true
     }
-
-    /// Import into the managed profile without rewriting the user's source file.
-    fn import_collection(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
-        let mut collection = storage::import_collection(path)?;
-        collection.file_path = None;
-        let saved_path = storage::save_collection(&collection, None)?;
-        collection.file_path = Some(saved_path.to_string_lossy().into_owned());
-        self.collections.push(collection);
-        Ok(())
-    }
-
-    /// Delete collection
-    fn delete_collection(&mut self, col_idx: usize) {
-        if col_idx < self.collections.len() {
-            let collection = self.collections.remove(col_idx);
-            let _ = storage::delete_collection(&collection);
-
-            // Close any tabs from this collection
-            let tabs_to_close: Vec<usize> = self
-                .tab_manager
-                .tabs
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| t.collection_idx == Some(col_idx))
-                .map(|(i, _)| i)
-                .collect();
-
-            for idx in tabs_to_close.into_iter().rev() {
-                self.tab_manager.close_tab(idx);
+    fn export_collection(&mut self, id: &str, include_secrets: bool) {
+        if let Some(c) = self.collections.iter().find(|c| c.id == id).cloned() {
+            if let Some(path) = self.dialogs.export(&c.name) {
+                let c = if include_secrets {
+                    c
+                } else {
+                    rustapi::secrets::redact_collection(&c)
+                };
+                let result = storage::export_collection(&c, &path);
+                self.result(result);
             }
         }
     }
-
-    fn handle_sidebar_action(&mut self, action: SidebarAction) {
+    fn persist_drafts(&mut self) {
+        let result = storage::save_drafts(&self.tab_manager);
+        self.result(result);
+        self.last_draft = Instant::now();
+    }
+    fn request_close(&mut self, id: String) {
+        if self
+            .tab_manager
+            .tabs
+            .iter()
+            .any(|t| t.id == id && t.is_modified)
+        {
+            self.close_pending = Some(id);
+        } else {
+            self.close_tab(&id);
+        }
+    }
+    fn close_tab(&mut self, id: &str) {
+        if let Some(i) = self.tab_manager.tabs.iter().position(|t| t.id == id) {
+            self.tab_manager.close_tab(i);
+            self.persist_drafts();
+        }
+    }
+    fn action(&mut self, action: Action) {
         match action {
-            SidebarAction::SelectRequest(col_idx, req_idx) => {
-                if let Some(collection) = self.collections.get(col_idx) {
-                    if let Some(request) = collection.requests.get(req_idx) {
-                        self.tab_manager
-                            .open_tab(request.clone(), Some(col_idx), Some(req_idx));
+            Action::Open(c, r) => self.tab_manager.open_tab(*r, Some(c)),
+            Action::Add(id, folder) => {
+                if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    let mut r = ApiRequest::new("New Request");
+                    r.auth.auth_type = AuthType::Inherit;
+                    if let Some(f) = folder {
+                        if let Some(f) = c.folder_mut(&f) {
+                            f.requests.push(r.clone());
+                        }
+                    } else {
+                        c.requests.push(r.clone());
+                    }
+                    if self.commit_collection(c) {
+                        self.tab_manager.open_tab(r, Some(id));
                     }
                 }
             }
-            SidebarAction::AddRequest(col_idx) => {
-                self.add_request_to_collection(col_idx);
-            }
-            SidebarAction::DeleteRequest(col_idx, req_idx) => {
-                self.delete_request(col_idx, req_idx);
-            }
-            SidebarAction::DuplicateRequest(col_idx, req_idx) => {
-                self.duplicate_request(col_idx, req_idx);
-            }
-            SidebarAction::RenameRequest(col_idx, req_idx) => {
-                if let Some(collection) = self.collections.get(col_idx) {
-                    if let Some(request) = collection.requests.get(req_idx) {
-                        self.rename_value = request.name.clone();
-                        self.rename_target = RenameTarget::Request(col_idx, req_idx);
-                        self.show_rename_modal = true;
+            Action::Duplicate(id, rid) => {
+                if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    if c.duplicate_request(&rid).is_some() {
+                        self.commit_collection(c);
                     }
                 }
             }
-            SidebarAction::DeleteCollection(col_idx) => {
-                self.delete_collection(col_idx);
-            }
-            SidebarAction::RenameCollection(col_idx) => {
-                if let Some(collection) = self.collections.get(col_idx) {
-                    self.rename_value = collection.name.clone();
-                    self.rename_target = RenameTarget::Collection(col_idx);
-                    self.show_rename_modal = true;
-                }
-            }
-            SidebarAction::ExportCollection(col_idx) => {
-                if let Some(collection) = self.collections.get(col_idx) {
-                    if let Some(path) = self.dialogs.export(&collection.name) {
-                        let _ = storage::export_collection(collection, &path);
+            Action::Delete(id, rid) => {
+                if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    c.remove_request(&rid);
+                    if self.commit_collection(c) {
+                        for t in &mut self.tab_manager.tabs {
+                            if t.collection_id.as_ref() == Some(&id) && t.request.id == rid {
+                                t.collection_id = None;
+                                t.is_modified = true;
+                            }
+                        }
+                        self.persist_drafts();
                     }
                 }
             }
-            SidebarAction::NewCollection => {
-                self.new_item_name.clear();
-                self.show_new_collection_modal = true;
+            Action::NewFolder(id, parent) => {
+                if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    let f = Folder::new("New Folder");
+                    if let Some(parent) = parent {
+                        if let Some(parent) = c.folder_mut(&parent) {
+                            parent.folders.push(f);
+                        }
+                    } else {
+                        c.folders.push(f);
+                    }
+                    self.commit_collection(c);
+                }
+            }
+            Action::Edit(id, folder) => {
+                self.edit_draft = self.collections.iter().find(|c| c.id == id).cloned();
+                self.edit = Some((id, folder));
+            }
+            Action::Rename(id, target, folder) => {
+                if let Some(c) = self.collections.iter().find(|c| c.id == id) {
+                    let name = if folder {
+                        let mut c = c.clone();
+                        c.folder_mut(&target).map(|f| f.name.clone())
+                    } else {
+                        c.request(&target).map(|r| r.name.clone())
+                    };
+                    if let Some(name) = name {
+                        self.rename = Some((id, target, folder, name));
+                    }
+                }
+            }
+            Action::DeleteFolder(id, fid) => {
+                if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    c.remove_folder(&fid);
+                    if self.commit_collection(c) {
+                        self.detach_missing_tabs();
+                    }
+                }
+            }
+            Action::DeleteCollection(id) => {
+                if let Some(i) = self.collections.iter().position(|c| c.id == id) {
+                    let result = storage::delete_collection(&self.collections[i]);
+                    if self.result(result).is_some() {
+                        self.collections.remove(i);
+                        self.detach_missing_tabs();
+                    }
+                }
+            }
+            Action::Export(id) => self.export_collection(&id, false),
+            Action::ExportCredentials(id) => self.export_collection(&id, true),
+            Action::MoveFolder(c, r) => {
+                self.moving_folder = true;
+                self.move_request = Some((c, r));
+                self.move_collection = self.collections.first().map(|c| c.id.clone());
+                self.move_folder = None;
+            }
+            Action::Move(c, r) => {
+                self.moving_folder = false;
+                self.move_request = Some((c, r));
+                self.move_collection = self.collections.first().map(|c| c.id.clone());
+                self.move_folder = None;
+            }
+            Action::Reorder(id, parent, target, up) => {
+                if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    let (requests, folders, order) = if let Some(parent) = parent {
+                        let Some(f) = c.folder_mut(&parent) else {
+                            return;
+                        };
+                        (&f.requests, &f.folders, &mut f.order)
+                    } else {
+                        (&c.requests, &c.folders, &mut c.order)
+                    };
+                    *order = child_order(requests, folders, order);
+                    if let Some(i) = order.iter().position(|id| id == &target) {
+                        let j = if up {
+                            i.saturating_sub(1)
+                        } else {
+                            (i + 1).min(order.len() - 1)
+                        };
+                        order.swap(i, j);
+                    }
+                    self.commit_collection(c);
+                }
             }
         }
     }
-
-    /// Save app state
-    fn save_state(&self) {
+    fn detach_missing_tabs(&mut self) {
+        for t in &mut self.tab_manager.tabs {
+            if t.collection_id.as_ref().is_some_and(|id| {
+                !self
+                    .collections
+                    .iter()
+                    .any(|c| &c.id == id && c.request(&t.request.id).is_some())
+            }) {
+                t.collection_id = None;
+                t.is_modified = true;
+            }
+        }
+        self.persist_drafts();
+    }
+    fn import(&mut self, result: anyhow::Result<rustapi::import::ImportResult>) {
+        if let Some(import) = self.result(result) {
+            if let Some(c) = import.collection {
+                self.commit_collection(c);
+            }
+            if let Some(e) = import.environment {
+                if self.result(storage::save_environment(&e)).is_some() {
+                    self.environments.push(e);
+                }
+            }
+            self.notice = import.warnings.join("\n");
+        }
+    }
+    fn open_workspace(&mut self, path: &std::path::Path) {
+        if self.tab_manager.tabs.iter().any(|t| t.is_modified) {
+            self.persist_drafts();
+        }
+        if let Some(path) = self.result(rustapi::workspace::open_workspace(path)) {
+            for t in &self.tab_manager.tabs {
+                if let Some((_, c)) = &t.pending {
+                    c.cancel();
+                }
+            }
+            if let Some(c) = &self.run_cancel {
+                c.cancel();
+            }
+            let epoch = self.epoch + 1;
+            std::env::set_var("RUSTAPI_DATA_DIR", path);
+            let next = Self {
+                epoch,
+                ..Default::default()
+            };
+            *self = next;
+        }
+    }
+    fn start_run(&mut self) {
+        if self.run_cancel.is_some() {
+            return;
+        }
+        let Some(c) = self
+            .run_collection
+            .as_ref()
+            .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+            .cloned()
+        else {
+            self.error = Some("Select a collection".into());
+            return;
+        };
+        let mut options = self.run_options.clone();
+        options.folder = self.run_folder.clone();
+        if !self.data_path.is_empty() {
+            let result = rustapi::runner::load_data(std::path::Path::new(&self.data_path));
+            let Some(data) = self.result(result) else {
+                return;
+            };
+            options.data = data;
+        }
+        self.report = Some(RunReport::default());
+        let env = self.environment().cloned();
+        let service = self.service.clone();
+        let secrets = self.secrets.clone();
+        let cancel = Cancellation::default();
+        self.run_cancel = Some(cancel.clone());
+        let sender = self.sender.clone();
+        let epoch = self.epoch;
+        std::thread::spawn(move || {
+            let result = rustapi::runner::run_with_progress(
+                &service,
+                &c,
+                env.as_ref(),
+                &options,
+                secrets,
+                &cancel,
+                |entry| {
+                    let _ = sender.send(AsyncMessage::RunProgress {
+                        epoch,
+                        entry: entry.clone(),
+                    });
+                },
+            )
+            .map_err(|e| e.to_string());
+            let _ = sender.send(AsyncMessage::Run { epoch, result });
+        });
+    }
+    fn authorize(&mut self, ctx: &egui::Context) {
+        let Some(tab) = self.tab_manager.active_tab_mut() else {
+            return;
+        };
+        if !tab.request.auth.oauth.authorization_requested {
+            return;
+        }
+        tab.request.auth.oauth.authorization_requested = false;
+        let result = rustapi::http::oauth::begin_authorization(&mut tab.request.auth.oauth);
+        let id = tab.id.clone();
+        match result {
+            Ok(auth) => {
+                ctx.open_url(egui::OpenUrl::new_tab(auth.url.clone()));
+                let sender = self.sender.clone();
+                let epoch = self.epoch;
+                std::thread::spawn(move || {
+                    let result = auth
+                        .wait(&Cancellation::default())
+                        .map_err(|e| e.to_string());
+                    let _ = sender.send(AsyncMessage::Authorized {
+                        epoch,
+                        tab_id: id,
+                        result,
+                    });
+                });
+            }
+            Err(e) => self.error = Some(e.to_string()),
+        }
+    }
+}
+impl eframe::App for RustApiApp {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        self.render(ctx);
+    }
+    fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
+        self.persist_drafts();
         let state = AppState {
             active_environment_id: self.active_environment_id.clone(),
             recent_files: vec![],
             window_size: None,
         };
-        let _ = storage::save_app_state(&state);
-        let _ = storage::save_history(&self.history);
+        let result = storage::save_app_state(&state);
+        if let Err(e) = result {
+            eprintln!("Could not save app state: {e}");
+        }
+        let result = storage::save_history(&storage::load_history());
+        if let Err(e) = result {
+            eprintln!("Could not save history: {e}");
+        }
     }
 }
-
-impl eframe::App for RustApiApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.render(ctx);
-    }
-
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.save_state();
-    }
-}
-
 impl RustApiApp {
-    /// Render a frame independently of the native window adapter.
+    fn choose_import(&mut self) {
+        if let Some(path) = self.dialogs.import() {
+            let result = std::fs::read(path)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| rustapi::import::json(&bytes));
+            self.import(result);
+        }
+    }
     pub(crate) fn render(&mut self, ctx: &egui::Context) {
-        // Process async messages
-        while let Ok(msg) = self.async_receiver.try_recv() {
-            match msg {
-                AsyncMessage::ResponseReceived(response) => {
-                    // Add to history
-                    if let Some(tab) = self.tab_manager.active_tab() {
-                        self.history
-                            .add(tab.request.clone(), Some(response.clone()));
-                    }
-
-                    // Set response on active tab
-                    if let Some(tab) = self.tab_manager.active_tab_mut() {
-                        tab.response = Some(response);
-                    }
-                    self.is_loading = false;
-                }
+        let open = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+        let export = egui::KeyboardShortcut::new(
+            egui::Modifiers {
+                command: true,
+                shift: true,
+                ..Default::default()
+            },
+            egui::Key::E,
+        );
+        if ctx.input_mut(|i| i.consume_shortcut(&open)) {
+            self.choose_import();
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&export)) {
+            if let Some(id) = self
+                .tab_manager
+                .active_tab()
+                .and_then(|t| t.collection_id.clone())
+                .or_else(|| self.collections.first().map(|c| c.id.clone()))
+            {
+                self.export_collection(&id, false);
             }
         }
 
-        // Request repaint while loading
-        if self.is_loading {
-            ctx.request_repaint();
-        }
-
-        // Set custom style
+        self.process_messages();
         apply_dark_theme(ctx);
-
-        // Top panel with environment selector
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            let mut show_env_editor = false;
-            let mut show_import = false;
-            let mut show_history = false;
-
-            render_top_bar(
-                ui,
-                &self.environments,
-                &mut self.active_environment_id,
-                &mut show_env_editor,
-                &mut show_import,
-                &mut show_history,
-            );
-
-            if show_env_editor {
-                self.show_environment_editor = true;
-            }
-            if show_history {
-                self.show_history_panel = true;
-            }
-            if show_import {
-                if let Some(path) = self.dialogs.import() {
-                    let _ = self.import_collection(&path);
-                }
-            }
-        });
-
-        // Left panel with collections
-        egui::SidePanel::left("sidebar")
-            .resizable(true)
-            .default_width(self.sidebar_width)
-            .width_range(200.0..=400.0)
-            .show(ctx, |ui| {
-                // Get current selection for highlighting
-                let (current_col, current_req) = self
-                    .tab_manager
-                    .active_tab()
-                    .map(|t| (t.collection_idx, t.request_idx))
-                    .unwrap_or((None, None));
-
-                if let Some(action) = render_sidebar(
-                    ui,
-                    &mut self.collections,
-                    &mut self.search_query,
-                    current_col,
-                    current_req,
-                ) {
-                    self.handle_sidebar_action(action);
-                }
-            });
-
-        // Main content area
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_main_content(ui);
-        });
-
-        // egui floating windows must follow the top-level panels.
-        self.render_modals(ctx);
-    }
-}
-
-impl RustApiApp {
-    /// Render modals
-    fn render_modals(&mut self, ctx: &egui::Context) {
-        // New collection modal
-        if let Some(name) = render_new_collection_modal(
-            ctx,
-            &mut self.show_new_collection_modal,
-            &mut self.new_item_name,
-        ) {
-            self.create_collection(name);
-        }
-
-        // Rename modal
-        let current_request_name = self
-            .tab_manager
-            .active_tab_mut()
-            .map(|t| &mut t.request.name);
-
-        render_rename_modal(
-            ctx,
-            &mut self.show_rename_modal,
-            &self.rename_target.clone(),
-            &mut self.rename_value,
-            &mut self.collections,
-            current_request_name,
-        );
-
-        // Environment editor
-        render_environment_editor(
-            ctx,
-            &mut self.show_environment_editor,
-            &mut self.environments,
-            &mut self.active_environment_id,
-        );
-
-        // Code generation modal
-        if self.show_code_gen_modal {
-            if let Some(tab) = self.tab_manager.active_tab() {
-                let request = tab.request.clone();
-                let env = self.get_active_environment().cloned();
-                render_code_gen_modal(
-                    ctx,
-                    &mut self.show_code_gen_modal,
-                    &request,
-                    env.as_ref(),
-                    &mut self.code_gen_language,
-                );
-            }
-        }
-
-        // History panel
-        if let Some(action) = render_history_panel(ctx, &mut self.show_history_panel, &self.history)
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_exit
+            && self.tab_manager.tabs.iter().any(|t| t.is_modified)
         {
-            match action {
-                HistoryAction::LoadRequest(request) => {
-                    self.tab_manager.open_tab(*request, None, None);
-                }
-                HistoryAction::ClearHistory => {
-                    self.history.clear();
-                    let _ = storage::save_history(&self.history);
-                }
-            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.exit_pending = true;
         }
-    }
-
-    /// Render main content area
-    fn render_main_content(&mut self, ui: &mut egui::Ui) {
-        // Tab bar
-        if self.tab_manager.has_tabs() {
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.add_space(16.0);
-
-                let mut tab_to_close: Option<usize> = None;
-                let mut tab_to_select: Option<usize> = None;
-
-                for (idx, tab) in self.tab_manager.tabs.iter().enumerate() {
-                    let is_active = self.tab_manager.active_tab_idx == Some(idx);
-
-                    ui.push_id(&tab.id, |ui| {
-                        let tab_response = ui.selectable_label(is_active, tab.title());
-
-                        if tab_response.clicked() {
-                            tab_to_select = Some(idx);
+        if self.tab_manager.tabs.iter().any(|t| t.pending.is_some()) || self.run_cancel.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(20));
+        }
+        ctx.request_repaint_after(Duration::from_secs(1));
+        if self.last_draft.elapsed() > Duration::from_secs(2) {
+            self.persist_drafts();
+        }
+        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.heading("RustAPI");
+                if ui.button("Open / create workspace").clicked() {
+                    if let Some(p) = rfd::FileDialog::new().pick_folder() {
+                        self.open_workspace(&p);
+                    }
+                }
+                egui::ComboBox::from_id_salt("env")
+                    .selected_text(
+                        self.environment()
+                            .map(|e| e.name.as_str())
+                            .unwrap_or("No environment"),
+                    )
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.active_environment_id,
+                            None,
+                            "No environment",
+                        );
+                        for e in &self.environments {
+                            ui.selectable_value(
+                                &mut self.active_environment_id,
+                                Some(e.id.clone()),
+                                &e.name,
+                            );
                         }
-
-                        // Close button
-                        if ui.small_button("×").clicked() {
-                            tab_to_close = Some(idx);
-                        }
-
-                        ui.separator();
                     });
+                if ui.button("Environments").clicked() {
+                    self.show_environments = true;
                 }
-
-                if let Some(idx) = tab_to_select {
-                    self.tab_manager.active_tab_idx = Some(idx);
+                if ui.button("Import").clicked() {
+                    self.show_import = true;
                 }
-                if let Some(idx) = tab_to_close {
-                    self.tab_manager.close_tab(idx);
+                if ui.button("Runner").clicked() {
+                    self.show_runner = true;
+                    if self.run_collection.is_none() {
+                        self.run_collection = self.collections.first().map(|c| c.id.clone());
+                    }
                 }
-
-                // New tab button
-                if ui.small_button("➕").on_hover_text("New Request").clicked() {
-                    let request = ApiRequest::default();
-                    self.tab_manager.open_tab(request, None, None);
+                if ui.button("Vault").clicked() {
+                    self.show_vault = true;
+                }
+                if ui.button("Cookies").clicked() {
+                    self.show_cookies = true;
+                }
+                if ui.button("History").clicked() {
+                    self.show_history = true;
                 }
             });
-            ui.separator();
-        }
-
-        // If no tabs, show welcome message
-        if !self.tab_manager.has_tabs() {
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(100.0);
-                    ui.heading("🦀 RustAPI");
-                    ui.add_space(20.0);
-                    ui.label("Select a request from the sidebar or create a new one");
-                    ui.add_space(20.0);
-                    if ui.button("➕ New Request").clicked() {
-                        let request = ApiRequest::default();
-                        self.tab_manager.open_tab(request, None, None);
+            ui.small(format!(
+                "Local workspace: {}",
+                storage::get_app_data_dir().display()
+            ));
+            if let Some(error) = self.error.clone() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    if ui.button("Dismiss").clicked() {
+                        self.error = None;
+                    }
+                });
+            }
+            if !self.notice.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(&self.notice);
+                    if ui.button("Dismiss notice").clicked() {
+                        self.notice.clear();
+                    }
+                });
+            }
+        });
+        let mut action = None;
+        egui::SidePanel::left("collections")
+            .default_width(260.)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("Collections");
+                    if ui.button("+").clicked() {
+                        self.show_new_collection = true;
+                    }
+                });
+                ui.text_edit_singleline(&mut self.search);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for c in &self.collections {
+                        let response = egui::CollapsingHeader::new(&c.name)
+                            .id_salt(&c.id)
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                render_tree(
+                                    ui,
+                                    &c.id,
+                                    None,
+                                    &c.requests,
+                                    &c.folders,
+                                    &c.order,
+                                    &self.search,
+                                    &mut action,
+                                );
+                            });
+                        response.header_response.context_menu(|ui| {
+                            for (label, a) in [
+                                ("Add request", Action::Add(c.id.clone(), None)),
+                                ("Add folder", Action::NewFolder(c.id.clone(), None)),
+                                ("Collection settings", Action::Edit(c.id.clone(), None)),
+                                ("Export (redacted)", Action::Export(c.id.clone())),
+                                (
+                                    "Export including credentials",
+                                    Action::ExportCredentials(c.id.clone()),
+                                ),
+                                (
+                                    "Delete collection (keeps open drafts)",
+                                    Action::DeleteCollection(c.id.clone()),
+                                ),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    action = Some(a);
+                                    ui.close_menu();
+                                }
+                            }
+                        });
                     }
                 });
             });
-            return;
+        if let Some(a) = action {
+            self.action(a);
         }
-
-        // Get active tab info
-        let (has_save_target, is_loading, response) = {
-            let tab = self.tab_manager.active_tab();
-            (
-                tab.map(|t| t.collection_idx.is_some()).unwrap_or(false),
-                self.is_loading,
-                tab.and_then(|t| t.response.clone()),
-            )
-        };
-
-        ui.add_space(8.0);
-
-        // URL bar
-        let mut on_send = false;
-        let mut on_generate_code = false;
-
-        if let Some(tab) = self.tab_manager.active_tab_mut() {
-            render_url_bar(
-                ui,
-                &mut tab.request,
-                is_loading,
-                &mut on_send,
-                &mut on_generate_code,
-            );
-        }
-
-        if on_send {
-            self.send_request();
-        }
-        if on_generate_code {
-            self.show_code_gen_modal = true;
-        }
-
-        ui.add_space(16.0);
-
-        // Split view: Request editor and Response viewer
-        let available_height = ui.available_height();
-        let request_height = available_height * 0.45;
-        let response_height = available_height * 0.50;
-
-        // Request editor
-        egui::Frame::none()
-            .fill(egui::Color32::from_rgb(40, 44, 52))
-            .rounding(8.0)
-            .inner_margin(12.0)
-            .outer_margin(egui::Margin::symmetric(16.0, 0.0))
-            .show(ui, |ui| {
-                ui.set_min_height(request_height);
-
-                let mut on_save = false;
-                if let Some(tab) = self.tab_manager.active_tab_mut() {
-                    render_request_editor(
-                        ui,
-                        &mut tab.request,
-                        &mut self.request_tab,
-                        &mut on_save,
-                        has_save_target,
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let mut close = None;
+            egui::ScrollArea::horizontal()
+                .id_salt("tab_scroll")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for (i, t) in self.tab_manager.tabs.iter().enumerate() {
+                            ui.push_id(&t.id, |ui| {
+                                if ui
+                                    .selectable_label(
+                                        self.tab_manager.active_tab_idx == Some(i),
+                                        t.title(),
+                                    )
+                                    .clicked()
+                                {
+                                    self.tab_manager.active_tab_idx = Some(i);
+                                }
+                                if ui.small_button("×").clicked() {
+                                    close = Some(t.id.clone());
+                                }
+                            });
+                        }
+                        if ui.button("+ New Request").clicked() {
+                            let mut r = ApiRequest::default();
+                            r.auth.auth_type = AuthType::None;
+                            self.tab_manager.open_tab(r, None);
+                        }
+                    });
+                });
+            if let Some(id) = close {
+                self.request_close(id);
+            }
+            ui.separator();
+            let mut send = false;
+            let mut code = false;
+            let mut save = None;
+            if let Some(tab) = self.tab_manager.active_tab_mut() {
+                let before = serde_json::to_vec(&tab.request).unwrap_or_default();
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut tab.request.name);
+                    if tab.pending.is_some() && ui.button("Cancel request").clicked() {
+                        if let Some((_, cancel)) = &tab.pending {
+                            cancel.cancel();
+                        }
+                    }
+                });
+                if !tab.request.settings.verify_tls {
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        "TLS certificate verification is disabled for this request",
                     );
                 }
-
-                if on_save {
-                    self.save_current_request();
+                render_url_bar(
+                    ui,
+                    &mut tab.request,
+                    tab.pending.is_some(),
+                    &mut send,
+                    &mut code,
+                );
+                egui::ScrollArea::vertical()
+                    .id_salt("request_editor_scroll")
+                    .max_height((ui.available_height() * 0.52).max(150.))
+                    .show(ui, |ui| {
+                        let mut clicked = false;
+                        render_request_editor(
+                            ui,
+                            &mut tab.request,
+                            &mut self.request_tab,
+                            &mut clicked,
+                            tab.collection_id.is_some(),
+                        );
+                        if clicked {
+                            save = Some(tab.id.clone());
+                        }
+                    });
+                if serde_json::to_vec(&tab.request).unwrap_or_default() != before {
+                    tab.is_modified = true;
                 }
-            });
-
-        ui.add_space(16.0);
-
-        // Response viewer
-        egui::Frame::none()
-            .fill(egui::Color32::from_rgb(40, 44, 52))
-            .rounding(8.0)
-            .inner_margin(12.0)
-            .outer_margin(egui::Margin::symmetric(16.0, 0.0))
-            .show(ui, |ui| {
-                ui.set_min_height(response_height);
-
+                ui.separator();
                 render_response_viewer(
                     ui,
-                    response.as_ref(),
-                    is_loading,
+                    tab.response.as_ref(),
+                    tab.pending.is_some(),
                     &mut self.response_tab,
-                    &mut self.response_format_json,
+                    &mut self.format_json,
+                    &mut self.response_search,
                 );
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label("Create a request or import a Postman collection to get started.");
+                });
+            }
+            if send {
+                self.send_request();
+            }
+            if let Some(id) = save {
+                self.save_tab(&id, None);
+            }
+            if code {
+                self.show_code = true;
+            }
+        });
+        self.authorize(ctx);
+        self.windows(ctx);
+    }
+}
+#[allow(clippy::too_many_arguments)] // Recursive tree view carries the parent identity and ordering.
+fn render_tree(
+    ui: &mut egui::Ui,
+    cid: &str,
+    parent: Option<&str>,
+    requests: &[ApiRequest],
+    folders: &[Folder],
+    order: &[String],
+    search: &str,
+    action: &mut Option<Action>,
+) {
+    for id in child_order(requests, folders, order) {
+        if let Some(r) = requests.iter().find(|r| r.id == id) {
+            if !search.is_empty()
+                && !format!("{} {}", r.name, r.url)
+                    .to_lowercase()
+                    .contains(&search.to_lowercase())
+            {
+                continue;
+            }
+            let response = ui.selectable_label(false, format!("{}  {}", r.method.as_str(), r.name));
+            if response.clicked() {
+                *action = Some(Action::Open(cid.into(), Box::new(r.clone())));
+            }
+            response.context_menu(|ui| {
+                for (label, a) in [
+                    ("Rename", Action::Rename(cid.into(), r.id.clone(), false)),
+                    ("Duplicate", Action::Duplicate(cid.into(), r.id.clone())),
+                    (
+                        "Move to folder / collection",
+                        Action::Move(cid.into(), r.id.clone()),
+                    ),
+                    (
+                        "Move up",
+                        Action::Reorder(cid.into(), parent.map(String::from), r.id.clone(), true),
+                    ),
+                    (
+                        "Move down",
+                        Action::Reorder(cid.into(), parent.map(String::from), r.id.clone(), false),
+                    ),
+                    (
+                        "Delete (keeps open draft)",
+                        Action::Delete(cid.into(), r.id.clone()),
+                    ),
+                ] {
+                    if ui.button(label).clicked() {
+                        *action = Some(a);
+                        ui.close_menu();
+                    }
+                }
             });
+        } else if let Some(f) = folders.iter().find(|f| f.id == id) {
+            let response = egui::CollapsingHeader::new(&f.name)
+                .id_salt(&f.id)
+                .default_open(true)
+                .show(ui, |ui| {
+                    render_tree(
+                        ui,
+                        cid,
+                        Some(&f.id),
+                        &f.requests,
+                        &f.folders,
+                        &f.order,
+                        search,
+                        action,
+                    );
+                });
+            response.header_response.context_menu(|ui| {
+                for (label, a) in [
+                    ("Add request", Action::Add(cid.into(), Some(f.id.clone()))),
+                    (
+                        "Add folder",
+                        Action::NewFolder(cid.into(), Some(f.id.clone())),
+                    ),
+                    ("Rename", Action::Rename(cid.into(), f.id.clone(), true)),
+                    (
+                        "Folder settings",
+                        Action::Edit(cid.into(), Some(f.id.clone())),
+                    ),
+                    ("Move folder", Action::MoveFolder(cid.into(), f.id.clone())),
+                    (
+                        "Move up",
+                        Action::Reorder(cid.into(), parent.map(String::from), f.id.clone(), true),
+                    ),
+                    (
+                        "Move down",
+                        Action::Reorder(cid.into(), parent.map(String::from), f.id.clone(), false),
+                    ),
+                    (
+                        "Delete folder (keeps open drafts)",
+                        Action::DeleteFolder(cid.into(), f.id.clone()),
+                    ),
+                ] {
+                    if ui.button(label).clicked() {
+                        *action = Some(a);
+                        ui.close_menu();
+                    }
+                }
+            });
+        }
+    }
+}
+fn merge_changes(
+    before: &BTreeMap<String, String>,
+    after: &BTreeMap<String, String>,
+    target: &mut BTreeMap<String, String>,
+) {
+    for key in before.keys() {
+        if !after.contains_key(key) {
+            target.remove(key);
+        }
+    }
+    for (k, v) in after {
+        if before.get(k) != Some(v) {
+            target.insert(k.clone(), v.clone());
+        }
+    }
+}
+fn folder_choices(
+    ui: &mut egui::Ui,
+    folders: &[Folder],
+    selected: &mut Option<String>,
+    prefix: &str,
+) {
+    for f in folders {
+        let name = format!("{prefix}{}", f.name);
+        ui.selectable_value(selected, Some(f.id.clone()), &name);
+        folder_choices(ui, &f.folders, selected, &format!("{name} / "));
+    }
+}
+
+impl RustApiApp {
+    fn windows(&mut self, ctx: &egui::Context) {
+        if self.show_new_collection {
+            egui::Window::new("New collection").show(ctx, |ui| {
+                ui.text_edit_singleline(&mut self.new_name);
+                if ui.button("Create").clicked()
+                    && !self.new_name.trim().is_empty()
+                    && self.commit_collection(Collection::new(self.new_name.trim()))
+                {
+                    self.new_name.clear();
+                    self.show_new_collection = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.show_new_collection = false;
+                }
+            });
+        }
+        if self.show_import {
+            egui::Window::new("Import Postman / RustAPI / cURL")
+                .default_width(600.)
+                .show(ctx, |ui| {
+                    ui.label("JSON imports create a managed copy. Source files are unchanged.");
+                    if ui.button("Choose collection or environment JSON").clicked() {
+                        self.choose_import();
+                    }
+                    ui.label("Or paste a cURL command");
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.import_text)
+                            .code_editor()
+                            .desired_rows(5)
+                            .desired_width(f32::INFINITY),
+                    );
+                    if ui.button("Import cURL").clicked() {
+                        self.import(rustapi::import::curl(&self.import_text));
+                    }
+                    if ui.button("Close").clicked() {
+                        self.show_import = false;
+                    }
+                });
+        }
+        if let Some(id) = self.save_as.clone() {
+            egui::Window::new("Save request into collection")
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    egui::ComboBox::from_id_salt("save_collection")
+                        .selected_text(
+                            self.save_collection
+                                .as_ref()
+                                .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                                .map(|c| c.name.as_str())
+                                .unwrap_or("Select collection"),
+                        )
+                        .show_ui(ui, |ui| {
+                            for c in &self.collections {
+                                if ui
+                                    .selectable_value(
+                                        &mut self.save_collection,
+                                        Some(c.id.clone()),
+                                        &c.name,
+                                    )
+                                    .changed()
+                                {
+                                    self.save_folder = None;
+                                }
+                            }
+                        });
+                    if let Some(c) = self
+                        .save_collection
+                        .as_ref()
+                        .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                    {
+                        egui::ComboBox::from_id_salt("save_folder")
+                            .selected_text("Target folder")
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.save_folder, None, "Collection root");
+                                folder_choices(ui, &c.folders, &mut self.save_folder, "");
+                            });
+                    }
+                    if self.collections.is_empty() {
+                        ui.label("Create a collection first.");
+                        if ui.button("New collection").clicked() {
+                            self.show_new_collection = true;
+                        }
+                    }
+                    if ui.button("Save").clicked() {
+                        if let Some(c) = self.save_collection.clone() {
+                            if self.save_tab(&id, Some((c, self.save_folder.clone()))) {
+                                self.save_as = None;
+                                if self.close_pending.as_ref() == Some(&id) {
+                                    self.close_tab(&id);
+                                    self.close_pending = None;
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.save_as = None;
+                    }
+                });
+        }
+        if let Some(id) = self.close_pending.clone() {
+            if self.save_as.is_none() {
+                egui::Window::new("Unsaved request")
+                    .collapsible(false)
+                    .show(ctx, |ui| {
+                        ui.label("Save this request before closing?");
+                        if ui.button("Save").clicked() && self.save_tab(&id, None) {
+                            self.close_tab(&id);
+                            self.close_pending = None;
+                        }
+                        if ui.button("Discard changes and close").clicked() {
+                            self.close_tab(&id);
+                            self.close_pending = None;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.close_pending = None;
+                        }
+                    });
+            }
+        }
+        if self.exit_pending {
+            egui::Window::new("Unsaved requests on exit").collapsible(false).show(ctx,|ui|{
+            ui.label("Save requests to collections, or keep recoverable local drafts for next launch.");
+            if ui.button("Save all").clicked(){let ids:Vec<_>=self.tab_manager.tabs.iter().filter(|t|t.is_modified).map(|t|t.id.clone()).collect();let mut saved=true;for id in ids{if !self.save_tab(&id,None){saved=false;break;}}if saved{self.allow_exit=true;ctx.send_viewport_cmd(egui::ViewportCommand::Close);}}
+            if ui.button("Exit and keep drafts").clicked(){let result=storage::save_drafts(&self.tab_manager);if self.result(result).is_some(){self.allow_exit=true;ctx.send_viewport_cmd(egui::ViewportCommand::Close);}}
+            if ui.button("Discard drafts and exit").clicked(){self.tab_manager=TabManager::new();self.persist_drafts();self.allow_exit=true;ctx.send_viewport_cmd(egui::ViewportCommand::Close);}
+            if ui.button("Cancel").clicked(){self.exit_pending=false;}
+        });
+        }
+        if let Some((cid, target, folder, mut name)) = self.rename.clone() {
+            egui::Window::new("Rename").show(ctx, |ui| {
+                ui.text_edit_singleline(&mut name);
+                self.rename = Some((cid.clone(), target.clone(), folder, name.clone()));
+                if ui.button("Save").clicked() && !name.trim().is_empty() {
+                    if let Some(mut c) = self.collections.iter().find(|c| c.id == cid).cloned() {
+                        if folder {
+                            if let Some(f) = c.folder_mut(&target) {
+                                f.name = name.clone();
+                            }
+                        } else if let Some(r) = c.request_mut(&target) {
+                            r.name = name.clone();
+                        }
+                        if self.commit_collection(c) {
+                            if !folder {
+                                for t in &mut self.tab_manager.tabs {
+                                    if t.collection_id.as_ref() == Some(&cid)
+                                        && t.request.id == target
+                                    {
+                                        t.request.name = name.clone();
+                                    }
+                                }
+                            }
+                            self.rename = None;
+                        }
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    self.rename = None;
+                }
+            });
+        }
+        if let Some((_cid, folder)) = self.edit.clone() {
+            if let Some(mut c) = self.edit_draft.clone() {
+                egui::Window::new("Collection / folder settings")
+                    .default_width(600.)
+                    .vscroll(true)
+                    .show(ctx, |ui| {
+                        let (name, vars, auth, pre, post) = if let Some(id) = &folder {
+                            if let Some(f) = c.folder_mut(id) {
+                                (
+                                    &mut f.name,
+                                    &mut f.variables,
+                                    &mut f.auth,
+                                    &mut f.pre_script,
+                                    &mut f.post_script,
+                                )
+                            } else {
+                                return;
+                            }
+                        } else {
+                            (
+                                &mut c.name,
+                                &mut c.variables,
+                                &mut c.auth,
+                                &mut c.pre_script,
+                                &mut c.post_script,
+                            )
+                        };
+                        ui.label("Name");
+                        ui.text_edit_singleline(name);
+                        ui.separator();
+                        ui.label("Variables");
+                        edit_variables(ui, vars);
+                        ui.separator();
+                        render_auth_editor(ui, auth);
+                        ui.label("Pre-request script");
+                        ui.add(egui::TextEdit::multiline(pre).code_editor());
+                        ui.label("Post-response script");
+                        ui.add(egui::TextEdit::multiline(post).code_editor());
+                        if ui.button("Save").clicked() && self.commit_collection(c.clone()) {
+                            self.edit = None;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.edit = None;
+                        }
+                        // Keep edits staged without writing until Save.
+                        if self.edit.is_some() {
+                            self.collection_editor_cache(&c);
+                        }
+                    });
+            }
+        }
+        if let Some((cid, rid)) = self.move_request.clone() {
+            egui::Window::new("Move request").show(ctx, |ui| {
+                egui::ComboBox::from_id_salt("move_collection")
+                    .selected_text(
+                        self.move_collection
+                            .as_ref()
+                            .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                            .map(|c| c.name.as_str())
+                            .unwrap_or("Select collection"),
+                    )
+                    .show_ui(ui, |ui| {
+                        for c in &self.collections {
+                            if ui
+                                .selectable_value(
+                                    &mut self.move_collection,
+                                    Some(c.id.clone()),
+                                    &c.name,
+                                )
+                                .changed()
+                            {
+                                self.move_folder = None;
+                            }
+                        }
+                    });
+                if let Some(c) = self
+                    .move_collection
+                    .as_ref()
+                    .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                {
+                    egui::ComboBox::from_id_salt("move_folder")
+                        .selected_text("Target folder")
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.move_folder, None, "Collection root");
+                            folder_choices(ui, &c.folders, &mut self.move_folder, "");
+                        });
+                }
+                if ui.button("Move").clicked() {
+                    if let Some(target) = self.move_collection.clone() {
+                        self.move_to(&cid, &rid, &target, self.move_folder.clone());
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    self.move_request = None;
+                }
+            });
+        }
+        self.environment_window(ctx);
+        self.runner_window(ctx);
+        self.vault_window(ctx);
+        if self.show_cookies {
+            egui::Window::new("Workspace cookies (session)")
+                .default_width(600.)
+                .vscroll(true)
+                .show(ctx, |ui| {
+                    for cookie in self.service.cookies.list() {
+                        ui.monospace(cookie);
+                    }
+                    if ui.button("Clear all cookies").clicked() {
+                        self.service.cookies.clear();
+                    }
+                    ui.label("Origin URL");
+                    ui.text_edit_singleline(&mut self.cookie_url);
+                    ui.label("Set-Cookie value (use Max-Age=0 to delete a cookie)");
+                    ui.text_edit_singleline(&mut self.cookie_value);
+                    if ui.button("Set cookie").clicked() {
+                        let result = self
+                            .service
+                            .cookies
+                            .set(&self.cookie_url, &self.cookie_value);
+                        self.result(result);
+                    }
+                    if ui.button("Close").clicked() {
+                        self.show_cookies = false;
+                    }
+                });
+        }
+        if self.show_history {
+            let history = storage::load_history();
+            if let Some(action) = render_history_panel(ctx, &mut self.show_history, &history) {
+                match action {
+                    HistoryAction::LoadRequest(r) => self.tab_manager.open_tab(*r, None),
+                    HistoryAction::ClearHistory => {
+                        let result = storage::save_history(&RequestHistory::new(100));
+                        self.result(result);
+                    }
+                }
+            }
+        }
+        if self.show_code {
+            egui::Window::new("Generate code")
+                .default_size([700., 500.])
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        for lang in CodeGenLanguage::all() {
+                            ui.selectable_value(&mut self.code_language, *lang, lang.as_str());
+                        }
+                    });
+                    ui.checkbox(&mut self.include_secrets, "Include credentials in code");
+                    if let Some(tab) = self.tab_manager.active_tab() {
+                        let request = self.contextual_request(tab);
+                        let mut vars = Variables::for_request(&request, self.environment());
+                        vars.local = self.variables.clone();
+                        vars.secrets = self.secrets.clone();
+                        let code = match vars.resolve_request(&request) {
+                            Ok(r) => crate::http::generate_code(
+                                &if self.include_secrets {
+                                    r
+                                } else {
+                                    rustapi::secrets::redact_request(&r)
+                                },
+                                self.code_language,
+                                None,
+                            ),
+                            Err(e) => e.to_string(),
+                        };
+                        let mut code = code;
+                        if !self.include_secrets {
+                            for v in self.secrets.values() {
+                                if !v.is_empty() {
+                                    code = code.replace(v, "[redacted]");
+                                }
+                            }
+                        }
+                        egui::ScrollArea::both().max_height(360.).show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut code.as_str())
+                                    .code_editor()
+                                    .desired_width(f32::INFINITY),
+                            );
+                        });
+                        if ui.button("Copy").clicked() {
+                            ui.output_mut(|o| o.copied_text = code);
+                        }
+                    }
+                    if ui.button("Close").clicked() {
+                        self.show_code = false;
+                    }
+                });
+        }
+    }
+    fn collection_editor_cache(&mut self, c: &Collection) {
+        self.edit_draft = Some(c.clone());
+    }
+    fn move_to(&mut self, cid: &str, rid: &str, target: &str, folder: Option<String>) {
+        let Some(mut source) = self.collections.iter().find(|c| c.id == cid).cloned() else {
+            return;
+        };
+        if self.moving_folder {
+            let Some(f) = source.remove_folder(rid) else {
+                return;
+            };
+            fn contains(f: &Folder, id: &str) -> bool {
+                f.id == id || f.folders.iter().any(|c| contains(c, id))
+            }
+            if folder.as_ref().is_some_and(|id| contains(&f, id)) {
+                self.error = Some("A folder cannot be moved into itself or its descendants".into());
+                return;
+            }
+            let mut dest = if cid == target {
+                source.clone()
+            } else {
+                let Some(c) = self.collections.iter().find(|c| c.id == target).cloned() else {
+                    return;
+                };
+                c
+            };
+            if let Some(fid) = folder {
+                let Some(parent) = dest.folder_mut(&fid) else {
+                    return;
+                };
+                parent.folders.push(f);
+            } else {
+                dest.folders.push(f);
+            }
+            if self.commit_collection(dest) && (cid == target || self.commit_collection(source)) {
+                self.detach_missing_tabs();
+                self.move_request = None;
+            }
+            return;
+        }
+        let Some(r) = source.remove_request(rid) else {
+            return;
+        };
+        if cid == target {
+            if let Some(fid) = folder {
+                if let Some(f) = source.folder_mut(&fid) {
+                    f.requests.push(r);
+                }
+            } else {
+                source.requests.push(r);
+            }
+            if self.commit_collection(source) {
+                self.move_request = None;
+            }
+        } else {
+            let Some(mut dest) = self.collections.iter().find(|c| c.id == target).cloned() else {
+                return;
+            };
+            if dest.request(rid).is_some() {
+                self.error = Some("Target contains this request ID".into());
+                return;
+            }
+            if let Some(fid) = folder {
+                let Some(f) = dest.folder_mut(&fid) else {
+                    return;
+                };
+                f.requests.push(r);
+            } else {
+                dest.requests.push(r);
+            }
+            // Save destination first: a failed second write retains a recoverable source copy.
+            if self.commit_collection(dest) && self.commit_collection(source) {
+                for t in &mut self.tab_manager.tabs {
+                    if t.collection_id.as_deref() == Some(cid) && t.request.id == rid {
+                        t.collection_id = Some(target.into());
+                    }
+                }
+                self.move_request = None;
+            }
+        }
+        self.persist_drafts();
+    }
+    fn environment_window(&mut self, ctx: &egui::Context) {
+        if !self.show_environments {
+            return;
+        }
+        egui::Window::new("Environments")
+            .default_width(620.)
+            .vscroll(true)
+            .show(ctx, |ui| {
+                if ui.button("New environment").clicked() {
+                    self.environments.push(Environment::new("New Environment"));
+                }
+                let mut save = None;
+                let mut delete = None;
+                for (i, e) in self.environments.iter_mut().enumerate() {
+                    egui::CollapsingHeader::new(&e.name)
+                        .id_salt(&e.id)
+                        .show(ui, |ui| {
+                            ui.text_edit_singleline(&mut e.name);
+                            ui.label("Use {{vault:name}} for sensitive values");
+                            render_key_value_editor(ui, &mut e.variables);
+                            if ui.button("Save environment").clicked() {
+                                e.updated_at = chrono::Utc::now();
+                                save = Some(e.clone());
+                            }
+                            if ui.button("Delete environment").clicked() {
+                                delete = Some(i);
+                            }
+                        });
+                }
+                if let Some(e) = save {
+                    self.result(storage::save_environment(&e));
+                }
+                if let Some(i) = delete {
+                    if self
+                        .result(storage::delete_environment(&self.environments[i]))
+                        .is_some()
+                    {
+                        let e = self.environments.remove(i);
+                        if self.active_environment_id.as_ref() == Some(&e.id) {
+                            self.active_environment_id = None;
+                        }
+                    }
+                }
+                if ui.button("Save all and close").clicked() {
+                    let mut good = true;
+                    for e in self.environments.clone() {
+                        if self.result(storage::save_environment(&e)).is_none() {
+                            good = false;
+                        }
+                    }
+                    if good {
+                        self.show_environments = false;
+                    }
+                }
+            });
+    }
+    fn runner_window(&mut self, ctx: &egui::Context) {
+        if !self.show_runner {
+            return;
+        }
+        egui::Window::new("Collection runner")
+            .default_size([700., 500.])
+            .show(ctx, |ui| {
+                egui::ComboBox::from_id_salt("run_collection")
+                    .selected_text(
+                        self.run_collection
+                            .as_ref()
+                            .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                            .map(|c| c.name.as_str())
+                            .unwrap_or("Select collection"),
+                    )
+                    .show_ui(ui, |ui| {
+                        for c in &self.collections {
+                            if ui
+                                .selectable_value(
+                                    &mut self.run_collection,
+                                    Some(c.id.clone()),
+                                    &c.name,
+                                )
+                                .changed()
+                            {
+                                self.run_folder = None;
+                            }
+                        }
+                    });
+                if let Some(c) = self
+                    .run_collection
+                    .as_ref()
+                    .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                {
+                    egui::ComboBox::from_id_salt("run_folder")
+                        .selected_text("Select folder")
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.run_folder, None, "Entire collection");
+                            folder_choices(ui, &c.folders, &mut self.run_folder, "");
+                        });
+                }
+                ui.label("Uses the active environment and saved collection requests");
+                ui.horizontal(|ui| {
+                    ui.label("Iterations (0 = number of data rows, or 1)");
+                    ui.add(
+                        egui::DragValue::new(&mut self.run_options.iterations).range(0..=100_000),
+                    );
+                });
+                ui.checkbox(&mut self.run_options.stop_on_failure, "Stop on failure");
+                ui.horizontal(|ui| {
+                    ui.label("Delay between requests (ms)");
+                    ui.add(egui::DragValue::new(&mut self.run_options.delay_ms).range(0..=60_000));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("CSV / JSON iteration data");
+                    ui.text_edit_singleline(&mut self.data_path);
+                    if ui.button("Choose").clicked() {
+                        if let Some(p) = rfd::FileDialog::new()
+                            .add_filter("Data", &["csv", "json"])
+                            .pick_file()
+                        {
+                            self.data_path = p.to_string_lossy().into();
+                        }
+                    }
+                });
+                if self.run_cancel.is_some() {
+                    if ui.button("Cancel run").clicked() {
+                        if let Some(c) = &self.run_cancel {
+                            c.cancel();
+                        }
+                    }
+                } else if ui.button("Run").clicked() {
+                    self.start_run();
+                }
+                if let Some(report) = &self.report {
+                    ui.label(if report.passed() {
+                        "Run passed"
+                    } else if report.cancelled {
+                        "Run cancelled"
+                    } else {
+                        "Run failed"
+                    });
+                    egui::ScrollArea::vertical()
+                        .max_height(250.)
+                        .show(ui, |ui| {
+                            for e in &report.entries {
+                                ui.collapsing(
+                                    format!(
+                                        "{} · {} · {} · {} ms",
+                                        if e.passed() { "PASS" } else { "FAIL" },
+                                        e.iteration,
+                                        e.name,
+                                        e.time_ms
+                                    ),
+                                    |ui| {
+                                        ui.label(format!("HTTP {}", e.status));
+                                        if let Some(error) = &e.error {
+                                            ui.label(error);
+                                        }
+                                        for t in &e.tests {
+                                            ui.label(format!(
+                                                "{} {}",
+                                                if t.passed { "PASS" } else { "FAIL" },
+                                                t.name
+                                            ));
+                                        }
+                                    },
+                                );
+                            }
+                        });
+                    for (label, bytes) in [
+                        (
+                            "Export JSON",
+                            serde_json::to_vec_pretty(report).unwrap_or_default(),
+                        ),
+                        ("Export JUnit", report.junit().into_bytes()),
+                    ] {
+                        if ui.button(label).clicked() {
+                            if let Some(p) = rfd::FileDialog::new().save_file() {
+                                let result = rustapi::workspace::atomic_write(&p, &bytes);
+                                self.result(result);
+                            }
+                        }
+                    }
+                }
+                if ui.button("Close").clicked() {
+                    self.show_runner = false;
+                }
+            });
+    }
+    fn vault_window(&mut self, ctx: &egui::Context) {
+        if !self.show_vault {
+            return;
+        }
+        egui::Window::new("Local encrypted secrets")
+            .default_width(550.)
+            .show(ctx, |ui| {
+                ui.label(
+                    "Use {{vault:name}} in requests and variables. The password is never saved.",
+                );
+                let path = storage::get_app_data_dir().join(".local/vault.json");
+                if !self.vault_unlocked {
+                    ui.label("Vault password (12+ characters)");
+                    ui.add(egui::TextEdit::singleline(&mut self.vault_password).password(true));
+                    if ui.button("Unlock / create vault").clicked() {
+                        if let Some(secrets) =
+                            self.result(rustapi::secrets::load(&path, &self.vault_password))
+                        {
+                            self.secrets = secrets;
+                            self.vault_unlocked = true;
+                        }
+                    }
+                } else {
+                    let mut delete = None;
+                    for key in self.secrets.keys() {
+                        ui.horizontal(|ui| {
+                            ui.label(key);
+                            if ui.button("Delete").clicked() {
+                                delete = Some(key.clone());
+                            }
+                        });
+                    }
+                    if let Some(key) = delete {
+                        let mut next = self.secrets.clone();
+                        next.remove(&key);
+                        if self
+                            .result(rustapi::secrets::save(&path, &self.vault_password, &next))
+                            .is_some()
+                        {
+                            self.secrets = next;
+                        }
+                    }
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut self.secret_name);
+                    ui.label("Value");
+                    ui.add(egui::TextEdit::singleline(&mut self.secret_value).password(true));
+                    if ui.button("Save secret").clicked() && !self.secret_name.trim().is_empty() {
+                        let mut next = self.secrets.clone();
+                        next.insert(self.secret_name.trim().into(), self.secret_value.clone());
+                        if self
+                            .result(rustapi::secrets::save(&path, &self.vault_password, &next))
+                            .is_some()
+                        {
+                            self.secrets = next;
+                            self.secret_value.clear();
+                        }
+                    }
+                    if ui.button("Lock vault").clicked() {
+                        self.secrets.clear();
+                        self.vault_password.clear();
+                        self.vault_unlocked = false;
+                    }
+                }
+                if ui.button("Close").clicked() {
+                    self.show_vault = false;
+                }
+            });
+    }
+}
+fn edit_variables(ui: &mut egui::Ui, vars: &mut std::collections::HashMap<String, String>) {
+    let mut rows: Vec<_> = vars.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut delete = None;
+    for (i, (k, v)) in rows.iter_mut().enumerate() {
+        ui.push_id(i, |ui| {
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(k);
+                ui.text_edit_singleline(v);
+                if ui.small_button("Remove").clicked() {
+                    delete = Some(i);
+                }
+            });
+        });
+    }
+    if let Some(i) = delete {
+        rows.remove(i);
+    }
+    if ui.button("Add variable").clicked() {
+        rows.push((format!("variable_{}", rows.len() + 1), String::new()));
+    }
+    *vars = rows.into_iter().collect();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn identity_response_attribution_save_failure_and_draft_recovery() {
+        let profile_guard = crate::test_support::Profile::new();
+        let profile = &profile_guard.directory;
+        let mut app = RustApiApp::default();
+        let mut c = Collection::new("Collection");
+        let a = ApiRequest::new("A");
+        let b = ApiRequest::new("B");
+        let z = ApiRequest::new("C");
+        let cid = c.id.clone();
+        let bid = b.id.clone();
+        let zid = z.id.clone();
+        c.requests = vec![a.clone(), b.clone(), z];
+        assert!(app.commit_collection(c));
+        app.tab_manager.open_tab(b.clone(), Some(cid.clone()));
+        let tabid = app.tab_manager.active_tab().unwrap().id.clone();
+        app.action(Action::Delete(cid.clone(), a.id));
+        app.tab_manager.active_tab_mut().unwrap().request.url = "http://edited".into();
+        app.tab_manager.active_tab_mut().unwrap().is_modified = true;
+        assert!(app.save_tab(&tabid, None));
+        assert_eq!(app.collections[0].request(&zid).unwrap().name, "C");
+        assert_eq!(
+            app.collections[0].request(&bid).unwrap().url,
+            "http://edited"
+        );
+        app.tab_manager.active_tab_mut().unwrap().pending =
+            Some(("execution".into(), Cancellation::default()));
+        let sent = app.tab_manager.active_tab().unwrap().request.clone();
+        app.tab_manager.open_tab(ApiRequest::new("different"), None);
+        let mut sent_env = Environment::new("Sent environment");
+        sent_env.variables.push(KeyValue::new("token", "old"));
+        let sent_env_id = sent_env.id.clone();
+        app.environments.push(sent_env);
+        app.environments.push(Environment::new("Other environment"));
+        app.active_environment_id = Some(app.environments[1].id.clone());
+        app.variables.insert("concurrent".into(), "keep".into());
+        app.sender
+            .send(AsyncMessage::Response {
+                epoch: app.epoch,
+                tab_id: tabid.clone(),
+                execution: "execution".into(),
+                request: Box::new(sent),
+                response: Box::new(ApiResponse {
+                    status: 201,
+                    ..Default::default()
+                }),
+                variables: Variables {
+                    environment: BTreeMap::from([("token".into(), "new".into())]),
+                    ..Default::default()
+                },
+                before: Box::new(Variables {
+                    environment: BTreeMap::from([("token".into(), "old".into())]),
+                    ..Default::default()
+                }),
+                environment_id: Some(sent_env_id),
+                collection_id: Some(cid.clone()),
+            })
+            .unwrap();
+        app.process_messages();
+        assert_eq!(app.environments[0].variables[0].value, "new");
+        assert!(app.environments[1].variables.is_empty());
+        assert_eq!(app.variables["concurrent"], "keep");
+        assert!(app.tab_manager.active_tab().unwrap().response.is_none());
+        assert_eq!(
+            app.tab_manager.tabs[0].response.as_ref().unwrap().status,
+            201
+        );
+        assert_eq!(storage::load_history().entries[0].request.id, bid);
+        app.tab_manager.active_tab_idx = Some(0);
+        app.collections[0].file_path = Some(profile.path().to_string_lossy().into());
+        app.tab_manager.active_tab_mut().unwrap().is_modified = true;
+        assert!(!app.save_tab(&tabid, None));
+        assert!(app.tab_manager.active_tab().unwrap().is_modified);
+        assert!(app.error.is_some());
+        app.persist_drafts();
+        let recovered = storage::load_drafts::<TabManager>().unwrap();
+        assert!(recovered.tabs[0].is_modified);
+        assert!(recovered.tabs[0].response.is_none());
+        assert!(recovered.tabs[0].pending.is_none());
+        let second = Collection::new("Second");
+        let second_id = second.id.clone();
+        assert!(app.commit_collection(second));
+        app.tab_manager.active_tab_mut().unwrap().collection_id = None;
+        assert!(app.save_tab(&tabid, Some((second_id, None))));
+        assert!(!app.tab_manager.active_tab().unwrap().is_modified);
     }
 }
 
 #[cfg(test)]
 #[path = "../tests/unit/app.rs"]
-mod tests;
+mod interaction_tests;

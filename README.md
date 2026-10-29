@@ -1,228 +1,180 @@
-# 🦀 RustAPI
+# RustAPI
 
-A fast, file-based API testing client built in Rust, inspired by [Bruno](https://www.usebruno.com/).
+A local-first REST client built in Rust and egui. Create Git-friendly workspaces,
+import Postman collections, send requests, test responses, and run the same collections
+from the desktop or a headless CLI. No account or cloud service is required.
 
-![Rust](https://img.shields.io/badge/Rust-1.98.0-orange)
-![License](https://img.shields.io/badge/License-GPL--3.0--or--later-blue)
+This release targets the everyday REST workflow. It implements a documented subset
+of Postman's scripting APIs; it does not claim full Postman compatibility.
+See [migration and compatibility](docs/postman-compatibility.md).
 
-## ✨ Features
+## Features
 
-- **File-Based Collections** - All your API collections are stored as JSON files, making them easy to version control with Git
-- **Environment Variables** - Define variables per environment and use `{{variable}}` syntax in URLs, headers, and body
-- **HTTP Methods** - Support for GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
-- **Request Body Types** - JSON, Text, Form Data, URL Encoded
-- **Authentication** - Bearer Token, Basic Auth, API Key (header or query param)
-- **Multiple Tabs** - Work with multiple requests simultaneously
-- **Code Generation** - Generate code snippets in cURL, Python, JavaScript, and Rust
-- **Request History** - Track all previously sent requests
-- **Request Duplication** - Easily duplicate existing requests
-- **Modern Dark UI** - Beautiful One Dark inspired theme
-- **Fast & Lightweight** - Built with Rust and egui for native performance
-- **Cross-Platform** - Works on Windows, macOS, and Linux
+- Collections and nested folders with inherited variables/authentication, rename,
+  duplication, move, and ordering controls.
+- Multiple request tabs with stable identities, Save As, dirty indicators, close
+  protection, cancellation, and recoverable local drafts.
+- GET, POST, PUT, PATCH, DELETE, HEAD and OPTIONS; query parameters, headers, JSON,
+  text, URL-encoded forms, multipart file uploads and binary files.
+- Collection/folder, environment, iteration and local variables with strict
+  unresolved-variable diagnostics and `{{vault:name}}` secret references.
+- Basic, bearer and API-key auth; OAuth 2 client credentials and authorization code
+  with PKCE, loopback state validation, token caching and refresh.
+- TLS verification by default, per-request development override, custom CA and
+  client-certificate PEM files, proxies, redirects, timeouts and response limits.
+- Workspace session cookies with inspect, set and clear controls.
+- Response search/copy, bounded text preview, raw binary download, total transfer
+  duration, assertions, JSON extraction, and pre/post scripts.
+- Collection/folder runs with CSV/JSON data, cancellation, live results and JSON/JUnit
+  reports. The GUI and CLI share the same execution pipeline.
+- Postman collection v2.1/environment JSON and cURL import. Native collection export
+  redacts known sensitive fields by default; including credentials is an explicit action.
+- cURL, Python requests, JavaScript Fetch and Rust reqwest code generation.
 
-## 📁 Project Structure
+## Build and run
 
-```
-src/
-├── main.rs              # Entry point
-├── app.rs               # Main application state and update loop
-├── models/              # Data models
-│   ├── mod.rs
-│   ├── request.rs       # ApiRequest, HttpMethod, BodyType, KeyValue
-│   ├── response.rs      # ApiResponse
-│   ├── collection.rs    # Collection, Folder
-│   ├── environment.rs   # Environment
-│   ├── auth.rs          # AuthConfig, AuthType
-│   └── history.rs       # RequestHistory, HistoryEntry
-├── http/                # HTTP client and code generation
-│   ├── mod.rs
-│   ├── client.rs        # Request execution with reqwest
-│   └── code_gen.rs      # Code generation (cURL, Python, JS, Rust)
-├── storage/             # File-based persistence
-│   ├── mod.rs
-│   └── file_storage.rs  # Save/load collections, environments, history
-├── ui/                  # UI components
-│   ├── mod.rs
-│   ├── style.rs         # Dark theme styling
-│   ├── tabs.rs          # Tab management
-│   ├── top_bar.rs       # Environment selector, import
-│   ├── sidebar.rs       # Collections tree
-│   ├── request_editor.rs# Request editing (params, headers, body)
-│   ├── auth_editor.rs   # Authentication configuration
-│   ├── response_viewer.rs# Response display
-│   ├── modals.rs        # Modal dialogs
-│   ├── code_gen_modal.rs# Code generation modal
-│   └── history_panel.rs # Request history panel
-└── utils/               # Utility functions
-    └── mod.rs
-```
+Install Rustup; `rust-toolchain.toml` pins Rust 1.98.0. On Linux, install the build
+packages listed in `docker/build-packages.txt`.
 
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Rustup (the repository pins Rust 1.98.0 in `rust-toolchain.toml`)
-- Cargo (comes with Rust)
-- Linux build packages: install the packages in `docker/build-packages.txt` with your package manager
-
-### Installation
-
-```bash
-# Clone the repository
+```sh
 git clone https://github.com/wulfnb/rustapi.git
 cd rustapi
-
-# Build and run
-cargo run --release
+cargo run --locked -- --workspace /path/to/api-project
 ```
 
-### Building for Production
+Use **Open / create workspace** to select a project folder in the desktop. Right-click
+a collection or folder to add requests, edit variables/auth/scripts, move, rename or
+export. New requests and history entries can be saved into a selected collection.
+Request editing has Params, Headers, Body, Auth, Tests, Scripts and Settings tabs.
+Use JSON Pointer paths such as `/user/id` for JSON assertions and extraction.
+Cmd/Ctrl+O opens JSON import; Cmd/Ctrl+Shift+E exports the active request's collection
+(or the first collection when no request is active).
 
-```bash
-cargo build --release
+Workspaces contain:
+
+```text
+api-project/
+  rustapi.json          # workspace schema/version
+  collections/          # ID-named JSON files, including nested folders
+  environments/         # ID-named environment JSON
+  .gitignore            # excludes local state and secrets
+  .local/vault.json     # encrypted local secrets, never a plaintext key
+  .local/migrations/    # backups of retired legacy environment files
+  drafts.json           # recoverable local request tabs
+  state.json
+  history.json          # redacted history; bodies omitted
 ```
 
-The binary will be available at `target/release/rustapi`.
+Collection and environment names can be changed without changing their identity.
+Old native collection JSON is readable; newly written collections carry schema
+version 1. Unknown future schemas and malformed files produce visible errors.
+Uploads and certificate paths can be relative to the workspace root. Imported files
+are copied into managed storage; editing a copy does not modify its source file.
 
-### Docker (browser-accessible desktop)
+Without `--workspace`, data uses the normal OS application data directory under
+`rustapi`. `RUSTAPI_DATA_DIR` overrides that location. Local drafts can contain data
+that you type into the request editor; use vault references for secrets and keep
+local state out of version control. Responses are not serialized into drafts.
 
-```bash
+## Migrate from Postman
+
+Export a Postman **collection v2.1 JSON** and its environment JSON. Use **Import** in
+the desktop, or:
+
+```sh
+rustapi import collection.postman_collection.json --workspace /path/to/api-project
+rustapi import development.postman_environment.json --workspace /path/to/api-project
+rustapi import --curl 'curl -H "Accept: application/json" https://example.com/users' --workspace /path/to/api-project
+```
+
+Import validates the entire document before saving it. Scripts are preserved, with
+compatibility warnings. Unsupported body modes stop import; unsupported script APIs
+fail when executed rather than silently passing. Review local file paths and OAuth
+configuration after migration.
+
+## Tests and collection runs
+
+In **Tests**, add status/header/JSON/body/time assertions and JSON-to-variable
+extractors. For example, extract `/access_token` into `token`, then use `{{token}}`
+in a later request's bearer authentication. Run a saved collection from **Runner**.
+
+A supported post-response script looks like:
+
+```javascript
+pm.test("status is 200", () => {
+  pm.response.to.have.status(200);
+});
+pm.environment.set("token", pm.response.json().access_token);
+```
+
+Headless runs do not initialize the GUI:
+
+```sh
+rustapi run collections/COLLECTION-ID.json \
+  --workspace /path/to/api-project \
+  --environment environments/ENVIRONMENT-ID.json \
+  --data users.csv --stop-on-failure \
+  --report-json results.json --report-junit results.xml
+```
+
+Collection/environment/data paths are relative to the shell's working directory;
+upload and certificate paths are relative to their workspace/collection source.
+`--folder ID` selects a folder, `--iterations N` overrides the number of data rows,
+and `--delay MS` adds a cancellable delay between requests. Ctrl-C cancels a run.
+Exit codes: **0** pass, **1** assertion/script/transport failure or cancellation,
+**2** invalid arguments/configuration/import. HTTP error statuses can be tested
+explicitly with assertions. Reports omit request/response bodies and transport details.
+
+## Secrets and OAuth
+
+Open **Vault**, choose a password of at least 12 characters, and save named values.
+Reference them as `{{vault:api_token}}`. The encrypted store uses Argon2 key derivation
+and AES-256-GCM; the password/key is not saved. Losing the password means losing access
+to that vault. Unlocking applies to the current application session.
+
+For CLI automation, provide `RUSTAPI_VAULT_PASSWORD` through your CI secret mechanism.
+`rustapi vault set NAME --workspace DIR` reads the secret value from stdin;
+`rustapi vault delete NAME --workspace DIR` removes it. Neither takes secrets as
+command-line arguments. The vault file is under `.local/`, excluded from Git.
+
+For OAuth PKCE, select **Authorization code + PKCE** in Auth, configure your provider,
+and choose **Authorize in browser**. Register an `http://127.0.0.1:PORT/callback`
+redirect with the provider; configure a fixed port in the redirect field when the
+provider requires one. The callback validates state and expires after two minutes.
+OAuth tokens are kept in memory and refreshed when supported by the provider.
+Client certificate settings expect a PEM containing both the certificate and key.
+
+## Docker desktop
+
+```sh
 docker compose up --build -d
 ```
 
-Open [RustAPI in your browser](http://localhost:6080/vnc.html?autoconnect=true&resize=scale).
-This runs the native application on a virtual Linux display with noVNC. Collections,
-environments, and history persist in the `rustapi-data` volume. The viewer has no
-authentication; Compose binds it to `127.0.0.1`. Use a trusted tunnel for remote access.
+Open http://localhost:6080/vnc.html?autoconnect=true&resize=scale . The native Linux app
+runs on a virtual display with noVNC. The viewer has no authentication; Compose binds
+it to localhost. Use a trusted tunnel for remote access. Data persists in the
+`rustapi-data` volume. Host APIs are reached using `host.docker.internal`.
 
-To call an API running on your host, use `host.docker.internal` instead of `localhost`.
-Use `docker compose down` to stop the app while retaining its data.
+## Validation
 
-### Tests and CI/CD
-
-```bash
+```sh
 cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
-cargo build --locked
-python3 scripts/desktop-smoke.py target/debug/rustapi
+cargo test --locked --doc
+cargo build --locked --examples
+python -m pip install requests==2.32.5
+python scripts/codegen-smoke.py target/debug
+python scripts/desktop-smoke.py target/debug/rustapi
 ```
 
-On Windows use `python` and `target/debug/rustapi.exe`. On a headless Linux machine,
-run the desktop check with `xvfb-run -a` and `LIBGL_ALWAYS_SOFTWARE=1`.
-Tests use temporary storage and loopback HTTP servers, with no public API dependency.
+Code-generation validation also needs Node 20+, curl and bash (POSIX systems).
+On headless Linux, run desktop smoke under Xvfb with `LIBGL_ALWAYS_SOFTWARE=1`.
+Tests use temporary profiles and loopback servers. CI validates native platforms,
+Docker, packaging and coverage; see [CI/CD](docs/ci-cd.md) and
+[validation evidence](docs/validation.md).
 
-CI checks Linux, Windows x64, macOS Apple Silicon and Intel, plus the Docker desktop.
-The Linux quality job enforces full Rust line/function, Python statement/branch, and
-shell-launcher execution coverage; see [coverage scope and commands](docs/ci-cd.md#validation).
-Pushes to `main` publish per-commit previews; tags matching `v<Cargo.toml version>`
-publish versioned releases. All publishing waits for CI and packaged-app validation.
-See [CI/CD and release setup](docs/ci-cd.md) for artifacts, image tags, and setup details.
+## License
 
-## 📖 Usage
-
-### Creating a Collection
-
-1. Click the **➕** button next to "Collections" in the sidebar
-2. Enter a name for your collection
-3. Click "Create"
-
-### Adding a Request
-
-1. Right-click on a collection
-2. Select "➕ Add Request"
-3. A new request will be added and opened in a new tab
-
-### Sending a Request
-
-1. Select a request from the sidebar (opens in a tab)
-2. Choose the HTTP method (GET, POST, etc.)
-3. Enter the URL
-4. Configure params, headers, body, or auth as needed
-5. Click **▶ Send** or press Enter
-
-### Using Authentication
-
-1. Select the **Auth** tab in the request editor
-2. Choose auth type:
-   - **Bearer Token**: Enter your token
-   - **Basic Auth**: Enter username and password
-   - **API Key**: Enter key name, value, and location (header or query param)
-
-### Generating Code
-
-1. Configure your request
-2. Click the **< >** button next to the Send button
-3. Select language (cURL, Python, JavaScript, or Rust)
-4. Copy the generated code
-
-### Using Environments
-
-1. Click the **⚙** button in the top bar
-2. Create a new environment
-3. Add variables (e.g., `base_url` = `https://api.example.com`)
-4. Select the environment from the dropdown
-5. Use `{{base_url}}` in your URLs: `{{base_url}}/users`
-
-### Multiple Tabs
-
-- Click on requests in the sidebar to open them in new tabs
-- Click **×** on a tab to close it
-- Click **➕** in the tab bar to create a new unsaved request
-
-### Request History
-
-1. Click **📜 History** in the top bar
-2. View all previously sent requests
-3. Click on any request to load it into a new tab
-
-### Import/Export
-
-- **Export**: Right-click a collection → Export
-- **Import**: Click "📁 Import" in the top bar
-
-## 🗂 Data Storage
-
-RustAPI stores data in your system's data directory:
-
-- **macOS**: `~/Library/Application Support/rustapi/`
-- **Linux**: `~/.local/share/rustapi/`
-- **Windows**: `%APPDATA%\rustapi\`
-
-Set `RUSTAPI_DATA_DIR` to use a different directory (Docker uses `/data`).
-
-Structure:
-```
-rustapi/
-├── collections/     # Your API collections (JSON files)
-├── environments/    # Environment configurations
-├── history.json     # Request history
-└── state.json       # App state (active env, etc.)
-```
-
-## ⌨️ Keyboard Shortcuts
-
-| Action | Shortcut |
-|--------|----------|
-| Send Request | `Enter` (when URL is focused) |
-
-## 🛠 Built With
-
-- [egui](https://github.com/emilk/egui) - Immediate mode GUI framework
-- [eframe](https://github.com/emilk/egui/tree/master/crates/eframe) - Framework for egui apps
-- [reqwest](https://github.com/seanmonstar/reqwest) - HTTP client
-- [serde](https://github.com/serde-rs/serde) - Serialization framework
-- [tokio](https://github.com/tokio-rs/tokio) - Async runtime
-
-## 📝 License
-
-**GPL-3.0-or-later** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-Anyone may use, modify, contribute to, and sell RustAPI. Distributing a GPL-covered
-derivative requires providing its corresponding source under the GPL. Private use
-does not require publication. Testing another product with RustAPI does not make
-that product a derivative. See [CONTRIBUTING.md](CONTRIBUTING.md) to participate.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+GPL-3.0-or-later. See [LICENSE](LICENSE), [NOTICE](NOTICE), and
+[contribution instructions](CONTRIBUTING.md). Dependencies retain their own licenses.
