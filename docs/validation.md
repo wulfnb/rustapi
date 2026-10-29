@@ -14,7 +14,7 @@ coverage and release results must not be attributed to this implementation.
 | Workflow linter, Compose configuration, Python syntax | Passed |
 | macOS native event-loop startup/shutdown | Passed with an isolated temporary profile |
 | macOS packaging mechanics | Ad-hoc signature, ZIP creation/extraction and DMG checksum verification passed using a development binary |
-| Packaged desktop inspection | Imported Postman collection, nested folder and request tree visible through native accessibility |
+| Packaged desktop inspection | Imported request collection, nested folder and request tree visible through native accessibility |
 | Linux runtime image/noVNC smoke | Not revalidated for this implementation |
 | Windows x64 and Intel macOS | Await PR CI; not locally executed |
 | Fresh coverage percentage | Not measured locally; CI produces the complete report |
@@ -28,7 +28,7 @@ or runtime smoke check. The test stage now uses two compiler jobs and no debug s
 to reduce its storage footprint. Source files and application profiles were preserved.
 
 The suite exercises ID-based saves/deletes, async response attribution, save failures,
-draft recovery, Postman import/ordering/auth, scoped variables, script limits, assertions,
+draft recovery, collection import/ordering/auth, scoped variables, script limits, assertions,
 extraction and chained runs, data iteration, cookie sessions, cancellation, timeout and
 body limits, binary/multipart uploads, proxy/redirect behavior, TLS default/custom trust,
 OAuth client credentials/refresh/PKCE callback state, encrypted vault integrity, redacted
@@ -38,8 +38,8 @@ public test fixture, never a production identity.
 
 An optimized final release, notarization/signing with publisher credentials, real OAuth
 provider credentials, all-platform packaged runtime proof, full GUI interaction coverage,
-and complete Postman API compatibility are not claimed. See
-[the compatibility contract](postman-compatibility.md) for supported behavior and limits.
+and complete external scripting API compatibility are not claimed. See
+[the compatibility contract](import-compatibility.md) for supported behavior and limits.
 
 ## Main merge baseline
 

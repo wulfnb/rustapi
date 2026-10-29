@@ -1,10 +1,15 @@
-# RustAPI implementation plan for Postman gaps
+# RustAPI implementation plan
 
 Prepared **2026-10-29** for RustAPI `70b02c0`. This is proposed work, not an
-implementation-complete checklist. The [comparison](postman-comparison.md) contains
-31 gap IDs, repository evidence, screenshot mapping and dated official sources.
-The [compatibility contract](postman-compatibility.md) remains the description of
+implementation-complete checklist. The [feature gap analysis](feature-gap-analysis.md) contains
+31 gap IDs, repository evidence and prioritized workflow requirements.
+The [compatibility contract](import-compatibility.md) remains the description of
 what currently works.
+
+Work proceeds **one bounded step at a time**. The
+[progress record](implementation-progress.md) identifies the completed checkpoint,
+validation results and exact next slice. Finish and verify that slice before opening
+another package; the milestone table describes dependencies, not parallel execution.
 
 ## Delivery order and scope
 
@@ -15,12 +20,12 @@ No UI framework rewrite or mandatory account is needed for the first milestones.
 | Milestone | Packages in dependency order | Result / exit gate |
 | --- | --- | --- |
 | M0: trustworthy migration | E00 → E01 | Current baseline recorded; supported imports preserve semantics; unsupported/lost data is explicitly reported before saving. |
-| M1: everyday replacement | E02 and E03 after E01; E04 after E02; E05/E06 alongside them once E01 stabilizes | Saved examples, richer editing/inspection, common scripts, diagnostics, OAuth improvements and supported Postman round trips work through GUI and CLI. |
+| M1: everyday REST workflow | E02 → E03 → E04 → E05 → E06, after E01 | Saved examples, richer editing/inspection, common scripts, diagnostics, OAuth improvements and supported collection round trips work through GUI and CLI. |
 | M2: local API lifecycle | E07 after E02/E05; E08 after E02; E09 after E05 | OpenAPI import/contracts, local generated docs, local mocks and reproducible run assets. |
 | M3: selected extensions | E10 after E09; E11 after E01/E03/E05 | Bounded load testing and individually validated protocol clients. Pick protocols from actual project demand. |
 | M4: optional platform | E12, only after a separate scope decision | Git UX, capture and other local extensions can ship separately; hosted services, organizational features, Flows and AI require their own designs. |
 
-P0/P1/P2/P3 in the comparison indicate priority, not severity of every missing
+P0/P1/P2/P3 in the gap analysis indicate priority, not severity of every missing
 feature. In particular, clear v3 rejection is an M0 requirement; implementing v3
 is an M1 interoperability task. Dates and staffing are not committed: estimate each
 package after its format/runtime spike and fixture inventory, and split large
@@ -34,7 +39,7 @@ packages into independently reviewable changes.
    bump, migration, backup and clear rejection by older readers. Never silently
    reinterpret an old serialized enum or rewrite the original imported file.
 2. **Separate adapters from the native model.** Split `src/import.rs` into native,
-   Postman v2.1, Postman v3, cURL and later OpenAPI adapters. Return a structured
+   collection v2.1, collection v3, cURL and later OpenAPI adapters. Return a structured
    report containing source path, feature, severity and disposition: preserved,
    converted, unsupported or omitted. Do not place credential values in reports.
 3. **Prepare requests once.** Introduce a shared prepared HTTP request abstraction
@@ -83,7 +88,7 @@ is derived from a fixture count.
 
 - Preserve parameter/header/form descriptions, request/folder descriptions, structured
   path-variable definitions, all files in multipart arrays and per-part MIME types.
-- Inventory Postman request settings (`protocolProfileBehavior`) and unsupported
+- Inventory imported request settings (`protocolProfileBehavior`) and unsupported
   metadata. Convert supported semantics explicitly; report every material omission.
   Until E02 lands, saved examples must be identified as unsupported rather than lost
   without a specific warning. Keep the imported source untouched.
@@ -114,7 +119,7 @@ write nothing. Existing TLS defaults, atomic saves and identity tests remain pas
   headers, content type and body/asset reference. Support several examples per request.
 - Add Save response as example, Add/Edit/Duplicate/Delete example, example children
   in the tree and Try in a new request tab. Example editing must not issue a request.
-- Import Postman saved responses and their original request details. Preserve binary
+- Import saved responses and their original request details. Preserve binary
   bytes where the supported source format allows them; diagnose unsupported encodings.
 - Add request/folder Markdown descriptions, a local workspace README and document
   navigation. Start with safe Markdown rendering; hosted collaboration is excluded.
@@ -155,7 +160,7 @@ parameters; variables show the correct scope; searching does not reveal vault co
 large responses remain usable with honest truncation notices. Exercise keyboard-only
 navigation and clipboard behavior in native GUI smoke tests.
 
-## E04 — Postman interoperability, including v3
+## E04 — Collection interoperability, including v3
 
 **Priority:** P1. **Gaps:** G01, G04. **Depends on:** E01/E02.
 
@@ -177,9 +182,9 @@ navigation and clipboard behavior in native GUI smoke tests.
 **Acceptance:** supported v2.1 exports validate against the official schema and retain
 semantic request/example/environment data on reimport; redaction is tested separately
 from fidelity. v3 fixtures preserve order and resources; invalid paths cannot read or
-overwrite outside the allowed import boundary. Validate selected fixtures in Postman
-as a separate interoperability gate, recording its version; RustAPI round trips alone
-cannot prove Postman compatibility. [Official schema reference](https://learning.postman.com/docs/use/use-collections/collections-schemas)
+overwrite outside the allowed import boundary. Validate selected fixtures in an
+independent compatible client as a separate interoperability gate, recording its
+version; RustAPI round trips alone cannot prove external format compatibility.
 
 ## E05 — Scripts, assertions and useful diagnostics
 
@@ -378,5 +383,5 @@ and operating model before scheduling.
   control, dependency addition or schema field alone does not complete its feature.
 
 The next implementation change should be **E01's import report and fidelity fixtures**,
-followed by its metadata/path/multipart fixes. Saved examples and editor improvements
-can then proceed in parallel on that stable model.
+followed by its metadata/path/multipart fixes, each as a separate verified step.
+Saved examples and editor improvements follow once that model is stable.

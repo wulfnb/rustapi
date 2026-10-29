@@ -1,19 +1,18 @@
-# RustAPI: local-first Postman alternative audit
+# RustAPI: local-first REST client baseline audit
 
 > Historical baseline audit of main before implementation. See [current capabilities](../README.md)
-> and [compatibility boundaries](postman-compatibility.md) for the implementation on this branch.
-> The [2026-10-29 comparison](postman-comparison.md) and
-> [implementation plan](postman-implementation-plan.md) describe the newer checkout's remaining gaps.
+> and [compatibility boundaries](import-compatibility.md) for the implementation on this branch.
+> The [2026-10-29 feature gap analysis](feature-gap-analysis.md) and
+> [implementation plan](implementation-plan.md) describe the newer checkout's remaining gaps.
 
 Reviewed on 2026-10-28 against freshly fetched `origin/main`, commit
 `8359bb4a640be57aed6323a1acdcda59679ffda0`.
 Branch: `review/main-gap-audit-2026-10-28`.
-Worktree: `/private/tmp/rustapi-postman-review`.
 
 The first-release target was confirmed by the user: a local-first REST client with
-collections, environments, authentication, Postman import, tests, and CLI runs.
+collections, environments, authentication, collection import, tests, and CLI runs.
 RustAPI has a useful native request editor and HTTP transport foundation, but is
-not yet ready to replace Postman for that workflow. Data integrity is the first
+not yet ready as a dependable daily client for that workflow. Data integrity is the first
 release gate, followed by migration and executable test workflows.
 
 ## Current capability and missing work
@@ -29,7 +28,7 @@ release gate, followed by migration and executable test workflows.
 | Cookies | No configured shared cookie store or cookie UI | Workspace cookie jar and inspect/edit/clear controls for login workflows |
 | Bodies and files | JSON, text, URL-encoded, multipart text | Multipart file fields and actual binary bytes/file uploads with content type |
 | Response inspection | Status, headers, text/JSON, timing and size | Search/copy/download; binary-safe saving; bounded previews and large-body handling; total body-transfer timing |
-| Postman migration | Import deserializes RustAPI's own Collection JSON only | Postman collection v2.1 and environment JSON import, nested folders, auth, variables and bodies; explicit warnings for unsupported scripts/features |
+| Collection migration | Import deserializes RustAPI's own Collection JSON only | collection v2.1 and environment JSON import, nested folders, auth, variables and bodies; explicit warnings for unsupported scripts/features |
 | Other migration | No cURL or OpenAPI importer | cURL import for initial release; OpenAPI import after the core migration path |
 | Assertions and extraction | No assertion, script, extraction or test-result model | Status/header/JSON/body/time assertions; response-to-variable extraction; pass/fail results on single sends and runs |
 | Scripts | No pre-request or post-response runtime | A documented compatibility boundary; time-limited JavaScript subset for common imported `pm.*` scripts, with unsupported APIs reported rather than discarded |
@@ -43,7 +42,7 @@ Scope decisions: no required account or cloud service for the first release.
 Cloud sync, live collaboration, RBAC, hosted mocks, monitors, documentation publishing,
 GraphQL tooling, WebSocket, gRPC and plugin systems are later milestones. JSON GraphQL
 requests can already be sent as ordinary HTTP bodies; specialized protocol tooling
-is a separate feature. Full Postman script/API compatibility is not an initial claim.
+is a separate feature. Full imported-script/API compatibility is not an initial claim.
 
 ## P0: fix before treating the app as a dependable daily client
 
@@ -148,8 +147,8 @@ transport trust default. P1 means necessary for the agreed usable REST release.
    or closing tabs during a slow request never misattributes a response; disk failure
    preserves unsaved state and reports an actionable error; same-named collections
    persist independently; TLS verification is on by default.
-2. **Postman migration and project model.** Add a versioned workspace format, nested
-   folders, collection variables/auth inheritance, Postman collection v2.1/environment
+2. **Collection migration and project model.** Add a versioned workspace format, nested
+   folders, collection variables/auth inheritance, collection v2.1/environment
    imports, and cURL import. Keep project data and local secrets separate.
    Gate: representative export fixtures retain methods, URLs, params, bodies, folders,
    auth and variables; unsupported scripts are preserved with visible warnings; input
@@ -209,18 +208,14 @@ API script compatibility must be tested separately from runtime availability.
   records after the active main run completes, keeping old local evidence distinct.
 - There is no product roadmap or migration compatibility contract on main. This audit
   supplies the initial release scope and acceptance gates; actual implementation is
-  outstanding. Do not label the current client a complete Postman replacement.
+  outstanding. Do not label the current client feature-complete.
 
-## Postman reference points
+## Reference workflows
 
-These sources establish the workflow being replaced; the release scope above is
-our selected subset rather than a claim of feature parity:
-
-- [Import formats and migration](https://learning.postman.com/docs/getting-started/importing-and-exporting/importing-data/)
-- [Collection and environment JSON exports](https://learning.postman.com/docs/getting-started/importing-and-exporting/exporting-data/)
-- [Variable scopes and precedence](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-variables/)
-- [Pre-request/post-response scripts and assertions](https://learning.postman.com/docs/tests-and-scripts/write-scripts/test-scripts/)
-- [Ordered collection runs, chaining, iteration data and automation](https://learning.postman.com/docs/tests-and-scripts/running-collections/intro-to-collection-runs/)
+The baseline scope covers collection/environment JSON migration, variable scopes,
+pre-request and post-response scripts, assertions, ordered runs, iteration data and
+CLI automation. See the [current compatibility contract](import-compatibility.md)
+and [implementation plan](implementation-plan.md) for supported behavior and next steps.
 
 No product fixes, commits, pushes, PRs or publishing were performed by this audit.
 This audit did not edit source files or switch branches in the original checkout.

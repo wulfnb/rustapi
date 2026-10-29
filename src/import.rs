@@ -233,7 +233,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
                 .as_str()
                 .unwrap_or_default()
                 .contains("v2.1.0"),
-            "Only Postman collection v2.1 is supported"
+            "Only collection schema v2.1 is supported"
         );
         let mut c = Collection::new(text(&v["info"]["name"]));
         c.description = text(&v["info"]["description"]);

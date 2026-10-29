@@ -5,10 +5,10 @@
 # RustAPI
 
 A local-first REST client built in Rust and egui. Create Git-friendly workspaces,
-import Postman collections, send requests, test responses, and run the same collections
+import request collections, send requests, test responses, and run the same collections
 from the desktop or a headless CLI. No account or cloud service is required.
 
-[**Website & Downloads**](https://wulfnb.github.io/rustapi/) · [**GitHub Releases**](https://github.com/wulfnb/rustapi/releases) · [**Postman Comparison**](docs/postman-comparison.md)
+[**Website & Downloads**](https://wulfnb.github.io/rustapi/) · [**GitHub Releases**](https://github.com/wulfnb/rustapi/releases) · [**Feature Roadmap**](docs/feature-gap-analysis.md)
 
 ## Download
 
@@ -39,11 +39,11 @@ docker run -d --name rustapi-client \
 Open `https://127.0.0.1:7443` in your browser and log in with your credentials.
 
 This release targets the everyday REST workflow. It implements a documented subset
-of Postman's scripting APIs; it does not claim full Postman compatibility.
-See [migration and compatibility](docs/postman-compatibility.md).
+of collection scripting APIs; imported scripts must use the supported subset.
+See [migration and compatibility](docs/import-compatibility.md).
 
-See the [Postman feature comparison](docs/postman-comparison.md) and
-[prioritized implementation plan](docs/postman-implementation-plan.md) for the
+See the [feature gap analysis](docs/feature-gap-analysis.md) and
+[prioritized implementation plan](docs/implementation-plan.md) for the
 2026-10-29 review of current capabilities, remaining gaps and planned work.
 
 ## Features
@@ -65,7 +65,7 @@ See the [Postman feature comparison](docs/postman-comparison.md) and
   duration, assertions, JSON extraction, and pre/post scripts.
 - Collection/folder runs with CSV/JSON data, cancellation, live results and JSON/JUnit
   reports. The GUI and CLI share the same execution pipeline.
-- Postman collection v2.1/environment JSON and cURL import. Native collection export
+- Collection v2.1/environment JSON and cURL import. Native collection export
   redacts known sensitive fields by default; including credentials is an explicit action.
 - cURL, Python requests, JavaScript Fetch and Rust reqwest code generation.
 
@@ -114,14 +114,14 @@ Without `--workspace`, data uses the normal OS application data directory under
 that you type into the request editor; use vault references for secrets and keep
 local state out of version control. Responses are not serialized into drafts.
 
-## Migrate from Postman
+## Import collections and environments
 
-Export a Postman **collection v2.1 JSON** and its environment JSON. Use **Import** in
+Export a **collection v2.1 JSON** and its environment JSON. Use **Import** in
 the desktop, or:
 
 ```sh
-rustapi import collection.postman_collection.json --workspace /path/to/api-project
-rustapi import development.postman_environment.json --workspace /path/to/api-project
+rustapi import collection.v2.1.json --workspace /path/to/api-project
+rustapi import development.environment.json --workspace /path/to/api-project
 rustapi import --curl 'curl -H "Accept: application/json" https://example.com/users' --workspace /path/to/api-project
 ```
 

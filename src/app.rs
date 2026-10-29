@@ -1052,7 +1052,7 @@ impl RustApiApp {
                 );
             } else {
                 ui.centered_and_justified(|ui| {
-                    ui.label("Create a request or import a Postman collection to get started.");
+                    ui.label("Create a request or import a collection to get started.");
                 });
             }
             if send {
@@ -1218,7 +1218,7 @@ impl RustApiApp {
             });
         }
         if self.show_import {
-            egui::Window::new("Import Postman / RustAPI / cURL")
+            egui::Window::new("Import collections / environments / cURL")
                 .default_width(600.)
                 .show(ctx, |ui| {
                     ui.label("JSON imports create a managed copy. Source files are unchanged.");

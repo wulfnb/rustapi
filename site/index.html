@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RustAPI — Native, High-Velocity API Testing Client</title>
-  <meta name="description" content="RustAPI is a native Rust desktop and CLI API testing client. Offline-first, sub-50ms launch time, sub-25 MB memory footprint, zero telemetry. An open-source Postman alternative.">
+  <meta name="description" content="RustAPI is a native Rust desktop and CLI client for local REST API workflows, collections, environments, response tests, and automated runs.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <style>
@@ -298,7 +298,7 @@
     }
     .terminal-body .cmd { color: var(--accent-light); font-weight: 600; }
 
-    /* Comparison Table */
+    /* Capability Table */
     .section-title {
       text-align: center;
       font-size: 2.2rem;
@@ -460,14 +460,14 @@
         <nav aria-label="Mobile navigation">
           <a href="#downloads">Downloads</a>
           <a href="#features">Features</a>
-          <a href="#comparison">Comparison</a>
+          <a href="#capabilities">Capabilities</a>
           <a href="#docker">Docker</a>
           <a href="https://github.com/wulfnb/rustapi">GitHub repository</a>
         </nav>
       </details>
       <div class="nav-links">
         <a href="#features">Features</a>
-        <a href="#comparison">Comparison</a>
+        <a href="#capabilities">Capabilities</a>
         <a href="#docker">Docker</a>
         <a href="#downloads">Downloads</a>
         <a href="impressum.html">Legal</a>
@@ -529,57 +529,43 @@
       </div>
     </section>
 
-    <!-- Comparison Section -->
-    <section id="comparison">
-      <h2 class="section-title">Why Developers Switch from Postman</h2>
-      <p class="section-subtitle">No mandatory cloud login, no slow Electron startup, and no artificial collection paywalls.</p>
+    <!-- Capabilities Section -->
+    <section id="capabilities">
+      <h2 class="section-title">Your API Workflow, on Your Machine</h2>
+      <p class="section-subtitle">Create, test, and automate requests with a native desktop app and a shared command-line engine.</p>
 
       <div class="table-container">
         <table>
           <thead>
             <tr>
-              <th>Feature / Metric</th>
+              <th>Capability</th>
               <th>RustAPI</th>
-              <th>Postman</th>
-              <th>Insomnia</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>Startup Latency</strong></td>
-              <td class="highlight-cell">&lt; 50 ms (Instant Native)</td>
-              <td>3,500 – 6,000 ms</td>
-              <td>2,500 – 4,500 ms</td>
+              <td><strong>Local Workspaces</strong></td>
+              <td class="highlight-cell">Collections and environments stored as JSON files</td>
             </tr>
             <tr>
-              <td><strong>RAM Usage (Idle)</strong></td>
-              <td class="highlight-cell">~25 MB</td>
-              <td>400 – 900 MB+</td>
-              <td>350 – 700 MB</td>
+              <td><strong>Desktop Client</strong></td>
+              <td class="highlight-cell">Native Rust and egui interface</td>
             </tr>
             <tr>
-              <td><strong>Binary Size</strong></td>
-              <td class="highlight-cell">~15 MB (Self-contained)</td>
-              <td>~250 MB</td>
-              <td>~180 MB</td>
+              <td><strong>Automated Runs</strong></td>
+              <td class="highlight-cell">Headless CLI with JSON and JUnit reports</td>
             </tr>
             <tr>
-              <td><strong>Offline-First &amp; Git</strong></td>
-              <td class="highlight-cell">100% Local JSON / Branchable</td>
-              <td>Cloud-locked / Sync Required</td>
-              <td>Cloud-prioritized</td>
+              <td><strong>Authentication</strong></td>
+              <td class="highlight-cell">Basic, bearer, API key, and OAuth 2 support</td>
             </tr>
             <tr>
-              <td><strong>Telemetry &amp; Tracking</strong></td>
-              <td class="highlight-cell">Zero Telemetry (100% Private)</td>
-              <td>Extensive Analytics</td>
-              <td>Analytics Enabled</td>
+              <td><strong>Account Setup</strong></td>
+              <td class="highlight-cell">No account or cloud service required</td>
             </tr>
             <tr>
               <td><strong>Open Source License</strong></td>
               <td class="highlight-cell">GPL-3.0-or-later</td>
-              <td>Proprietary</td>
-              <td>Partially Restricted</td>
             </tr>
           </tbody>
         </table>
@@ -589,7 +575,7 @@
     <!-- Feature Grid -->
     <section id="features">
       <h2 class="section-title">Built for Real Engineering Workflows</h2>
-      <p class="section-subtitle">Everything you need to build, test, and automate REST, GraphQL, and WebSocket APIs.</p>
+      <p class="section-subtitle">Build, test, and automate REST API workflows.</p>
 
       <div class="feature-grid">
         <div class="feature-card">

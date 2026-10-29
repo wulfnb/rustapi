@@ -1,15 +1,15 @@
-# Postman migration and first-release boundaries
+# Import compatibility and first-release boundaries
 
-RustAPI targets a local-first REST workflow. The supported import format is Postman
-collection v2.1 JSON plus Postman environment JSON, alongside native RustAPI JSON and
+RustAPI targets a local-first REST workflow. The supported import format is
+collection v2.1 JSON plus environment JSON, alongside native RustAPI JSON and
 cURL commands. There is no account requirement. Cloud/team features, hosted monitors,
 mocks, OpenAPI generation and specialized gRPC/WebSocket/GraphQL tooling remain later
-milestones. This release does not claim that arbitrary Postman collections run unchanged.
+milestones. This release does not claim that arbitrary imported collections run unchanged.
 
-For the current Postman v12/v3 format comparison, known import-fidelity gaps and
-future work, see the [feature comparison](postman-comparison.md) and
-[implementation plan](postman-implementation-plan.md). RustAPI currently imports
-v2.1 JSON, not Postman's v3 YAML directory format.
+For supported format boundaries, known import-fidelity gaps and
+future work, see the [feature gap analysis](feature-gap-analysis.md) and
+[implementation plan](implementation-plan.md). RustAPI currently imports
+v2.1 JSON; v3 YAML collection directories are not supported.
 
 ## Import and project data
 
@@ -17,12 +17,12 @@ Imports retain nested folder/request ordering, enabled parameters/headers/form f
 raw bodies, file references, collection/environment variables, inherited supported auth,
 and collection/folder/request pre/post scripts. Bodies support raw JSON/text, URL-encoded,
 multipart and file modes. Unrecognized methods/body modes stop the import before files
-are written. Postman v1/v2.0 collections must be exported as v2.1 first.
+are written. Collection v1/v2.0 documents must be exported as v2.1 first.
 
 Scripts are preserved as source and their compatibility warning is visible after import.
 OAuth requires local authorization and upload paths may need adjustment. Unsupported
 auth types produce a warning and require explicit configuration before use. Dynamic
-variables such as `{{$randomInt}}` and Postman globals are not implemented; unresolved
+variables such as `{{$randomInt}}` and global variables are not implemented; unresolved
 references are errors. Unknown native collection schema versions are rejected.
 
 Portable project files carry stable IDs and explicit child order. Legacy collection

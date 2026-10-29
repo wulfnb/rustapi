@@ -26,8 +26,8 @@ fn variable_precedence_nested_resolution_and_cycles() {
     assert!(vars.resolve("{{loop}}").is_err());
 }
 #[test]
-fn nested_postman_import_preserves_order_auth_variables_and_scripts() {
-    let import = rustapi::import::json(include_bytes!("fixtures/postman.json")).unwrap();
+fn nested_collection_import_preserves_order_auth_variables_and_scripts() {
+    let import = rustapi::import::json(include_bytes!("fixtures/collection-v2.1.json")).unwrap();
     let c = import.collection.unwrap();
     let all = c.ordered_requests(None);
     assert_eq!(
@@ -44,7 +44,7 @@ fn nested_postman_import_preserves_order_auth_variables_and_scripts() {
 #[test]
 fn import_rejects_incomplete_input_and_unsupported_body() {
     let mut v: serde_json::Value =
-        serde_json::from_slice(include_bytes!("fixtures/postman.json")).unwrap();
+        serde_json::from_slice(include_bytes!("fixtures/collection-v2.1.json")).unwrap();
     v["item"][0]["request"]["body"]["mode"] = "unknown".into();
     assert!(rustapi::import::json(&serde_json::to_vec(&v).unwrap()).is_err());
     assert!(rustapi::import::json(br#"{"info":{"schema":"v1"}}"#).is_err());
@@ -269,11 +269,11 @@ fn native_assertions_and_extraction_use_complete_response_not_preview() {
     server.finish();
 }
 #[test]
-fn postman_environment_disabled_flags_and_unsupported_auth_are_explicit() {
+fn collection_environment_disabled_flags_and_unsupported_auth_are_explicit() {
     let e=rustapi::import::json(br#"{"name":"dev","values":[{"key":"off","value":"x","enabled":false},{"key":"on","value":"y","enabled":true}]}"#).unwrap().environment.unwrap();
     assert!(!e.variables[0].enabled);
     let mut v: serde_json::Value =
-        serde_json::from_slice(include_bytes!("fixtures/postman.json")).unwrap();
+        serde_json::from_slice(include_bytes!("fixtures/collection-v2.1.json")).unwrap();
     v["item"][0]["request"]["auth"] = serde_json::json!({"type":"digest"});
     let c = rustapi::import::json(&serde_json::to_vec(&v).unwrap())
         .unwrap()

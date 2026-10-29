@@ -1,4 +1,4 @@
-//! Bounded synchronous Postman-compatible subset. No host I/O is exposed.
+//! Bounded synchronous collection scripting subset. No host I/O is exposed.
 use crate::{models::*, variables::Variables};
 use anyhow::{bail, Result};
 use serde_json::json;
