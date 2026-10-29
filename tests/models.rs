@@ -2,6 +2,52 @@ use rustapi::models::*;
 use rustapi::utils::{format_size, truncate_str};
 
 #[test]
+fn model_labels_colors_and_content_types_cover_the_public_choices() {
+    for method in HttpMethod::all() {
+        assert_eq!(method.to_string(), method.as_str());
+        assert_ne!(method.color(), egui::Color32::TRANSPARENT);
+    }
+    for kind in [
+        BodyType::None,
+        BodyType::Json,
+        BodyType::Text,
+        BodyType::FormData,
+        BodyType::UrlEncoded,
+        BodyType::Binary,
+    ] {
+        assert!(!kind.as_str().is_empty());
+        assert_eq!(kind.content_type().is_none(), kind == BodyType::None);
+    }
+    for kind in AuthType::all() {
+        assert!(!kind.as_str().is_empty());
+    }
+    for location in [ApiKeyLocation::Header, ApiKeyLocation::QueryParam] {
+        assert!(!location.as_str().is_empty());
+    }
+    for status in [0, 200, 302, 404, 500] {
+        assert_ne!(
+            ApiResponse {
+                status,
+                ..Default::default()
+            }
+            .status_color(),
+            egui::Color32::TRANSPARENT
+        );
+    }
+    let entry = HistoryEntry::new(
+        ApiRequest {
+            url: "http://localhost".into(),
+            ..Default::default()
+        },
+        Some(ApiResponse {
+            status: 201,
+            ..Default::default()
+        }),
+    );
+    assert!(entry.display_string().ends_with("201"));
+}
+
+#[test]
 fn duplicate_request_preserves_payload_and_has_independent_identity() {
     let mut original = ApiRequest::new("Create user");
     original.method = HttpMethod::POST;

@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-desktop-portal xdg-desktop-portal-gtk \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=release /source/target/release/rustapi /usr/local/bin/rustapi
+COPY LICENSE NOTICE /usr/share/doc/rustapi/
 COPY docker/supervisord.conf /etc/rustapi/supervisord.conf
 COPY docker/start-desktop.sh docker/healthcheck.py docker/check-portal.py /usr/local/bin/
 RUN chmod 755 /usr/local/bin/start-desktop.sh

@@ -1,0 +1,16 @@
+RustAPI
+Copyright (C) 2025-2026 Noufal Babu and contributors
+
+RustAPI is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option)
+any later version.
+
+RustAPI is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See LICENSE for the complete terms.
+
+Corresponding source and build instructions:
+https://github.com/wulfnb/rustapi
+
+Third-party dependencies retain their own copyrights and licenses.

@@ -19,7 +19,11 @@ pub fn get_app_data_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("RUSTAPI_DATA_DIR").filter(|p| !p.is_empty()) {
         return PathBuf::from(path);
     }
-    dirs::data_dir()
+    default_app_data_dir(dirs::data_dir())
+}
+
+fn default_app_data_dir(platform_dir: Option<PathBuf>) -> PathBuf {
+    platform_dir
         .unwrap_or_else(|| PathBuf::from("."))
         .join("rustapi")
 }
@@ -154,7 +158,12 @@ pub fn save_environment(environment: &Environment) -> Result<PathBuf> {
         sanitize_filename(&environment.name),
         sanitize_filename(&environment.id.chars().take(8).collect::<String>())
     );
-    let file_path = get_environments_dir().join(format!("{}.json", safe_name));
+    // Keep the same file when an environment is renamed. Otherwise both old and
+    // new names are loaded on restart as duplicate environments with the same ID.
+    let file_path = environment_file_paths(&environment.id)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| get_environments_dir().join(format!("{}.json", safe_name)));
 
     let json = serde_json::to_string_pretty(environment)?;
     fs::write(&file_path, json)?;
@@ -203,21 +212,28 @@ pub fn delete_collection(collection: &Collection) -> Result<()> {
 
 /// Delete an environment file
 pub fn delete_environment(environment: &Environment) -> Result<()> {
+    for path in environment_file_paths(&environment.id) {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn environment_file_paths(id: &str) -> Vec<PathBuf> {
     let dir = get_environments_dir();
+    let mut paths = Vec::new();
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(env) = load_environment(&path) {
-                    if env.id == environment.id {
-                        fs::remove_file(path)?;
-                        return Ok(());
+                    if env.id == id {
+                        paths.push(path);
                     }
                 }
             }
         }
     }
-    Ok(())
+    paths
 }
 
 /// Export a collection to a specified path
@@ -259,3 +275,24 @@ fn sanitize_filename(name: &str) -> String {
         safe
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_paths_are_namespaced_with_a_relative_fallback() {
+        assert_eq!(
+            default_app_data_dir(None),
+            PathBuf::from(".").join("rustapi")
+        );
+        assert_eq!(
+            default_app_data_dir(Some(PathBuf::from("platform"))),
+            PathBuf::from("platform/rustapi")
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/unit/storage.rs"]
+mod storage_tests;

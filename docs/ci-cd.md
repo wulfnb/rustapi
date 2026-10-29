@@ -1,16 +1,15 @@
 # RustAPI CI/CD
 
-See [the local validation record](validation.md) for tested platforms and remaining
-GitHub-runner validation.
+See [the validation record](validation.md) for measured coverage and hosted CI/CD results.
 
 ## Source comparison
 
 Checked on 2026-10-28: this checkout, `git@github.com:wulfnb/rustapi.git` (the existing
 origin), and `https://github.com/rust-projs/rustapi.git` all have the same `main` tip:
 `33dda88e283430d24016db1762503dc69bb96d14` (`latest code`, 2025-12-18).
-Neither remote contains a newer branch tip. The remotes were inspected without changing
-the local origin. Push these changes to whichever repository will own future releases;
-workflow image names derive from that repository automatically.
+This established the common starting point before the CI/CD changes. Development and
+release publishing now use `wulfnb/rustapi`; the local origin remains unchanged.
+Workflow image names derive from the repository that runs them.
 
 ## Validation
 
@@ -23,13 +22,23 @@ second independent CI run on main pushes.
 | Native matrix | Ubuntu 24.04 x64, macOS 15 ARM64 and Intel, Windows Server 2022 x64 |
 | Native checks | Pinned Rust, formatting, Clippy with warnings denied, unit/integration tests, docs, application build, real GUI event-loop smoke test |
 | Docker | Tests inside Debian Linux, production image build, Compose validation, real app window, file-chooser portal, noVNC HTTP and WebSocket, non-root user, restart and persistent volume |
-| Quality | Actionlint, ShellCheck, Python syntax, LLVM line coverage uploaded as LCOV |
+| Quality | Actionlint, ShellCheck, Rust line/function coverage, Python statement/branch coverage, and shell execution coverage |
 
-Coverage is measured across all Rust targets. There is no claimed coverage percentage
-or artificial 100% threshold; the report exposes untested GUI paths as well as core
-logic. Startup smoke checks exercise initialization and rendering, not every user
-interaction. Windows uses eframe's WGPU renderer with Direct3D rather than requiring
-an installed OpenGL driver. Linux uses Mesa software rendering under Xvfb in CI.
+The Linux quality job includes all production Rust source, including GUI, native
+startup/shutdown, and actual import/export file dialogs. It requires **100% line and
+function coverage**, without source exclusions. It also requires **100% Python
+statement and branch coverage** for the release and Docker tooling and execution of
+every executable shell-launcher line. Test code and third-party dependencies are
+outside these production-source measurements. Stable Rust LLVM instrumentation does
+not measure branch coverage; line/function coverage does not prove every possible
+input, platform-specific backend, or error combination works.
+
+Behavioral egui tests drive pointer/keyboard events and inspect accessibility output.
+The native Linux test drives real GTK portal dialogs under Xvfb and Openbox, checking
+import persistence, preservation of the input file, export, cancellation, and shutdown.
+Coverage JSON, LCOV, screenshots, and logs are uploaded even when a check fails.
+Windows uses eframe's WGPU renderer with Direct3D rather than requiring an installed
+OpenGL driver. Linux uses Mesa software rendering under Xvfb in CI.
 
 Tests cover request duplication and serialization, auth encodings and locations,
 environment variables, bounded history, Unicode display, real HTTP methods and request
@@ -53,14 +62,35 @@ xargs -a docker/build-packages.txt sudo apt-get install -y --no-install-recommen
 sudo apt-get install -y xvfb libgl1-mesa-dri
 ```
 
-To reproduce the coverage job (requires `llvm-tools-preview`):
+To reproduce the Linux coverage job:
 
 ```sh
+xargs -a docker/coverage-packages.txt sudo apt-get install -y --no-install-recommends
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+RUSTAPI_COVERAGE_DIR=coverage python -m coverage run -m unittest discover -s tests/python -v
+python -m coverage report
 rustup component add llvm-tools-preview
 cargo install cargo-llvm-cov --version 0.9.1 --locked
-mkdir -p coverage
-cargo llvm-cov --locked --all-targets --lcov --output-path coverage/lcov.info
+cargo llvm-cov clean --workspace
+cargo llvm-cov --locked --all-targets --no-report
+export LIBGL_ALWAYS_SOFTWARE=1 XDG_CURRENT_DESKTOP=GNOME
+export XDG_RUNTIME_DIR="$(mktemp -d)"
+chmod 700 "$XDG_RUNTIME_DIR"
+export LLVM_PROFILE_FILE="$PWD/target/llvm-cov-target/native-%p-%m.profraw"
+xvfb-run -a -s '-screen 0 1800x1200x24' dbus-run-session -- \
+  python tests/native_desktop.py target/llvm-cov-target/debug/rustapi
+xvfb-run -a -s '-screen 0 1800x1200x24' dbus-run-session -- \
+  python scripts/desktop-smoke.py target/llvm-cov-target/debug/rustapi
+cargo llvm-cov report --lcov --output-path coverage/lcov.info
+cargo llvm-cov report --fail-under-lines 100 --fail-under-functions 100
 ```
+
+`docker/coverage.Dockerfile` provides the same dependencies for running Linux coverage
+on another host. Build it with `docker build -f docker/coverage.Dockerfile -t
+rustapi:coverage-tools .`, then run it with `--init`, mount the checkout at `/source`, and use a Docker volume
+for `/source/target`. This quality image is separate from the shipped desktop image.
 
 ## Publishing
 

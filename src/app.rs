@@ -8,6 +8,31 @@ use eframe::egui;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
+/// Keep native dialogs at the UI boundary so commands can be exercised independently.
+trait CollectionDialogs {
+    fn import(&self) -> Option<std::path::PathBuf>;
+    fn export(&self, name: &str) -> Option<std::path::PathBuf>;
+}
+
+struct NativeCollectionDialogs;
+
+impl CollectionDialogs for NativeCollectionDialogs {
+    fn import(&self) -> Option<std::path::PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Import collection")
+            .add_filter("JSON", &["json"])
+            .pick_file()
+    }
+
+    fn export(&self, name: &str) -> Option<std::path::PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Export collection")
+            .add_filter("JSON", &["json"])
+            .set_file_name(format!("{name}.json"))
+            .save_file()
+    }
+}
+
 /// Message for async operations
 pub enum AsyncMessage {
     ResponseReceived(ApiResponse),
@@ -15,6 +40,7 @@ pub enum AsyncMessage {
 
 /// Main application state
 pub struct RustApiApp {
+    dialogs: Box<dyn CollectionDialogs>,
     // Collections and environments
     pub collections: Vec<Collection>,
     pub environments: Vec<Environment>,
@@ -62,6 +88,7 @@ impl Default for RustApiApp {
         let history = storage::load_history();
 
         Self {
+            dialogs: Box::new(NativeCollectionDialogs),
             collections: if collections.is_empty() {
                 vec![Collection::new("My Collection")]
             } else {
@@ -191,6 +218,16 @@ impl RustApiApp {
         self.collections.push(collection);
     }
 
+    /// Import into the managed profile without rewriting the user's source file.
+    fn import_collection(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+        let mut collection = storage::import_collection(path)?;
+        collection.file_path = None;
+        let saved_path = storage::save_collection(&collection, None)?;
+        collection.file_path = Some(saved_path.to_string_lossy().into_owned());
+        self.collections.push(collection);
+        Ok(())
+    }
+
     /// Delete collection
     fn delete_collection(&mut self, col_idx: usize) {
         if col_idx < self.collections.len() {
@@ -213,6 +250,58 @@ impl RustApiApp {
         }
     }
 
+    fn handle_sidebar_action(&mut self, action: SidebarAction) {
+        match action {
+            SidebarAction::SelectRequest(col_idx, req_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    if let Some(request) = collection.requests.get(req_idx) {
+                        self.tab_manager
+                            .open_tab(request.clone(), Some(col_idx), Some(req_idx));
+                    }
+                }
+            }
+            SidebarAction::AddRequest(col_idx) => {
+                self.add_request_to_collection(col_idx);
+            }
+            SidebarAction::DeleteRequest(col_idx, req_idx) => {
+                self.delete_request(col_idx, req_idx);
+            }
+            SidebarAction::DuplicateRequest(col_idx, req_idx) => {
+                self.duplicate_request(col_idx, req_idx);
+            }
+            SidebarAction::RenameRequest(col_idx, req_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    if let Some(request) = collection.requests.get(req_idx) {
+                        self.rename_value = request.name.clone();
+                        self.rename_target = RenameTarget::Request(col_idx, req_idx);
+                        self.show_rename_modal = true;
+                    }
+                }
+            }
+            SidebarAction::DeleteCollection(col_idx) => {
+                self.delete_collection(col_idx);
+            }
+            SidebarAction::RenameCollection(col_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    self.rename_value = collection.name.clone();
+                    self.rename_target = RenameTarget::Collection(col_idx);
+                    self.show_rename_modal = true;
+                }
+            }
+            SidebarAction::ExportCollection(col_idx) => {
+                if let Some(collection) = self.collections.get(col_idx) {
+                    if let Some(path) = self.dialogs.export(&collection.name) {
+                        let _ = storage::export_collection(collection, &path);
+                    }
+                }
+            }
+            SidebarAction::NewCollection => {
+                self.new_item_name.clear();
+                self.show_new_collection_modal = true;
+            }
+        }
+    }
+
     /// Save app state
     fn save_state(&self) {
         let state = AppState {
@@ -227,6 +316,17 @@ impl RustApiApp {
 
 impl eframe::App for RustApiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.render(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_state();
+    }
+}
+
+impl RustApiApp {
+    /// Render a frame independently of the native window adapter.
+    pub(crate) fn render(&mut self, ctx: &egui::Context) {
         // Process async messages
         while let Ok(msg) = self.async_receiver.try_recv() {
             match msg {
@@ -254,9 +354,6 @@ impl eframe::App for RustApiApp {
         // Set custom style
         apply_dark_theme(ctx);
 
-        // Render modals
-        self.render_modals(ctx);
-
         // Top panel with environment selector
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             let mut show_env_editor = false;
@@ -279,14 +376,8 @@ impl eframe::App for RustApiApp {
                 self.show_history_panel = true;
             }
             if show_import {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("JSON", &["json"])
-                    .pick_file()
-                {
-                    if let Ok(collection) = storage::import_collection(&path) {
-                        let _ = storage::save_collection(&collection, None);
-                        self.collections.push(collection);
-                    }
+                if let Some(path) = self.dialogs.import() {
+                    let _ = self.import_collection(&path);
                 }
             }
         });
@@ -311,62 +402,7 @@ impl eframe::App for RustApiApp {
                     current_col,
                     current_req,
                 ) {
-                    match action {
-                        SidebarAction::SelectRequest(col_idx, req_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                if let Some(request) = collection.requests.get(req_idx) {
-                                    self.tab_manager.open_tab(
-                                        request.clone(),
-                                        Some(col_idx),
-                                        Some(req_idx),
-                                    );
-                                }
-                            }
-                        }
-                        SidebarAction::AddRequest(col_idx) => {
-                            self.add_request_to_collection(col_idx);
-                        }
-                        SidebarAction::DeleteRequest(col_idx, req_idx) => {
-                            self.delete_request(col_idx, req_idx);
-                        }
-                        SidebarAction::DuplicateRequest(col_idx, req_idx) => {
-                            self.duplicate_request(col_idx, req_idx);
-                        }
-                        SidebarAction::RenameRequest(col_idx, req_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                if let Some(request) = collection.requests.get(req_idx) {
-                                    self.rename_value = request.name.clone();
-                                    self.rename_target = RenameTarget::Request(col_idx, req_idx);
-                                    self.show_rename_modal = true;
-                                }
-                            }
-                        }
-                        SidebarAction::DeleteCollection(col_idx) => {
-                            self.delete_collection(col_idx);
-                        }
-                        SidebarAction::RenameCollection(col_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                self.rename_value = collection.name.clone();
-                                self.rename_target = RenameTarget::Collection(col_idx);
-                                self.show_rename_modal = true;
-                            }
-                        }
-                        SidebarAction::ExportCollection(col_idx) => {
-                            if let Some(collection) = self.collections.get(col_idx) {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("JSON", &["json"])
-                                    .set_file_name(format!("{}.json", collection.name))
-                                    .save_file()
-                                {
-                                    let _ = storage::export_collection(collection, &path);
-                                }
-                            }
-                        }
-                        SidebarAction::NewCollection => {
-                            self.new_item_name.clear();
-                            self.show_new_collection_modal = true;
-                        }
-                    }
+                    self.handle_sidebar_action(action);
                 }
             });
 
@@ -374,10 +410,9 @@ impl eframe::App for RustApiApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_main_content(ui);
         });
-    }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.save_state();
+        // egui floating windows must follow the top-level panels.
+        self.render_modals(ctx);
     }
 }
 
@@ -596,3 +631,7 @@ impl RustApiApp {
             });
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/app.rs"]
+mod tests;

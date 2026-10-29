@@ -194,4 +194,14 @@ mod tests {
         let manager = three_tabs();
         assert_ne!(manager.tabs[0].id, manager.tabs[1].id);
     }
+
+    #[test]
+    fn closing_a_tab_without_an_active_selection_is_safe() {
+        let mut manager = three_tabs();
+        manager.active_tab_idx = None;
+        manager.close_tab(0);
+        manager.mark_saved();
+        assert_eq!(manager.tabs.len(), 2);
+        assert!(manager.active_tab_idx.is_none());
+    }
 }

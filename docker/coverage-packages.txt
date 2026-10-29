@@ -1,0 +1,12 @@
+dbus-x11
+fonts-dejavu-core
+libgl1-mesa-dri
+openbox
+python3
+python3-venv
+scrot
+xauth
+xdotool
+xdg-desktop-portal
+xdg-desktop-portal-gtk
+xvfb

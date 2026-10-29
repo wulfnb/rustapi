@@ -220,28 +220,26 @@ fn generate_python(request: &ApiRequest, environment: Option<&Environment>) -> S
         request.body_type,
         BodyType::Json | BodyType::Text | BodyType::FormData | BodyType::UrlEncoded
     );
-    if has_body {
-        match request.body_type {
-            BodyType::Json => {
-                let body = substitute(environment, &request.body);
-                code.push_str(&format!("data = {}\n\n", body));
-            }
-            BodyType::Text => {
-                let body = substitute(environment, &request.body);
-                code.push_str(&format!("data = \"\"\"{}\"\"\"\n\n", body));
-            }
-            BodyType::UrlEncoded | BodyType::FormData => {
-                code.push_str("data = {\n");
-                for kv in &request.form_data {
-                    if kv.enabled && !kv.key.is_empty() {
-                        let value = substitute(environment, &kv.value);
-                        code.push_str(&format!("    \"{}\": \"{}\",\n", kv.key, value));
-                    }
-                }
-                code.push_str("}\n\n");
-            }
-            _ => {}
+    match request.body_type {
+        BodyType::Json => {
+            let body = substitute(environment, &request.body);
+            code.push_str(&format!("data = {}\n\n", body));
         }
+        BodyType::Text => {
+            let body = substitute(environment, &request.body);
+            code.push_str(&format!("data = \"\"\"{}\"\"\"\n\n", body));
+        }
+        BodyType::UrlEncoded | BodyType::FormData => {
+            code.push_str("data = {\n");
+            for kv in &request.form_data {
+                if kv.enabled && !kv.key.is_empty() {
+                    let value = substitute(environment, &kv.value);
+                    code.push_str(&format!("    \"{}\": \"{}\",\n", kv.key, value));
+                }
+            }
+            code.push_str("}\n\n");
+        }
+        _ => {}
     }
 
     // Auth for basic

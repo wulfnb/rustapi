@@ -40,9 +40,15 @@ pub fn render_history_panel(
             ui.separator();
 
             if history.entries.is_empty() {
-                ui.centered_and_justified(|ui| {
-                    ui.label("No requests in history");
-                });
+                // Leave the footer outside a bounded empty-state area. Filling all
+                // remaining height here makes an auto-sized window grow each frame.
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), 80.0),
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| {
+                        ui.label("No requests in history");
+                    },
+                );
             } else {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for entry in &history.entries {

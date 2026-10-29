@@ -64,9 +64,9 @@ pub fn render_rename_modal(
         return;
     }
 
-    let title = match target {
-        RenameTarget::Collection(_) => "Rename Collection",
-        RenameTarget::Request(_, _) => "Rename Request",
+    let (title, col_idx, req_idx) = match target {
+        RenameTarget::Collection(idx) => ("Rename Collection", *idx, None),
+        RenameTarget::Request(col, req) => ("Rename Request", *col, Some(*req)),
         RenameTarget::None => return,
     };
 
@@ -84,26 +84,19 @@ pub fn render_rename_modal(
 
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() && !rename_value.is_empty() {
-                    match target {
-                        RenameTarget::Collection(col_idx) => {
-                            if let Some(collection) = collections.get_mut(*col_idx) {
-                                collection.name = rename_value.clone();
+                    if let Some(collection) = collections.get_mut(col_idx) {
+                        if let Some(req_idx) = req_idx {
+                            if let Some(request) = collection.requests.get_mut(req_idx) {
+                                request.name = rename_value.clone();
+                                if let Some(current_name) = current_request_name {
+                                    *current_name = rename_value.clone();
+                                }
                                 let _ = storage::save_collection(collection, None);
                             }
+                        } else {
+                            collection.name = rename_value.clone();
+                            let _ = storage::save_collection(collection, None);
                         }
-                        RenameTarget::Request(col_idx, req_idx) => {
-                            if let Some(collection) = collections.get_mut(*col_idx) {
-                                if let Some(request) = collection.requests.get_mut(*req_idx) {
-                                    request.name = rename_value.clone();
-                                    // Also update current_request if provided
-                                    if let Some(current_name) = current_request_name {
-                                        *current_name = rename_value.clone();
-                                    }
-                                    let _ = storage::save_collection(collection, None);
-                                }
-                            }
-                        }
-                        RenameTarget::None => {}
                     }
                     *show = false;
                     rename_value.clear();
