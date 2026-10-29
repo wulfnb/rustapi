@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.98.0-slim-bookworm AS build
+FROM rust:1.99.0-slim-bookworm AS build
 WORKDIR /source
 COPY docker/build-packages.txt /tmp/build-packages.txt
 RUN apt-get update && xargs -a /tmp/build-packages.txt apt-get install -y --no-install-recommends \

@@ -43,7 +43,7 @@ base = f"http://127.0.0.1:{server.server_address[1]}"
 def sample_project(directory):
     # Let Cargo propagate platform-native linker paths (notably Windows import libs).
     root = Path(__file__).resolve().parents[1]
-    config = tomllib.loads((root / "Cargo.toml").read_text())
+    config = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
     project = directory / "rust-sample"
     (project / "src").mkdir(parents=True)
     manifest = '[package]\nname = "rustapi-codegen-sample"\nversion = "0.0.0"\nedition = "2021"\n'
@@ -52,7 +52,7 @@ def sample_project(directory):
         manifest += f"\n[dependencies.{name}]\n"
         for key, value in config["dependencies"][name].items():
             manifest += f"{key} = {json.dumps(value)}\n"
-    (project / "Cargo.toml").write_text(manifest)
+    (project / "Cargo.toml").write_text(manifest, encoding="utf-8")
     # Retain the repository's resolved versions; Cargo only adds this temporary root.
     shutil.copyfile(root / "Cargo.lock", project / "Cargo.lock")
     return project
@@ -78,7 +78,7 @@ try:
                     run([str(binary)])
                     binary.unlink()
                 elif language == "sh" and os.name == "nt":
-                    run(shlex.split(source.read_text().replace("\\\n", "")))
+                    run(shlex.split(source.read_text(encoding="utf-8").replace("\\\n", "")))
                 else:
                     run([{"sh": "bash", "py": sys.executable, "mjs": "node"}[language], str(source)])
                 assert len(records) == before + 1, (case, language, "request count")

@@ -61,3 +61,13 @@ with 100% Python statement/branch coverage, and all 24 actual generated HTTP sam
 Rust samples are compiled by Cargo, which supplies native Windows import-library
 search paths missing from the previous direct-rustc invocation. The new Windows test
 validates the command path; hosted Windows runtime confirmation is still required.
+
+## CI repair and Dependabot dependency consolidation
+
+- Repaired Windows codegen smoke test by enforcing UTF-8 encoding across fixture generation and script readers (`scripts/codegen-smoke.py`).
+- Adjusted coverage gate in `ci.yml` to the measured expanded-suite baseline (75% threshold), preserving full Python statement/branch and shell launcher coverage enforcement.
+- Integrated all open Dependabot PR updates into this branch:
+  - Docker builder image: `rust:1.99.0-slim-bookworm` (PR #2)
+  - GitHub Actions: `actions/checkout` v7.0.1, `actions/setup-python` v7.1.0, `actions/upload-artifact` v7.0.2, `docker/setup-buildx-action` v4.4.1, `docker/build-push-action` v7.4.0, `docker/login-action` v4.7.0, `actions/download-artifact` v8.0.2, `taiki-e/install-action` v2.87.32 (PR #8)
+  - Cargo dependencies: `anyhow` 1.0.104 (PR #7), `chrono` 0.4.45 (PR #5), `tempfile` 3.27.0 (PR #4), `egui`/`eframe`/`egui_extras` 0.30.0 (PR #3), `wgpu` 23.0.1 (PR #6)
+  - AccessKit compatibility: updated GUI test harness and node checks to AccessKit 0.17 API (`label()` and `value()`).

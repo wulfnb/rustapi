@@ -1,4 +1,4 @@
-FROM rust:1.98.0-slim-bookworm
+FROM rust:1.99.0-slim-bookworm
 WORKDIR /source
 COPY docker/build-packages.txt docker/coverage-packages.txt /tmp/
 RUN apt-get update \

@@ -40,7 +40,7 @@ fn request_editor_switches_tabs_body_types_and_edits_rows() {
     assert!(h
         .nodes()
         .iter()
-        .any(|(_, n)| n.name() == Some("📁 Select File")));
+        .any(|(_, n)| n.label() == Some("📁 Select File") || n.value() == Some("📁 Select File")));
     h.click("💾 Save");
     assert!(h.state.2);
 }
@@ -137,7 +137,8 @@ fn response_viewer_handles_empty_loading_error_headers_and_copy() {
     assert!(h
         .nodes()
         .iter()
-        .any(|(_, n)| n.name() == Some("Network unavailable")));
+        .any(|(_, n)| n.label() == Some("Network unavailable")
+            || n.value() == Some("Network unavailable")));
     for size in [42, 2048, 2097152] {
         h.state.0 = Some(ApiResponse {
             status: 200,
@@ -154,7 +155,10 @@ fn response_viewer_handles_empty_loading_error_headers_and_copy() {
     h.click("Headers");
     assert_eq!(h.state.2, ResponseTab::Headers);
     h.refresh();
-    assert!(h.nodes().iter().any(|(_, n)| n.name() == Some("x-test")));
+    assert!(h
+        .nodes()
+        .iter()
+        .any(|(_, n)| n.label() == Some("x-test") || n.value() == Some("x-test")));
     h.click("Body");
     assert_eq!(h.state.2, ResponseTab::Body);
     h.click("Format JSON");

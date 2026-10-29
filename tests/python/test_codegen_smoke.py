@@ -42,14 +42,14 @@ class CodegenSmokeTests(unittest.TestCase):
                     output = Path(command[1])
                     for case in ("json", "text", "form", "urlencoded", "binary", "options"):
                         for extension in ("sh", "py", "mjs", "rs"):
-                            (output / f"request-{case}.{extension}").write_text(f"curl http://fixture/request-{case}")
+                            (output / f"request-{case}.{extension}").write_text(f"curl http://fixture/request-{case}", encoding="utf-8")
                     captured["handler"].log_message(None)
                     return subprocess.CompletedProcess(command, 0, "", "")
                 if executable == "cargo":
                     self.assertIn("--offline", command)
                     self.assertNotIn("--extern", command)
                     project = Path(command[command.index("--manifest-path") + 1]).parent
-                    manifest = (project / "Cargo.toml").read_text()
+                    manifest = (project / "Cargo.toml").read_text(encoding="utf-8")
                     self.assertIn('[dependencies.reqwest]', manifest)
                     self.assertIn('[dependencies.tokio]', manifest)
                     self.assertIn(str(ROOT).replace('\\', '\\\\'), manifest)
