@@ -109,6 +109,14 @@ jobs:
         run: docker compose config --quiet
       - name: Real GUI, WebSocket, and persistent volume smoke test
         run: python scripts/docker-smoke.py rustapi:ci
+      - name: Scan Docker image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
+        with:
+          image-ref: rustapi:ci
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
 
   quality:
     name: Workflow, shell, and coverage checks
@@ -135,7 +143,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
-          tool: cargo-llvm-cov@0.9.1
+          tool: cargo-llvm-cov@0.9.1,cargo-audit@0.22.2,gitleaks@8.24.0
+      - name: Audit crate dependencies for security vulnerabilities
+        run: cargo audit
+      - name: Scan repository for secret and credential leaks
+        run: gitleaks detect --verbose --config .gitleaks.toml
       - name: Install pinned workflow linter
         run: |
           GOBIN="$RUNNER_TEMP/bin" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
@@ -181,3 +193,22 @@ jobs:
           name: coverage-linux
           path: coverage/
           if-no-files-found: error
+
+  ci-gate:
+    name: CI Completion Gate
+    if: always()
+    needs: [native, docker, quality]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify all checks passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "CI Results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success) ;;
+              *) exit 1 ;;
+            esac
+          done
+          echo "All parallel CI checks and integration test suites succeeded."
