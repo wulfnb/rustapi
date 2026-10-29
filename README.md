@@ -10,6 +10,34 @@ from the desktop or a headless CLI. No account or cloud service is required.
 
 [**Website & Downloads**](https://wulfnb.github.io/rustapi/) · [**GitHub Releases**](https://github.com/wulfnb/rustapi/releases) · [**Postman Comparison**](docs/postman-comparison.md)
 
+## Download
+
+[Website](https://wulfnb.github.io/rustapi/) · [All releases](https://github.com/wulfnb/rustapi/releases) · [SHA256 checksums](https://github.com/wulfnb/rustapi/releases/latest/download/SHA256SUMS.txt)
+
+| Platform | Download Preview |
+| --- | --- |
+| macOS · Apple Silicon (ARM64) | [Download DMG](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.dmg) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.zip) |
+| macOS · Intel (x86_64) | [Download DMG](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.dmg) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.zip) |
+| Windows · x64 | [Download Setup EXE](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64-Setup.exe) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64.zip) |
+| Linux · x86_64 | [Download tar.gz](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-linux-x86_64.tar.gz) |
+
+On macOS, open the DMG and drag **RustAPI.app** into **Applications**, then launch the installed app from Applications. The release is ad-hoc signed, so macOS may require you to approve that specific app in **System Settings → Privacy & Security → Open Anyway** after trying to open it.
+
+### Docker Quickstart (Browser Desktop)
+
+Run the full RustAPI desktop UI inside Docker, accessed via loopback HTTPS and noVNC in your browser:
+
+```sh
+docker run -d --name rustapi-client \
+  -p 127.0.0.1:7443:7443 \
+  -e API_USER=tester \
+  -e API_PASSWORD='choose-a-strong-password' \
+  -v rustapi-data:/config \
+  ghcr.io/wulfnb/rustapi:latest
+```
+
+Open `https://127.0.0.1:7443` in your browser and log in with your credentials.
+
 This release targets the everyday REST workflow. It implements a documented subset
 of Postman's scripting APIs; it does not claim full Postman compatibility.
 See [migration and compatibility](docs/postman-compatibility.md).

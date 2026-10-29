@@ -56,7 +56,13 @@ class PackageTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0)
 
                 with contextlib.chdir(base), patch("subprocess.run", side_effect=external), patch("subprocess.check_output", return_value=b'{"packages":[{"version":"0.1.0"}]}'):
-                    for _ in range(2):
+                    icon_file = base / "assets" / "icons" / "RustAPIIcon.icns"
+                    for iteration in range(2):
+                        if iteration == 0 and platform == "macos":
+                            icon_file.parent.mkdir(parents=True, exist_ok=True)
+                            icon_file.write_bytes(b"icns-fixture")
+                        elif icon_file.exists():
+                            icon_file.unlink()
                         run_script("scripts/package.py", ["--binary", "input.bin", "--platform", platform, "--arch", "arm64"], {"GITHUB_OUTPUT": str(github_output)})
                     output_path = Path(github_output.read_text().splitlines()[-1].split("=", 1)[1])
                     self.assertEqual(output_path.read_bytes(), b"native-binary-fixture")

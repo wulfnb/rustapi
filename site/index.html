@@ -13,9 +13,9 @@
       --surface: #16151f;
       --surface-border: #2a2838;
       --surface-hover: #222030;
-      --accent: #ff4500;
-      --accent-glow: rgba(255, 69, 0, 0.25);
-      --accent-light: #ff9500;
+      --accent: #d84d34;
+      --accent-glow: rgba(216, 77, 52, 0.18);
+      --accent-light: #e86348;
       --accent-gold: #ffd60a;
       --text: #f8fafc;
       --text-muted: #94a3b8;
@@ -164,34 +164,51 @@
       display: flex;
       justify-content: center;
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 14px;
       margin-bottom: 40px;
     }
-    .btn-primary {
-      background: linear-gradient(135deg, #ff4500 0%, #ff7700 100%);
-      color: #ffffff;
-      font-weight: 700;
-      padding: 14px 28px;
+    .btn-download {
+      background: var(--surface);
+      color: var(--text);
+      font-weight: 600;
+      padding: 13px 22px;
       border-radius: 10px;
       text-decoration: none;
-      box-shadow: 0 4px 20px var(--accent-glow);
-      transition: all 0.2s;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      gap: 8px;
+      border: 1px solid var(--surface-border);
     }
-    .btn-primary:hover {
-      background: linear-gradient(135deg, #ff5722 0%, #ff9800 100%);
+    .btn-download:hover {
+      background: var(--surface-hover);
+      border-color: rgba(216, 77, 52, 0.45);
+      color: #ffffff;
       transform: translateY(-2px);
-      box-shadow: 0 6px 24px rgba(255, 69, 0, 0.4);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+    .btn-download.recommended-download,
+    .btn-primary {
+      background: linear-gradient(180deg, #c7432b 0%, #a83420 100%);
+      color: #ffffff;
+      font-weight: 600;
+      border: 1px solid rgba(255, 140, 110, 0.35);
+      box-shadow: 0 4px 16px rgba(168, 52, 32, 0.35);
+    }
+    .btn-download.recommended-download:hover,
+    .btn-primary:hover {
+      background: linear-gradient(180deg, #d84d34 0%, #b83c25 100%);
+      border-color: rgba(255, 160, 130, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(168, 52, 32, 0.45);
     }
     .btn-secondary {
       background: var(--surface);
-      color: var(--text);
+      color: var(--text-muted);
       border: 1px solid var(--surface-border);
-      font-weight: 600;
-      padding: 14px 24px;
+      font-weight: 500;
+      padding: 13px 20px;
       border-radius: 10px;
       text-decoration: none;
       transition: all 0.2s;
@@ -201,16 +218,17 @@
     }
     .btn-secondary:hover {
       background: var(--surface-hover);
-      border-color: var(--accent);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
     .pill-recommended {
-      display: block;
+      display: inline-block;
       font-size: 0.65rem;
-      background: rgba(255, 214, 10, 0.25);
-      color: var(--accent-gold);
-      border: 1px solid rgba(255, 214, 10, 0.4);
-      padding: 2px 6px;
+      background: rgba(0, 0, 0, 0.35);
+      color: #ffd60a;
+      border: 1px solid rgba(255, 214, 10, 0.35);
+      padding: 2px 7px;
       border-radius: 999px;
       margin-right: 6px;
       text-transform: uppercase;
@@ -218,8 +236,8 @@
       letter-spacing: 0.05em;
     }
     .recommended-download {
-      border: 2px solid var(--accent-gold) !important;
-      box-shadow: 0 0 25px rgba(255, 149, 0, 0.35) !important;
+      border: 1px solid rgba(255, 214, 10, 0.6) !important;
+      box-shadow: 0 0 20px rgba(216, 77, 52, 0.3) !important;
     }
 
     /* Terminal Preview */
@@ -469,19 +487,19 @@
       </p>
 
       <div class="download-grid" id="downloads" aria-label="Download RustAPI Releases">
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.dmg" class="btn-primary" id="download-mac-arm">
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.dmg" class="btn-download" id="download-mac-arm">
           macOS · Apple Silicon (.dmg)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.dmg" class="btn-primary" id="download-mac-intel">
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.dmg" class="btn-download" id="download-mac-intel">
           macOS · Intel (.dmg)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64-Setup.exe" class="btn-primary" id="download-win-exe">
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64-Setup.exe" class="btn-download" id="download-win-exe">
           Windows · x64 Installer (.exe)
         </a>
         <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64.zip" class="btn-secondary">
           Windows · Portable (.zip)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-linux-x86_64.tar.gz" class="btn-primary" id="download-linux">
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-linux-x86_64.tar.gz" class="btn-download" id="download-linux">
           Linux · x86_64 (.tar.gz)
         </a>
         <a href="#docker" class="btn-secondary">Run in Docker</a>

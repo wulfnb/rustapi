@@ -33,7 +33,9 @@ fn main() -> eframe::Result<()> {
         }
     }
     let smoke_test = args.first().is_some_and(|arg| arg == "--smoke-test");
-    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/rustapi-icon-256.png")).ok();
+    let icon =
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/rustapi-icon-256.png"))
+            .ok();
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1400.0, 900.0])
         .with_min_inner_size([800.0, 600.0])
