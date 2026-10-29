@@ -1,4 +1,4 @@
-use rustapi::{models::*, storage::*};
+use crate::{models::*, storage::*};
 use std::fs;
 use tempfile::tempdir;
 
@@ -6,10 +6,13 @@ use tempfile::tempdir;
 #[test]
 fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     let root = tempdir().unwrap();
+    std::env::remove_var("RUSTAPI_DATA_DIR");
+    assert!(get_app_data_dir().ends_with("rustapi"));
     std::env::set_var("RUSTAPI_DATA_DIR", root.path());
     assert!(load_all_collections().is_empty());
     assert!(load_all_environments().is_empty());
     delete_environment(&Environment::new("absent")).unwrap();
+    delete_collection(&Collection::new("unsaved")).unwrap();
     init_storage().unwrap();
     assert_eq!(get_app_data_dir(), root.path());
     assert!(get_collections_dir().is_dir());
@@ -73,6 +76,10 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     delete_environment(&env).unwrap();
     assert!(load_all_environments().is_empty());
     delete_environment(&env).unwrap();
+    let unrelated = Environment::new("Unrelated");
+    save_environment(&unrelated).unwrap();
+    delete_environment(&env).unwrap();
+    assert_eq!(load_all_environments()[0].id, unrelated.id);
 
     for name in ["CON", "prn", "NUL", "COM1", "LPT9", "   "] {
         let path = save_collection(&Collection::new(name), None).unwrap();
@@ -94,6 +101,25 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
     assert!(load_all_collections().is_empty());
     assert!(load_all_environments().is_empty());
     delete_environment(&env).unwrap();
+    assert!(init_storage().is_err());
+    fs::remove_file(get_collections_dir()).unwrap();
+    assert!(init_storage().is_err());
+    assert!(save_environment(&env).is_err());
+    assert!(save_history(&history).is_err());
+    fs::remove_file(get_state_file()).unwrap();
+    fs::create_dir(get_state_file()).unwrap();
+    assert!(load_app_state().is_err());
+    assert!(save_app_state(&state).is_err());
+    let blocked = get_environments_dir().join("collection.json");
+    assert!(save_collection(&collection, Some(&blocked)).is_err());
+    let mut absent = Collection::new("Absent");
+    absent.file_path = Some(
+        root.path()
+            .join("absent.json")
+            .to_string_lossy()
+            .into_owned(),
+    );
+    assert!(delete_collection(&absent).is_err());
     std::env::remove_var("RUSTAPI_DATA_DIR");
 }
 

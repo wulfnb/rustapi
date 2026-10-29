@@ -261,7 +261,7 @@ fn build_url_with_params(
 /// Format JSON body for display (pretty print)
 pub fn format_json(json_str: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(json_str) {
-        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| json_str.to_string()),
+        Ok(value) => format!("{value:#}"),
         Err(_) => json_str.to_string(),
     }
 }
@@ -340,3 +340,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/http.rs"]
+mod request_tests;

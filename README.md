@@ -113,6 +113,8 @@ run the desktop check with `xvfb-run -a` and `LIBGL_ALWAYS_SOFTWARE=1`.
 Tests use temporary storage and loopback HTTP servers, with no public API dependency.
 
 CI checks Linux, Windows x64, macOS Apple Silicon and Intel, plus the Docker desktop.
+The Linux quality job enforces full Rust line/function, Python statement/branch, and
+shell-launcher execution coverage; see [coverage scope and commands](docs/ci-cd.md#validation).
 Pushes to `main` publish per-commit previews; tags matching `v<Cargo.toml version>`
 publish versioned releases. All publishing waits for CI and packaged-app validation.
 See [CI/CD and release setup](docs/ci-cd.md) for artifacts, image tags, and setup details.

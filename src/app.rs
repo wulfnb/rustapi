@@ -8,6 +8,31 @@ use eframe::egui;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 
+/// Keep native dialogs at the UI boundary so commands can be exercised independently.
+trait CollectionDialogs {
+    fn import(&self) -> Option<std::path::PathBuf>;
+    fn export(&self, name: &str) -> Option<std::path::PathBuf>;
+}
+
+struct NativeCollectionDialogs;
+
+impl CollectionDialogs for NativeCollectionDialogs {
+    fn import(&self) -> Option<std::path::PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Import collection")
+            .add_filter("JSON", &["json"])
+            .pick_file()
+    }
+
+    fn export(&self, name: &str) -> Option<std::path::PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("Export collection")
+            .add_filter("JSON", &["json"])
+            .set_file_name(format!("{name}.json"))
+            .save_file()
+    }
+}
+
 /// Message for async operations
 pub enum AsyncMessage {
     ResponseReceived(ApiResponse),
@@ -15,6 +40,7 @@ pub enum AsyncMessage {
 
 /// Main application state
 pub struct RustApiApp {
+    dialogs: Box<dyn CollectionDialogs>,
     // Collections and environments
     pub collections: Vec<Collection>,
     pub environments: Vec<Environment>,
@@ -62,6 +88,7 @@ impl Default for RustApiApp {
         let history = storage::load_history();
 
         Self {
+            dialogs: Box::new(NativeCollectionDialogs),
             collections: if collections.is_empty() {
                 vec![Collection::new("My Collection")]
             } else {
@@ -263,12 +290,7 @@ impl RustApiApp {
             }
             SidebarAction::ExportCollection(col_idx) => {
                 if let Some(collection) = self.collections.get(col_idx) {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_title("Export collection")
-                        .add_filter("JSON", &["json"])
-                        .set_file_name(format!("{}.json", collection.name))
-                        .save_file()
-                    {
+                    if let Some(path) = self.dialogs.export(&collection.name) {
                         let _ = storage::export_collection(collection, &path);
                     }
                 }
@@ -354,11 +376,7 @@ impl RustApiApp {
                 self.show_history_panel = true;
             }
             if show_import {
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Import collection")
-                    .add_filter("JSON", &["json"])
-                    .pick_file()
-                {
+                if let Some(path) = self.dialogs.import() {
                     let _ = self.import_collection(&path);
                 }
             }

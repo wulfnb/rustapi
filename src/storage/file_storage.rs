@@ -282,7 +282,6 @@ mod tests {
 
     #[test]
     fn platform_paths_are_namespaced_with_a_relative_fallback() {
-        assert!(get_app_data_dir().ends_with("rustapi"));
         assert_eq!(
             default_app_data_dir(None),
             PathBuf::from(".").join("rustapi")
@@ -293,3 +292,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/storage.rs"]
+mod storage_tests;

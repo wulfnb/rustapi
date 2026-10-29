@@ -1,4 +1,4 @@
-use rustapi::{http::*, models::*};
+use crate::{http::*, models::*};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::thread;
@@ -182,15 +182,35 @@ fn headers_and_json_body_substitute_environment() {
 
 #[test]
 fn explicit_content_type_is_preserved() {
-    let mut request = request();
-    request.body_type = BodyType::Text;
-    request.body = "text".into();
-    request
-        .headers
-        .push(KeyValue::new("content-type", "application/custom"));
-    let (_, wire) = exchange(request, None, "200 OK");
-    assert!(wire.contains("content-type: application/custom\r\n"));
-    assert!(wire.ends_with("text"));
+    for body_type in [BodyType::Text, BodyType::Json] {
+        let mut request = request();
+        request.body_type = body_type;
+        request.body = "text".into();
+        request
+            .headers
+            .push(KeyValue::new("content-type", "application/custom"));
+        let (_, wire) = exchange(request, None, "200 OK");
+        assert!(wire.contains("content-type: application/custom\r\n"));
+        assert!(wire.ends_with("text"));
+    }
+}
+
+#[test]
+fn invalid_header_names_and_values_are_ignored() {
+    for (key, value) in [("invalid name", "value"), ("x-test", "invalid\nvalue")] {
+        let mut request = request();
+        request.auth = AuthConfig {
+            auth_type: AuthType::ApiKey,
+            api_key_name: key.into(),
+            api_key_value: value.into(),
+            ..Default::default()
+        };
+        request.headers.push(KeyValue::new(key, value));
+        let (response, wire) = exchange(request, None, "200 OK");
+        assert_eq!(response.status, 200);
+        assert!(!wire.contains("invalid"));
+        assert!(!wire.contains("x-test: invalid"));
+    }
 }
 
 #[test]

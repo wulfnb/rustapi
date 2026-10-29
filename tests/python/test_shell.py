@@ -63,6 +63,8 @@ raise SystemExit(1 if count <= int(os.environ["TEST_FAILURES"]) else 0)
             if line.strip() and not line.lstrip().startswith("#") and line.strip() not in ("fi", "done")
         }
         missing = executable - cls.executed
+        if missing:
+            raise AssertionError(f"Uncovered launcher lines: {sorted(missing)}")
         report = {"file": "docker/start-desktop.sh", "total": len(executable), "covered": len(executable - missing), "missing": sorted(missing)}
         if destination := os.environ.get("RUSTAPI_COVERAGE_DIR"):
             output = Path(destination)
