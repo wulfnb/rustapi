@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RustAPI — Native, High-Velocity API Testing Client</title>
+  <meta name="description" content="RustAPI is a native Rust desktop and CLI API testing client. Offline-first, sub-50ms launch time, sub-25 MB memory footprint, zero telemetry. An open-source Postman alternative.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <style>
+    :root {
+      --bg: #0e0d14;
+      --surface: #16151f;
+      --surface-border: #2a2838;
+      --surface-hover: #222030;
+      --accent: #ff4500;
+      --accent-glow: rgba(255, 69, 0, 0.25);
+      --accent-light: #ff9500;
+      --accent-gold: #ffd60a;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --code-bg: #08070d;
+      --radius: 12px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background gradient glow */
+    .glow-orb {
+      position: absolute;
+      width: 700px;
+      height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      top: -150px;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    html { scroll-padding-top: 112px; }
+    :focus-visible { outline: 3px solid var(--accent-light); outline-offset: 4px; }
+    .mobile-menu { display: none; }
+    .copy-status { color: var(--text-muted); font-size: .85rem; min-height: 1.6em; }
+
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Navigation */
+    header {
+      padding: 20px 0;
+      border-bottom: 1px solid var(--surface-border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      background: rgba(14, 13, 20, 0.88);
+      z-index: 100;
+    }
+    .nav-wrapper {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 1.25rem;
+    }
+    .brand img {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+    }
+    .badge {
+      font-size: 0.75rem;
+      background: rgba(255, 69, 0, 0.15);
+      color: var(--accent-light);
+      border: 1px solid rgba(255, 69, 0, 0.3);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--accent-light);
+    }
+    .btn-github {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-github:hover {
+      border-color: var(--accent);
+      background: var(--surface-hover);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 80px 0 56px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 3.5rem;
+      line-height: 1.15;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+      color: var(--text);
+    }
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, #ff4500 0%, #ff9500 50%, #ffd60a 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto 36px;
+      line-height: 1.6;
+    }
+
+    .download-grid {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #ff4500 0%, #ff7700 100%);
+      color: #ffffff;
+      font-weight: 700;
+      padding: 14px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      box-shadow: 0 4px 20px var(--accent-glow);
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #ff5722 0%, #ff9800 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(255, 69, 0, 0.4);
+    }
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--surface-border);
+      font-weight: 600;
+      padding: 14px 24px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-secondary:hover {
+      background: var(--surface-hover);
+      border-color: var(--accent);
+    }
+
+    .pill-recommended {
+      display: block;
+      font-size: 0.65rem;
+      background: rgba(255, 214, 10, 0.25);
+      color: var(--accent-gold);
+      border: 1px solid rgba(255, 214, 10, 0.4);
+      padding: 2px 6px;
+      border-radius: 999px;
+      margin-right: 6px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .recommended-download {
+      border: 2px solid var(--accent-gold) !important;
+      box-shadow: 0 0 25px rgba(255, 149, 0, 0.35) !important;
+    }
+
+    /* Terminal Preview */
+    .terminal {
+      background: var(--code-bg);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      max-width: 760px;
+      margin: 0 auto 56px;
+      text-align: left;
+      overflow: hidden;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+    }
+    .terminal-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--surface-border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #333;
+    }
+    .dot:nth-child(1) { background: #ff5f56; }
+    .dot:nth-child(2) { background: #ffbd2e; }
+    .dot:nth-child(3) { background: #27c93f; }
+    .terminal-title {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-family: var(--mono);
+    }
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--surface-border);
+      color: var(--text);
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .copy-btn:hover { background: rgba(255, 255, 255, 0.16); }
+    .terminal-body {
+      padding: 20px 24px;
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      line-height: 1.7;
+      color: #e2e8f0;
+      overflow-x: auto;
+    }
+    .terminal-body .cmd { color: var(--accent-light); font-weight: 600; }
+
+    /* Comparison Table */
+    .section-title {
+      text-align: center;
+      font-size: 2.2rem;
+      font-weight: 800;
+      margin: 64px 0 16px;
+      letter-spacing: -0.02em;
+    }
+    .section-subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      max-width: 640px;
+      margin: 0 auto 40px;
+      font-size: 1.05rem;
+    }
+    .table-container {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+      margin-bottom: 64px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    th, td {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--surface-border);
+    }
+    th {
+      background: rgba(0, 0, 0, 0.25);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    td { font-size: 0.95rem; }
+    tr:last-child td { border-bottom: none; }
+    .highlight-cell {
+      color: var(--accent-light);
+      font-weight: 700;
+    }
+
+    /* Feature Grid */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 80px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: var(--radius);
+      padding: 28px;
+      transition: all 0.2s;
+    }
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(255, 69, 0, 0.12);
+      border: 1px solid rgba(255, 69, 0, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-light);
+      margin-bottom: 18px;
+    }
+    .feature-card h3 {
+      font-size: 1.2rem;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--surface-border);
+      padding: 48px 0 32px;
+      background: rgba(10, 9, 15, 0.6);
+    }
+    .footer-wrapper {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 32px;
+      margin-bottom: 32px;
+    }
+    .footer-brand {
+      max-width: 320px;
+    }
+    .footer-brand p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 10px;
+    }
+    .footer-links {
+      display: flex;
+      gap: 48px;
+    }
+    .footer-col h4 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      margin-bottom: 14px;
+    }
+    .footer-col a {
+      display: block;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-bottom: 8px;
+      transition: color 0.2s;
+    }
+    .footer-col a:hover { color: var(--accent-light); }
+    .copyright {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      padding-top: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.5rem; }
+      .nav-links { display: none; }
+      .mobile-menu { display: block; position: relative; }
+      .mobile-menu summary { cursor: pointer; padding: 8px; }
+      .mobile-menu nav { position: absolute; right: 0; top: 100%; width: 220px; padding: 12px; background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; }
+      .mobile-menu a { display: block; color: var(--text); padding: 10px; }
+      .download-grid a { width: 100%; justify-content: center; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-orb"></div>
+
+  <header>
+    <div class="container nav-wrapper">
+      <a href="#" class="brand">
+        <img src="logo.png" alt="RustAPI Logo">
+        <span>RustAPI</span>
+        <span class="badge">v0.1.0</span>
+      </a>
+      <details class="mobile-menu">
+        <summary>Menu</summary>
+        <nav aria-label="Mobile navigation">
+          <a href="#downloads">Downloads</a>
+          <a href="#features">Features</a>
+          <a href="#comparison">Comparison</a>
+          <a href="#docker">Docker</a>
+          <a href="https://github.com/wulfnb/rustapi">GitHub repository</a>
+        </nav>
+      </details>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#comparison">Comparison</a>
+        <a href="#docker">Docker</a>
+        <a href="#downloads">Downloads</a>
+        <a href="impressum.html">Legal</a>
+        <a href="https://github.com/wulfnb/rustapi" class="btn-github" target="_blank" rel="noopener">
+          <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <h1>A Native, High-Velocity<br><span class="gradient-text">API Testing Client</span></h1>
+      <p>
+        RustAPI is an independent desktop and CLI API platform engineered in pure Rust. Built with instant sub-50ms startup, sub-25 MB memory footprint, offline-first Git-friendly collections, and zero telemetry.
+      </p>
+
+      <div class="download-grid" id="downloads" aria-label="Download RustAPI Releases">
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.dmg" class="btn-primary" id="download-mac-arm">
+          macOS · Apple Silicon (.dmg)
+        </a>
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.dmg" class="btn-primary" id="download-mac-intel">
+          macOS · Intel (.dmg)
+        </a>
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64-Setup.exe" class="btn-primary" id="download-win-exe">
+          Windows · x64 Installer (.exe)
+        </a>
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64.zip" class="btn-secondary">
+          Windows · Portable (.zip)
+        </a>
+        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-linux-x86_64.tar.gz" class="btn-primary" id="download-linux">
+          Linux · x86_64 (.tar.gz)
+        </a>
+        <a href="#docker" class="btn-secondary">Run in Docker</a>
+        <a href="https://github.com/wulfnb/rustapi/releases" class="btn-secondary" target="_blank" rel="noopener">All releases &amp; checksums</a>
+      </div>
+
+      <p class="copy-status" id="copy-status" role="status" aria-live="polite"></p>
+      
+      <!-- Docker Launch Box -->
+      <div class="terminal" id="docker">
+        <div class="terminal-bar">
+          <div class="terminal-dots">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+          <span class="terminal-title">Quick Launch via Docker Web Streaming</span>
+          <button class="copy-btn" id="copy-docker" type="button">Copy</button>
+        </div>
+        <div class="terminal-body" id="docker-command" tabindex="0" aria-label="Docker launch command">
+          <span class="cmd">docker run</span> -d \<br>
+          &nbsp;&nbsp;--name rustapi-client \<br>
+          &nbsp;&nbsp;-p 127.0.0.1:7443:7443 \<br>
+          &nbsp;&nbsp;-e API_USER=tester \<br>
+          &nbsp;&nbsp;-e API_PASSWORD=<span style="color: #f59e0b;">'choose-a-strong-password'</span> \<br>
+          &nbsp;&nbsp;-v rustapi-data:/config \<br>
+          &nbsp;&nbsp;ghcr.io/wulfnb/rustapi:latest
+        </div>
+      </div>
+    </section>
+
+    <!-- Comparison Section -->
+    <section id="comparison">
+      <h2 class="section-title">Why Developers Switch from Postman</h2>
+      <p class="section-subtitle">No mandatory cloud login, no slow Electron startup, and no artificial collection paywalls.</p>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature / Metric</th>
+              <th>RustAPI</th>
+              <th>Postman</th>
+              <th>Insomnia</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Startup Latency</strong></td>
+              <td class="highlight-cell">&lt; 50 ms (Instant Native)</td>
+              <td>3,500 – 6,000 ms</td>
+              <td>2,500 – 4,500 ms</td>
+            </tr>
+            <tr>
+              <td><strong>RAM Usage (Idle)</strong></td>
+              <td class="highlight-cell">~25 MB</td>
+              <td>400 – 900 MB+</td>
+              <td>350 – 700 MB</td>
+            </tr>
+            <tr>
+              <td><strong>Binary Size</strong></td>
+              <td class="highlight-cell">~15 MB (Self-contained)</td>
+              <td>~250 MB</td>
+              <td>~180 MB</td>
+            </tr>
+            <tr>
+              <td><strong>Offline-First &amp; Git</strong></td>
+              <td class="highlight-cell">100% Local JSON / Branchable</td>
+              <td>Cloud-locked / Sync Required</td>
+              <td>Cloud-prioritized</td>
+            </tr>
+            <tr>
+              <td><strong>Telemetry &amp; Tracking</strong></td>
+              <td class="highlight-cell">Zero Telemetry (100% Private)</td>
+              <td>Extensive Analytics</td>
+              <td>Analytics Enabled</td>
+            </tr>
+            <tr>
+              <td><strong>Open Source License</strong></td>
+              <td class="highlight-cell">GPL-3.0-or-later</td>
+              <td>Proprietary</td>
+              <td>Partially Restricted</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Feature Grid -->
+    <section id="features">
+      <h2 class="section-title">Built for Real Engineering Workflows</h2>
+      <p class="section-subtitle">Everything you need to build, test, and automate REST, GraphQL, and WebSocket APIs.</p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </div>
+          <h3>Git-Native Collections</h3>
+          <p>Requests and folders are persisted as standard, human-readable JSON files. Commit, diff, and review collections directly in pull requests.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </div>
+          <h3>Polyglot Code Generator</h3>
+          <p>Instant code export for any request into production-ready cURL, Python (requests/httpx), JavaScript (fetch/axios), and native Rust (reqwest).</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3>Headless CLI &amp; CI Runner</h3>
+          <p>Execute entire test suites in CI/CD pipelines via <code>rustapi run collection.json --env prod.json</code> with detailed JSON and TAP summaries.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3>OAuth 2.0 &amp; Mutual TLS</h3>
+          <p>Built-in authorization manager for Bearer tokens, Basic auth, API keys, OAuth 2.0 PKCE, and client certificate (.der / .pem) authentication.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6Z"/></svg>
+          </div>
+          <h3>Fast Streaming &amp; SSE</h3>
+          <p>Real-time inspection of Server-Sent Events, WebSockets, and chunked HTTP response streams with syntax highlighting and latency timers.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          </div>
+          <h3>Docker Web Streaming</h3>
+          <p>Deploy RustAPI as an internal web portal without installing native binaries. Secured with HTTP Basic Auth and TLS on port 7443.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-wrapper">
+      <div class="footer-brand">
+        <a href="#" class="brand">
+          <img src="logo.png" alt="RustAPI Logo">
+          <span>RustAPI</span>
+        </a>
+        <p>A native, file-based API testing client engineered in pure Rust. Built for speed, privacy, and Git collaboration.</p>
+      </div>
+
+      <div class="footer-links">
+        <div class="footer-col">
+          <h4>Releases</h4>
+          <a href="#downloads">macOS (Apple Silicon &amp; Intel)</a>
+          <a href="#downloads">Windows (Installer &amp; Zip)</a>
+          <a href="#downloads">Linux (.tar.gz)</a>
+          <a href="#docker">Docker Container</a>
+        </div>
+        <div class="footer-col">
+          <h4>Project</h4>
+          <a href="https://github.com/wulfnb/rustapi">GitHub Repository</a>
+          <a href="https://github.com/wulfnb/rustapi/issues">Issue Tracker</a>
+          <a href="impressum.html">Impressum &amp; Privacy</a>
+        </div>
+      </div>
+    </div>
+    <div class="container copyright">
+      &copy; 2026 RustAPI · Released under the GNU General Public License v3.0 or later (GPL-3.0-or-later).
+    </div>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>

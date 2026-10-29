@@ -40,10 +40,14 @@ if args.platform == "macos":
             "CFBundleIdentifier": "org.rustapi.desktop", "CFBundleExecutable": "rustapi",
             "CFBundlePackageType": "APPL", "CFBundleShortVersionString": version,
             "CFBundleVersion": version, "NSHighResolutionCapable": True,
+            "CFBundleIconFile": "RustAPIIcon.icns",
         }, output)
     binary.chmod(0o755)
     resources = contents / "Resources"
     resources.mkdir()
+    icon_source = Path("assets/icons/RustAPIIcon.icns")
+    if icon_source.exists():
+        shutil.copy2(icon_source, resources / "RustAPIIcon.icns")
     for notice in ("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.html"):
         if Path(notice).exists():
             shutil.copy2(notice, resources)

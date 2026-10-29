@@ -162,6 +162,8 @@ jobs:
           actionlint
           shellcheck docker/start-desktop.sh
           python3 -m compileall -q scripts docker
+      - name: Website JavaScript test
+        run: node --test tests/site_tests.mjs
       - name: Python statement/branch coverage and shell execution coverage
         env:
           RUSTAPI_COVERAGE_DIR: coverage

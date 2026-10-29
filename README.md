@@ -1,8 +1,14 @@
+<p align="center">
+  <img src="assets/icons/rustapi-icon-256.png" width="128" height="128" alt="RustAPI Logo">
+</p>
+
 # RustAPI
 
 A local-first REST client built in Rust and egui. Create Git-friendly workspaces,
 import Postman collections, send requests, test responses, and run the same collections
 from the desktop or a headless CLI. No account or cloud service is required.
+
+[**Website & Downloads**](https://wulfnb.github.io/rustapi/) · [**GitHub Releases**](https://github.com/wulfnb/rustapi/releases) · [**Postman Comparison**](docs/postman-comparison.md)
 
 This release targets the everyday REST workflow. It implements a documented subset
 of Postman's scripting APIs; it does not claim full Postman compatibility.

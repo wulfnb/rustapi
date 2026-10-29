@@ -10,6 +10,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\dist
 OutputBaseFilename=RustAPI-windows-x86_64-Setup
+SetupIconFile=..\..\assets\icons\RustAPIIcon.ico
 UninstallDisplayIcon={app}\rustapi.exe
 Compression=lzma2
 SolidCompression=yes

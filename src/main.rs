@@ -33,14 +33,19 @@ fn main() -> eframe::Result<()> {
         }
     }
     let smoke_test = args.first().is_some_and(|arg| arg == "--smoke-test");
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/rustapi-icon-256.png")).ok();
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([1400.0, 900.0])
+        .with_min_inner_size([800.0, 600.0])
+        .with_title("RustAPI - API Testing Client");
+    if let Some(icon) = icon {
+        viewport = viewport.with_icon(icon);
+    }
     // Configure native options
     let native_options = eframe::NativeOptions {
         #[cfg(target_os = "windows")]
         renderer: eframe::Renderer::Wgpu,
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1400.0, 900.0])
-            .with_min_inner_size([800.0, 600.0])
-            .with_title("RustAPI - API Testing Client"),
+        viewport,
         ..Default::default()
     };
 
