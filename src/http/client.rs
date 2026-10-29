@@ -1,209 +1,315 @@
-//! HTTP client for executing API requests
+//! Shared, cancellable HTTP service used by GUI sends and collection runs.
+use crate::models::*;
+use anyhow::{bail, Context, Result};
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Client,
+};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
 
-use crate::models::{ApiRequest, ApiResponse, BodyType, Environment, HttpMethod, KeyValue};
-use reqwest::blocking::{Client, RequestBuilder};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use std::time::Instant;
-
-/// Execute an HTTP request and return the response
-pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) -> ApiResponse {
-    let client = match Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => return ApiResponse::error(format!("Failed to create HTTP client: {}", e)),
-    };
-
-    // Substitute environment variables
-    let url = if let Some(env) = environment {
-        env.substitute(&request.url)
-    } else {
-        request.url.clone()
-    };
-
-    // Build query params including API key if needed
-    let mut query_params = request.query_params.clone();
-    if let Some((key, value)) = request.auth.get_api_key_query_param() {
-        query_params.push(KeyValue::new(key, value));
+#[derive(Debug, Clone, Default)]
+pub struct Cancellation(Arc<AtomicBool>);
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
     }
-
-    // Build the URL with query parameters
-    let url_with_params = build_url_with_params(&url, &query_params, environment);
-
-    // Create the request builder
-    let mut builder: RequestBuilder = match request.method {
-        HttpMethod::GET => client.get(&url_with_params),
-        HttpMethod::POST => client.post(&url_with_params),
-        HttpMethod::PUT => client.put(&url_with_params),
-        HttpMethod::DELETE => client.delete(&url_with_params),
-        HttpMethod::PATCH => client.patch(&url_with_params),
-        HttpMethod::HEAD => client.head(&url_with_params),
-        HttpMethod::OPTIONS => client.request(reqwest::Method::OPTIONS, &url_with_params),
-    };
-
-    // Add headers
-    let mut headers = HeaderMap::new();
-
-    // Add auth header if applicable
-    // Substitute credentials before Basic auth encodes them as Base64.
-    let mut auth = request.auth.clone();
-    if let Some(env) = environment {
-        auth.basic_username = env.substitute(&auth.basic_username);
-        auth.basic_password = env.substitute(&auth.basic_password);
-    }
-    if let Some((key, value)) = auth.get_auth_header() {
-        let key_sub = if let Some(env) = environment {
-            env.substitute(&key)
-        } else {
-            key
-        };
-        let value_sub = if let Some(env) = environment {
-            env.substitute(&value)
-        } else {
-            value
-        };
-
-        if let (Ok(name), Ok(val)) = (
-            HeaderName::try_from(key_sub.as_str()),
-            HeaderValue::try_from(&value_sub),
-        ) {
-            headers.insert(name, val);
-        }
-    }
-
-    // Add user headers
-    for header in &request.headers {
-        if header.enabled && !header.key.is_empty() {
-            let value = if let Some(env) = environment {
-                env.substitute(&header.value)
-            } else {
-                header.value.clone()
-            };
-
-            if let (Ok(name), Ok(val)) = (
-                HeaderName::try_from(header.key.as_str()),
-                HeaderValue::try_from(&value),
-            ) {
-                headers.insert(name, val);
-            }
-        }
-    }
-
-    // Add body based on body type
-    match request.body_type {
-        BodyType::None => {}
-        BodyType::Json => {
-            let body = if let Some(env) = environment {
-                env.substitute(&request.body)
-            } else {
-                request.body.clone()
-            };
-
-            if !headers.contains_key("content-type") {
-                headers.insert(
-                    HeaderName::from_static("content-type"),
-                    HeaderValue::from_static("application/json"),
-                );
-            }
-            builder = builder.body(body);
-        }
-        BodyType::Text => {
-            let body = if let Some(env) = environment {
-                env.substitute(&request.body)
-            } else {
-                request.body.clone()
-            };
-
-            if !headers.contains_key("content-type") {
-                headers.insert(
-                    HeaderName::from_static("content-type"),
-                    HeaderValue::from_static("text/plain"),
-                );
-            }
-            builder = builder.body(body);
-        }
-        BodyType::UrlEncoded => {
-            let mut form_data: Vec<(String, String)> = vec![];
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = if let Some(env) = environment {
-                        env.substitute(&kv.value)
-                    } else {
-                        kv.value.clone()
-                    };
-                    form_data.push((kv.key.clone(), value));
-                }
-            }
-            builder = builder.form(&form_data);
-        }
-        BodyType::FormData => {
-            let mut form = reqwest::blocking::multipart::Form::new();
-            for kv in &request.form_data {
-                if kv.enabled && !kv.key.is_empty() {
-                    let value = if let Some(env) = environment {
-                        env.substitute(&kv.value)
-                    } else {
-                        kv.value.clone()
-                    };
-                    form = form.text(kv.key.clone(), value);
-                }
-            }
-            builder = builder.multipart(form);
-        }
-        BodyType::Binary => {
-            builder = builder.body(request.body.clone());
-        }
-    }
-
-    builder = builder.headers(headers);
-
-    // Execute request and time it
-    let start = Instant::now();
-    let result = builder.send();
-    let elapsed = start.elapsed().as_millis();
-
-    match result {
-        Ok(response) => {
-            let status = response.status().as_u16();
-            let status_text = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown")
-                .to_string();
-
-            // Collect headers
-            let response_headers: Vec<(String, String)> = response
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect();
-
-            // Get body
-            let body = response.text().unwrap_or_default();
-            let size = body.len();
-
-            ApiResponse {
-                status,
-                status_text,
-                headers: response_headers,
-                body,
-                size,
-                time_ms: elapsed,
-                error: None,
-            }
-        }
-        Err(e) => ApiResponse {
-            error: Some(format!("Request failed: {}", e)),
-            time_ms: elapsed,
-            ..Default::default()
-        },
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
     }
 }
-
+#[derive(Default)]
+pub struct CookieJar(Mutex<cookie_store::CookieStore>);
+impl reqwest::cookie::CookieStore for CookieJar {
+    fn set_cookies(&self, headers: &mut dyn Iterator<Item = &HeaderValue>, url: &reqwest::Url) {
+        let mut jar = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        for h in headers {
+            if let Ok(s) = h.to_str() {
+                let _ = jar.parse(s, url);
+            }
+        }
+    }
+    fn cookies(&self, url: &reqwest::Url) -> Option<HeaderValue> {
+        let jar = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        let text = jar
+            .get_request_values(url)
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        if text.is_empty() {
+            None
+        } else {
+            HeaderValue::from_str(&text).ok()
+        }
+    }
+}
+impl CookieJar {
+    pub fn clear(&self) {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
+    pub fn list(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter_any()
+            .map(|c| {
+                format!(
+                    "{}={}; domain={:?}; path={:?}",
+                    c.name(),
+                    c.value(),
+                    c.domain,
+                    c.path
+                )
+            })
+            .collect()
+    }
+    pub fn set(&self, url: &str, cookie: &str) -> Result<()> {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .parse(cookie, &reqwest::Url::parse(url)?)
+            .map_err(|_| anyhow::anyhow!("Invalid cookie"))?;
+        Ok(())
+    }
+}
+#[derive(Default)]
+pub struct HttpService {
+    clients: Mutex<HashMap<String, Client>>,
+    runtime: std::sync::OnceLock<std::result::Result<tokio::runtime::Runtime, String>>,
+    pub cookies: Arc<CookieJar>,
+    pub(crate) tokens: Mutex<HashMap<String, super::oauth::Token>>,
+}
+impl HttpService {
+    pub fn client(&self, s: &HttpSettings) -> Result<Client> {
+        anyhow::ensure!(
+            s.timeout_ms > 0 && s.timeout_ms <= 3_600_000,
+            "Timeout must be between 1 and 3600000 ms"
+        );
+        anyhow::ensure!(
+            s.max_response_bytes > 0 && s.max_response_bytes <= 256 * 1024 * 1024,
+            "Response limit must be between 1 byte and 256 MiB"
+        );
+        let key = serde_json::to_string(s)?;
+        let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(c) = clients.get(&key) {
+            return Ok(c.clone());
+        }
+        let mut b = Client::builder()
+            .use_rustls_tls()
+            .cookie_provider(self.cookies.clone())
+            .danger_accept_invalid_certs(!s.verify_tls)
+            .timeout(Duration::from_millis(s.timeout_ms))
+            .redirect(if s.follow_redirects {
+                reqwest::redirect::Policy::limited(10)
+            } else {
+                reqwest::redirect::Policy::none()
+            });
+        if !s.proxy.is_empty() {
+            b = b.proxy(reqwest::Proxy::all(&s.proxy).context("Invalid proxy")?);
+        }
+        if !s.ca_file.is_empty() {
+            for cert in reqwest::Certificate::from_pem_bundle(
+                &std::fs::read(&s.ca_file).context("Read custom CA")?,
+            )? {
+                b = b.add_root_certificate(cert);
+            }
+        }
+        if !s.identity_file.is_empty() {
+            b = b.identity(reqwest::Identity::from_pem(
+                &std::fs::read(&s.identity_file).context("Read client certificate/key PEM")?,
+            )?);
+        }
+        let c = b.build()?;
+        if clients.len() > 32 {
+            clients.clear();
+        }
+        clients.insert(key, c.clone());
+        Ok(c)
+    }
+    pub fn execute(&self, request: &ApiRequest, cancel: &Cancellation) -> ApiResponse {
+        let start = Instant::now();
+        let run = || -> Result<ApiResponse> {
+            if cancel.is_cancelled() {
+                bail!("Request cancelled");
+            }
+            let rt = self
+                .runtime
+                .get_or_init(|| {
+                    tokio::runtime::Builder::new_multi_thread()
+                        .worker_threads(2)
+                        .enable_all()
+                        .build()
+                        .map_err(|e| e.to_string())
+                })
+                .as_ref()
+                .map_err(|e| anyhow::anyhow!(e.clone()))?;
+            rt.block_on(async{
+                tokio::select! {
+                    biased;
+                    _=async {while !cancel.is_cancelled(){tokio::time::sleep(Duration::from_millis(20)).await;}}=>bail!("Request cancelled"),
+                    result=self.execute_async(request,start)=>result,
+                }
+            })
+        };
+        match run() {
+            Ok(r) => r,
+            Err(e) => ApiResponse {
+                time_ms: start.elapsed().as_millis(),
+                error: Some(format!("Request failed: {e:#}")),
+                ..Default::default()
+            },
+        }
+    }
+    async fn execute_async(&self, r: &ApiRequest, start: Instant) -> Result<ApiResponse> {
+        let client = self.client(&r.settings)?;
+        let mut r = r.clone();
+        if r.auth.auth_type == AuthType::OAuth2 {
+            r.auth.bearer_token = super::oauth::access_token(self, &client, &r.auth.oauth).await?;
+            r.auth.auth_type = AuthType::BearerToken;
+        }
+        if matches!(r.auth.auth_type, AuthType::Inherit | AuthType::Unsupported) {
+            bail!("No inherited authentication context; choose an explicit auth type");
+        }
+        let mut params = r.query_params.clone();
+        if let Some((k, v)) = r.auth.get_api_key_query_param() {
+            params.push(KeyValue::new(k, v));
+        }
+        let url = build_url_with_params(&r.url, &params, None);
+        let mut headers = HeaderMap::new();
+        if let Some((k, v)) = r.auth.get_auth_header() {
+            headers.insert(
+                HeaderName::try_from(k.as_str()).context("Invalid auth header name")?,
+                HeaderValue::try_from(v).context("Invalid auth header value")?,
+            );
+        }
+        for h in &r.headers {
+            if h.enabled && !h.key.is_empty() {
+                headers.insert(
+                    HeaderName::try_from(h.key.as_str()).context("Invalid header name")?,
+                    HeaderValue::try_from(h.value.as_str()).context("Invalid header value")?,
+                );
+            }
+        }
+        let mut b = client.request(
+            reqwest::Method::from_bytes(r.method.as_str().as_bytes())?,
+            &url,
+        );
+        match r.body_type {
+            BodyType::None => {}
+            BodyType::Json | BodyType::Text => {
+                if !headers.contains_key("content-type") {
+                    headers.insert(
+                        reqwest::header::CONTENT_TYPE,
+                        HeaderValue::from_static(if r.body_type == BodyType::Json {
+                            "application/json"
+                        } else {
+                            "text/plain"
+                        }),
+                    );
+                }
+                b = b.body(r.body);
+            }
+            BodyType::Binary => {
+                let bytes = if r.binary_file.is_empty() {
+                    r.body.into_bytes()
+                } else {
+                    std::fs::read(&r.binary_file).context("Read binary upload")?
+                };
+                if !headers.contains_key("content-type") {
+                    headers.insert(
+                        reqwest::header::CONTENT_TYPE,
+                        HeaderValue::from_static("application/octet-stream"),
+                    );
+                }
+                b = b.body(bytes);
+            }
+            BodyType::UrlEncoded => {
+                b = b.form(
+                    &r.form_data
+                        .iter()
+                        .filter(|v| v.enabled && !v.key.is_empty())
+                        .map(|v| (v.key.clone(), v.value.clone()))
+                        .collect::<Vec<_>>(),
+                );
+            }
+            BodyType::FormData => {
+                let mut form = reqwest::multipart::Form::new();
+                for v in &r.form_data {
+                    if v.enabled && !v.key.is_empty() {
+                        if v.file {
+                            let bytes = std::fs::read(&v.value).context("Read multipart upload")?;
+                            let name = std::path::Path::new(&v.value)
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .into_owned();
+                            form = form.part(
+                                v.key.clone(),
+                                reqwest::multipart::Part::bytes(bytes).file_name(name),
+                            );
+                        } else {
+                            form = form.text(v.key.clone(), v.value.clone());
+                        }
+                    }
+                }
+                b = b.multipart(form);
+            }
+        }
+        let mut response = b
+            .headers(headers)
+            .send()
+            .await
+            .context("Send HTTP request")?;
+        let status = response.status();
+        let headers_time_ms = start.elapsed().as_millis();
+        let headers = response
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or_default().to_string()))
+            .collect();
+        let mut raw_body = vec![];
+        while let Some(chunk) = response.chunk().await.context("Read response body")? {
+            if raw_body.len().saturating_add(chunk.len()) > r.settings.max_response_bytes {
+                bail!(
+                    "Response exceeds configured {} byte limit",
+                    r.settings.max_response_bytes
+                );
+            }
+            raw_body.extend_from_slice(&chunk);
+        }
+        let size = raw_body.len();
+        let preview = &raw_body[..raw_body.len().min(1024 * 1024)];
+        let body = String::from_utf8_lossy(preview).into_owned();
+        Ok(ApiResponse {
+            status: status.as_u16(),
+            status_text: status.canonical_reason().unwrap_or("Unknown").into(),
+            headers,
+            body,
+            size,
+            time_ms: start.elapsed().as_millis(),
+            headers_time_ms,
+            raw_body,
+            error: None,
+            tests: vec![],
+        })
+    }
+}
+/// Compatibility entry point; interactive sends and runs reuse an HttpService.
+pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) -> ApiResponse {
+    let vars = crate::variables::Variables::for_request(request, environment);
+    match vars.resolve_request(request) {
+        Ok(r) => HttpService::default().execute(&r, &Cancellation::default()),
+        Err(e) => ApiResponse::error(e.to_string()),
+    }
+}
 /// Build URL with query parameters
-fn build_url_with_params(
+pub(crate) fn build_url_with_params(
     base_url: &str,
     params: &[KeyValue],
     environment: Option<&Environment>,

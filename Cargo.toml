@@ -3,7 +3,9 @@ name = "rustapi"
 version = "0.1.0"
 edition = "2021"
 description = "A fast, file-based API testing client inspired by Bruno"
-authors = ["Your Name"]
+repository = "https://github.com/wulfnb/rustapi"
+authors = ["Noufal Babu and contributors"]
+license = "GPL-3.0-or-later"
 
 [dependencies]
 # GUI Framework
@@ -12,7 +14,7 @@ egui = "0.29"
 egui_extras = { version = "0.29", features = ["image"] }
 
 # HTTP Client
-reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart", "cookies", "stream", "rustls-tls"] }
 tokio = { version = "1.41", features = ["full"] }
 
 # Serialization
@@ -30,6 +32,17 @@ anyhow = "1.0"
 thiserror = "1.0"
 urlencoding = "2.1"
 
+tempfile = "3.23"
+base64 = "0.22"
+sha2 = "0.10"
+csv = "1.4"
+shlex = "1.3"
+rquickjs = "0.14"
+aes-gcm = "0.10"
+argon2 = "0.6"
+cookie_store = "0.22"
+ctrlc = "3.5"
+
 # Async runtime
 pollster = "0.3"
 
@@ -44,4 +57,4 @@ lto = true
 strip = "debuginfo"
 
 [dev-dependencies]
-tempfile = "3.23"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }

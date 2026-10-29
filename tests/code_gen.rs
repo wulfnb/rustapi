@@ -46,14 +46,14 @@ language_case!(
 language_case!(
     rust_post_with_environment,
     Rust,
-    ".post(\"https://api.test/users\")"
+    "reqwest::Method::POST, \"https://api.test/users\""
 );
 
 #[test]
 fn curl_escapes_single_quotes_in_body() {
-    let (mut request, _) = sample();
+    let (mut request, env) = sample();
     request.body = "{\"name\":\"O'Reilly\"}".into();
-    let code = generate_code(&request, CodeGenLanguage::Curl, None);
+    let code = generate_code(&request, CodeGenLanguage::Curl, Some(&env));
     assert!(code.contains("O'\\''Reilly"));
 }
 

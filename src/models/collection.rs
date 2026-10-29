@@ -12,8 +12,18 @@ pub struct Folder {
     pub id: String,
     pub name: String,
     pub requests: Vec<ApiRequest>,
+    #[serde(default)]
+    pub order: Vec<String>,
     pub folders: Vec<Folder>,
     pub expanded: bool,
+    #[serde(default)]
+    pub auth: super::AuthConfig,
+    #[serde(default)]
+    pub pre_script: String,
+    #[serde(default)]
+    pub post_script: String,
+    #[serde(default)]
+    pub variables: HashMap<String, String>,
 }
 
 impl Folder {
@@ -22,8 +32,16 @@ impl Folder {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             requests: vec![],
+            order: vec![],
             folders: vec![],
             expanded: true,
+            auth: super::AuthConfig {
+                auth_type: super::AuthType::Inherit,
+                ..Default::default()
+            },
+            pre_script: String::new(),
+            post_script: String::new(),
+            variables: HashMap::new(),
         }
     }
 }
@@ -35,7 +53,17 @@ pub struct Collection {
     pub name: String,
     pub description: String,
     pub version: String,
+    #[serde(default = "schema_version")]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub auth: super::AuthConfig,
+    #[serde(default)]
+    pub pre_script: String,
+    #[serde(default)]
+    pub post_script: String,
     pub requests: Vec<ApiRequest>,
+    #[serde(default)]
+    pub order: Vec<String>,
     pub folders: Vec<Folder>,
     pub variables: HashMap<String, String>,
     pub created_at: DateTime<Utc>,
@@ -53,7 +81,12 @@ impl Default for Collection {
             name: String::from("New Collection"),
             description: String::new(),
             version: String::from("1.0.0"),
+            schema_version: schema_version(),
+            auth: Default::default(),
+            pre_script: String::new(),
+            post_script: String::new(),
             requests: vec![],
+            order: vec![],
             folders: vec![],
             variables: HashMap::new(),
             created_at: Utc::now(),
@@ -71,4 +104,232 @@ impl Collection {
             ..Default::default()
         }
     }
+}
+
+impl Collection {
+    pub fn request(&self, id: &str) -> Option<&ApiRequest> {
+        find_request(&self.requests, &self.folders, id)
+    }
+    pub fn request_mut(&mut self, id: &str) -> Option<&mut ApiRequest> {
+        find_request_mut(&mut self.requests, &mut self.folders, id)
+    }
+    pub fn folder_mut(&mut self, id: &str) -> Option<&mut Folder> {
+        find_folder_mut(&mut self.folders, id)
+    }
+    pub fn remove_request(&mut self, id: &str) -> Option<ApiRequest> {
+        remove_request(&mut self.requests, &mut self.folders, id)
+    }
+    pub fn remove_folder(&mut self, id: &str) -> Option<Folder> {
+        remove_folder(&mut self.folders, id)
+    }
+    pub fn duplicate_request(&mut self, id: &str) -> Option<ApiRequest> {
+        fn duplicate(
+            requests: &mut Vec<ApiRequest>,
+            folders: &mut [Folder],
+            order: &mut Vec<String>,
+            id: &str,
+        ) -> Option<ApiRequest> {
+            if let Some(r) = requests.iter().find(|r| r.id == id) {
+                let copy = r.duplicate();
+                requests.push(copy.clone());
+                if let Some(i) = order.iter().position(|v| v == id) {
+                    order.insert(i + 1, copy.id.clone());
+                }
+                return Some(copy);
+            }
+            folders
+                .iter_mut()
+                .find_map(|f| duplicate(&mut f.requests, &mut f.folders, &mut f.order, id))
+        }
+        duplicate(&mut self.requests, &mut self.folders, &mut self.order, id)
+    }
+    pub fn ordered_requests(&self, folder: Option<&str>) -> Vec<ApiRequest> {
+        fn visit(
+            requests: &[ApiRequest],
+            folders: &[Folder],
+            order: &[String],
+            scope: (&HashMap<String, String>, &super::AuthConfig, &str, &str),
+            out: &mut Vec<ApiRequest>,
+        ) {
+            let (vars, auth, pre, post) = scope;
+            for id in child_order(requests, folders, order) {
+                if let Some(r) = requests.iter().find(|r| r.id == id) {
+                    let mut r = r.clone();
+                    if r.auth.auth_type == super::AuthType::Inherit {
+                        r.auth = auth.clone();
+                    }
+                    r.pre_script = format!("{pre}\n{}", r.pre_script);
+                    r.post_script = format!("{post}\n{}", r.post_script);
+                    // Folder variables are materialized before narrower environment/run scopes.
+                    r.inherited_variables = vars.clone();
+                    out.push(r);
+                } else if let Some(f) = folders.iter().find(|f| f.id == id) {
+                    let mut vars = vars.clone();
+                    vars.extend(f.variables.clone());
+                    let auth = if f.auth.auth_type == super::AuthType::Inherit {
+                        auth
+                    } else {
+                        &f.auth
+                    };
+                    visit(
+                        &f.requests,
+                        &f.folders,
+                        &f.order,
+                        (
+                            &vars,
+                            auth,
+                            &format!("{pre}\n{}", f.pre_script),
+                            &format!("{post}\n{}", f.post_script),
+                        ),
+                        out,
+                    );
+                }
+            }
+        }
+        let mut all = vec![];
+        visit(
+            &self.requests,
+            &self.folders,
+            &self.order,
+            (
+                &self.variables,
+                &self.auth,
+                &self.pre_script,
+                &self.post_script,
+            ),
+            &mut all,
+        );
+        if let Some(id) = folder {
+            let mut copy = self.clone();
+            if let Some(f) = copy.folder_mut(id) {
+                fn ids(f: &Folder, out: &mut Vec<String>) {
+                    out.extend(f.requests.iter().map(|r| r.id.clone()));
+                    for c in &f.folders {
+                        ids(c, out);
+                    }
+                }
+                let mut selected = vec![];
+                ids(f, &mut selected);
+                all.retain(|r| selected.contains(&r.id));
+            } else {
+                all.clear();
+            }
+        }
+        if let Some(path) = &self.file_path {
+            let path = std::path::Path::new(path);
+            let parent = path.parent().unwrap_or(std::path::Path::new("."));
+            let base = if parent.file_name().is_some_and(|n| n == "collections") {
+                parent.parent().unwrap_or(parent)
+            } else {
+                parent
+            };
+            for r in &mut all {
+                r.file_base = base.into();
+            }
+        }
+        all
+    }
+}
+pub fn find_request<'a>(
+    requests: &'a [ApiRequest],
+    folders: &'a [Folder],
+    id: &str,
+) -> Option<&'a ApiRequest> {
+    requests.iter().find(|r| r.id == id).or_else(|| {
+        folders
+            .iter()
+            .find_map(|f| find_request(&f.requests, &f.folders, id))
+    })
+}
+pub fn find_request_mut<'a>(
+    requests: &'a mut [ApiRequest],
+    folders: &'a mut [Folder],
+    id: &str,
+) -> Option<&'a mut ApiRequest> {
+    if let Some(r) = requests.iter_mut().find(|r| r.id == id) {
+        return Some(r);
+    }
+    folders
+        .iter_mut()
+        .find_map(|f| find_request_mut(&mut f.requests, &mut f.folders, id))
+}
+fn find_folder_mut<'a>(folders: &'a mut [Folder], id: &str) -> Option<&'a mut Folder> {
+    for f in folders {
+        if f.id == id {
+            return Some(f);
+        }
+        if let Some(c) = find_folder_mut(&mut f.folders, id) {
+            return Some(c);
+        }
+    }
+    None
+}
+fn remove_request(
+    requests: &mut Vec<ApiRequest>,
+    folders: &mut [Folder],
+    id: &str,
+) -> Option<ApiRequest> {
+    if let Some(i) = requests.iter().position(|r| r.id == id) {
+        return Some(requests.remove(i));
+    }
+    folders
+        .iter_mut()
+        .find_map(|f| remove_request(&mut f.requests, &mut f.folders, id))
+}
+fn remove_folder(folders: &mut Vec<Folder>, id: &str) -> Option<Folder> {
+    if let Some(i) = folders.iter().position(|f| f.id == id) {
+        return Some(folders.remove(i));
+    }
+    folders
+        .iter_mut()
+        .find_map(|f| remove_folder(&mut f.folders, id))
+}
+
+fn schema_version() -> u32 {
+    1
+}
+
+pub fn child_order(requests: &[ApiRequest], folders: &[Folder], order: &[String]) -> Vec<String> {
+    let mut ids = vec![];
+    for id in order
+        .iter()
+        .chain(requests.iter().map(|r| &r.id))
+        .chain(folders.iter().map(|f| &f.id))
+    {
+        if !ids.contains(id)
+            && (requests.iter().any(|r| &r.id == id) || folders.iter().any(|f| &f.id == id))
+        {
+            ids.push(id.clone());
+        }
+    }
+    ids
+}
+
+pub fn validate_collection(c: &Collection) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        c.schema_version == 1,
+        "Unsupported collection schema {}",
+        c.schema_version
+    );
+    fn visit(
+        requests: &[ApiRequest],
+        folders: &[Folder],
+        seen: &mut std::collections::HashSet<String>,
+    ) -> anyhow::Result<()> {
+        for r in requests {
+            anyhow::ensure!(
+                !r.id.is_empty() && seen.insert(r.id.clone()),
+                "Empty or duplicate request ID"
+            );
+        }
+        for f in folders {
+            anyhow::ensure!(
+                !f.id.is_empty() && seen.insert(f.id.clone()),
+                "Empty or duplicate folder ID"
+            );
+            visit(&f.requests, &f.folders, seen)?;
+        }
+        Ok(())
+    }
+    visit(&c.requests, &c.folders, &mut Default::default())
 }

@@ -20,19 +20,11 @@ use app::RustApiApp;
 
 fn main() -> eframe::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    match args.as_slice() {
-        [] => {}
-        [arg] if arg == "--version" => {
-            println!("RustAPI {}", env!("CARGO_PKG_VERSION"));
-            return Ok(());
-        }
-        [arg] if arg == "--help" => {
-            println!("Usage: rustapi [--version | --help | --smoke-test]");
-            return Ok(());
-        }
-        [arg] if arg == "--smoke-test" => {}
-        _ => {
-            eprintln!("Usage: rustapi [--version | --help | --smoke-test]");
+    match rustapi::cli::dispatch(&args) {
+        Ok(Some(code)) => std::process::exit(code),
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("{e:#}");
             std::process::exit(2);
         }
     }
@@ -55,11 +47,9 @@ fn main() -> eframe::Result<()> {
         Box::new(move |cc| {
             let mut inner = RustApiApp::new(cc);
             if smoke_test {
-                inner.tab_manager.open_tab(
-                    models::ApiRequest::new("Startup smoke test"),
-                    None,
-                    None,
-                );
+                inner
+                    .tab_manager
+                    .open_tab(models::ApiRequest::new("Startup smoke test"), None);
             }
             Ok(Box::new(DesktopApp {
                 inner,

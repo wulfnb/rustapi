@@ -3,14 +3,12 @@
 See [the local validation record](validation.md) for tested platforms and remaining
 GitHub-runner validation.
 
-## Source comparison
+## Source baseline
 
-Checked on 2026-10-28: this checkout, `git@github.com:wulfnb/rustapi.git` (the existing
-origin), and `https://github.com/rust-projs/rustapi.git` all have the same `main` tip:
-`33dda88e283430d24016db1762503dc69bb96d14` (`latest code`, 2025-12-18).
-Neither remote contains a newer branch tip. The remotes were inspected without changing
-the local origin. Push these changes to whichever repository will own future releases;
-workflow image names derive from that repository automatically.
+The local-first REST implementation was developed from `origin/main` at
+`8359bb4a640be57aed6323a1acdcda59679ffda0` (the merged cross-platform CI work).
+The historical gap audit is in `docs/postman-alternative-audit.md`; current behavior
+and migration boundaries are documented in README.md and `docs/postman-compatibility.md`.
 
 ## Validation
 
@@ -27,7 +25,9 @@ second independent CI run on main pushes.
 
 Coverage is measured across all Rust targets. There is no claimed coverage percentage
 or artificial 100% threshold; the report exposes untested GUI paths as well as core
-logic. Startup smoke checks exercise initialization and rendering, not every user
+logic. The native matrix also executes 24 generated cURL/Python/JavaScript/Rust requests against
+a loopback fixture server. It installs requests 2.32.5 for that check. Node 20+ and curl
+are supplied by the hosted runners. Startup smoke checks exercise initialization and rendering, not every user
 interaction. Windows uses eframe's WGPU renderer with Direct3D rather than requiring
 an installed OpenGL driver. Linux uses Mesa software rendering under Xvfb in CI.
 

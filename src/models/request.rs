@@ -82,6 +82,7 @@ impl BodyType {
             BodyType::Text,
             BodyType::FormData,
             BodyType::UrlEncoded,
+            BodyType::Binary,
         ]
     }
 
@@ -115,6 +116,8 @@ pub struct KeyValue {
     pub value: String,
     pub enabled: bool,
     pub description: String,
+    #[serde(default)]
+    pub file: bool,
 }
 
 impl KeyValue {
@@ -124,6 +127,7 @@ impl KeyValue {
             value: value.into(),
             enabled: true,
             description: String::new(),
+            file: false,
         }
     }
 }
@@ -143,6 +147,22 @@ pub struct ApiRequest {
     pub auth: AuthConfig,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub settings: super::HttpSettings,
+    #[serde(default)]
+    pub checks: Vec<super::Assertion>,
+    #[serde(default)]
+    pub extractors: Vec<super::Extractor>,
+    #[serde(default)]
+    pub pre_script: String,
+    #[serde(default)]
+    pub post_script: String,
+    #[serde(default)]
+    pub binary_file: String,
+    #[serde(skip)]
+    pub inherited_variables: std::collections::HashMap<String, String>,
+    #[serde(skip)]
+    pub file_base: std::path::PathBuf,
 }
 
 impl Default for ApiRequest {
@@ -160,6 +180,14 @@ impl Default for ApiRequest {
             auth: AuthConfig::default(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            settings: Default::default(),
+            checks: vec![],
+            extractors: vec![],
+            pre_script: String::new(),
+            post_script: String::new(),
+            binary_file: String::new(),
+            inherited_variables: Default::default(),
+            file_base: Default::default(),
         }
     }
 }
@@ -177,16 +205,9 @@ impl ApiRequest {
         Self {
             id: Uuid::new_v4().to_string(),
             name: format!("{} (copy)", self.name),
-            method: self.method,
-            url: self.url.clone(),
-            headers: self.headers.clone(),
-            query_params: self.query_params.clone(),
-            body_type: self.body_type.clone(),
-            body: self.body.clone(),
-            form_data: self.form_data.clone(),
-            auth: self.auth.clone(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            ..self.clone()
         }
     }
 }

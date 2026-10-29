@@ -61,6 +61,29 @@ impl RequestHistory {
 
     /// Add a new entry to history
     pub fn add(&mut self, request: ApiRequest, response: Option<ApiResponse>) {
+        let mut request = crate::secrets::redact_request(&request);
+        request.body = "[body omitted from history]".into();
+        for field in &mut request.form_data {
+            field.value = "[redacted]".into();
+        }
+        request.pre_script.clear();
+        request.post_script.clear();
+        let response = response.map(|mut r| {
+            r.body = "[response omitted from history]".into();
+            r.raw_body.clear();
+            r.error = r
+                .error
+                .map(|_| "Transport error; details omitted from history".into());
+            for (k, v) in &mut r.headers {
+                if crate::secrets::sensitive(k) {
+                    *v = "[redacted]".into();
+                }
+            }
+            for t in &mut r.tests {
+                t.message.clear();
+            }
+            r
+        });
         let entry = HistoryEntry::new(request, response);
         self.entries.insert(0, entry);
 

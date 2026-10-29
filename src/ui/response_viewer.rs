@@ -19,6 +19,7 @@ pub fn render_response_viewer(
     is_loading: bool,
     current_tab: &mut ResponseTab,
     format_json_enabled: &mut bool,
+    search: &mut String,
 ) {
     ui.horizontal(|ui| {
         ui.strong("Response");
@@ -48,6 +49,34 @@ pub fn render_response_viewer(
         if let Some(ref error) = response.error {
             ui.colored_label(egui::Color32::RED, error);
         } else {
+            ui.horizontal(|ui| {
+                ui.label("Search response");
+                ui.text_edit_singleline(search);
+                if !search.is_empty() {
+                    ui.label(format!(
+                        "{} matches",
+                        response.body.matches(search.as_str()).count()
+                    ));
+                }
+            });
+            if response.size > response.body.len() {
+                ui.label("Showing a bounded text preview. Download saves the complete response.");
+            }
+            for test in &response.tests {
+                ui.colored_label(
+                    if test.passed {
+                        egui::Color32::LIGHT_GREEN
+                    } else {
+                        egui::Color32::LIGHT_RED
+                    },
+                    format!(
+                        "{} {} {}",
+                        if test.passed { "PASS" } else { "FAIL" },
+                        test.name,
+                        test.message
+                    ),
+                );
+            }
             // Response tabs
             ui.horizontal(|ui| {
                 if ui
@@ -65,6 +94,18 @@ pub fn render_response_viewer(
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(format_json_enabled, "Format JSON");
+                    if ui.button("Download").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().save_file() {
+                            let bytes = if response.raw_body.is_empty() {
+                                response.body.as_bytes()
+                            } else {
+                                &response.raw_body
+                            };
+                            if let Err(e) = rustapi::workspace::atomic_write(&path, bytes) {
+                                ui.label(format!("Save failed: {e}"));
+                            }
+                        }
+                    }
 
                     if ui.button("📋 Copy").clicked() {
                         ui.output_mut(|o| o.copied_text = response.body.clone());
@@ -83,8 +124,16 @@ pub fn render_response_viewer(
                             response.body.clone()
                         };
 
+                        let filtered = if search.is_empty() {
+                            body
+                        } else {
+                            body.lines()
+                                .filter(|l| l.contains(search.as_str()))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
                         ui.add(
-                            egui::TextEdit::multiline(&mut body.as_str())
+                            egui::TextEdit::multiline(&mut filtered.as_str())
                                 .code_editor()
                                 .desired_width(f32::INFINITY),
                         );

@@ -1,17 +1,20 @@
 //! Tab management for multiple open requests
 
 use crate::models::{ApiRequest, ApiResponse};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// A tab representing an open request
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenRequestTab {
     pub id: String,
     pub request: ApiRequest,
+    #[serde(skip)]
     pub response: Option<ApiResponse>,
     pub is_modified: bool,
-    pub collection_idx: Option<usize>,
-    pub request_idx: Option<usize>,
+    pub collection_id: Option<String>,
+    #[serde(skip)]
+    pub pending: Option<(String, crate::http::Cancellation)>,
 }
 
 impl OpenRequestTab {
@@ -21,19 +24,8 @@ impl OpenRequestTab {
             request,
             response: None,
             is_modified: false,
-            collection_idx: None,
-            request_idx: None,
-        }
-    }
-
-    pub fn from_collection(request: ApiRequest, col_idx: usize, req_idx: usize) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            request,
-            response: None,
-            is_modified: false,
-            collection_idx: Some(col_idx),
-            request_idx: Some(req_idx),
+            collection_id: None,
+            pending: None,
         }
     }
 
@@ -44,7 +36,7 @@ impl OpenRequestTab {
 }
 
 /// Tab manager
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TabManager {
     pub tabs: Vec<OpenRequestTab>,
     pub active_tab_idx: Option<usize>,
@@ -59,30 +51,19 @@ impl TabManager {
     }
 
     /// Open a new tab with a request
-    pub fn open_tab(
-        &mut self,
-        request: ApiRequest,
-        col_idx: Option<usize>,
-        req_idx: Option<usize>,
-    ) {
-        // Check if already open
-        if let (Some(ci), Some(ri)) = (col_idx, req_idx) {
+    pub fn open_tab(&mut self, request: ApiRequest, collection_id: Option<String>) {
+        if collection_id.is_some() {
             if let Some(idx) = self
                 .tabs
                 .iter()
-                .position(|t| t.collection_idx == Some(ci) && t.request_idx == Some(ri))
+                .position(|t| t.collection_id == collection_id && t.request.id == request.id)
             {
                 self.active_tab_idx = Some(idx);
                 return;
             }
         }
-
-        let tab = if let (Some(ci), Some(ri)) = (col_idx, req_idx) {
-            OpenRequestTab::from_collection(request, ci, ri)
-        } else {
-            OpenRequestTab::new(request)
-        };
-
+        let mut tab = OpenRequestTab::new(request);
+        tab.collection_id = collection_id;
         self.tabs.push(tab);
         self.active_tab_idx = Some(self.tabs.len() - 1);
     }
@@ -90,7 +71,10 @@ impl TabManager {
     /// Close a tab by index
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
-            self.tabs.remove(idx);
+            let tab = self.tabs.remove(idx);
+            if let Some((_, cancel)) = tab.pending {
+                cancel.cancel();
+            }
 
             // Adjust active tab
             if self.tabs.is_empty() {
@@ -116,6 +100,7 @@ impl TabManager {
     }
 
     /// Mark active tab as saved
+    #[cfg(test)]
     pub fn mark_saved(&mut self) {
         if let Some(tab) = self.active_tab_mut() {
             tab.is_modified = false;
@@ -123,6 +108,7 @@ impl TabManager {
     }
 
     /// Check if there are any tabs
+    #[cfg(test)]
     pub fn has_tabs(&self) -> bool {
         !self.tabs.is_empty()
     }
@@ -135,7 +121,7 @@ mod tests {
     fn three_tabs() -> TabManager {
         let mut manager = TabManager::new();
         for name in ["first", "second", "third"] {
-            manager.open_tab(ApiRequest::new(name), None, None);
+            manager.open_tab(ApiRequest::new(name), None);
         }
         manager
     }
@@ -143,9 +129,10 @@ mod tests {
     #[test]
     fn saved_request_reuses_its_existing_tab() {
         let mut manager = TabManager::new();
-        manager.open_tab(ApiRequest::new("saved"), Some(0), Some(1));
-        manager.open_tab(ApiRequest::new("unsaved"), None, None);
-        manager.open_tab(ApiRequest::new("saved"), Some(0), Some(1));
+        let saved = ApiRequest::new("saved");
+        manager.open_tab(saved.clone(), Some("collection".into()));
+        manager.open_tab(ApiRequest::new("unsaved"), None);
+        manager.open_tab(saved, Some("collection".into()));
         assert_eq!(manager.tabs.len(), 2);
         assert_eq!(manager.active_tab_idx, Some(0));
     }

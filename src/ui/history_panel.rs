@@ -37,6 +37,7 @@ pub fn render_history_panel(
                 });
             });
 
+            ui.label("History omits bodies and redacts credentials. Review before sending.");
             ui.separator();
 
             if history.entries.is_empty() {

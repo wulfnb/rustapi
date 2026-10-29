@@ -12,6 +12,12 @@ pub struct ApiResponse {
     pub size: usize,
     pub time_ms: u128,
     pub error: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub raw_body: Vec<u8>,
+    #[serde(default)]
+    pub headers_time_ms: u128,
+    #[serde(default)]
+    pub tests: Vec<super::TestResult>,
 }
 
 impl ApiResponse {
@@ -33,6 +39,6 @@ impl ApiResponse {
     }
 
     pub fn is_success(&self) -> bool {
-        (200..300).contains(&self.status)
+        self.error.is_none() && (200..300).contains(&self.status)
     }
 }

@@ -1,6 +1,7 @@
 //! File-based storage for collections, environments, and history
 
 use crate::models::{Collection, Environment, RequestHistory};
+use crate::workspace::atomic_write;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -55,7 +56,7 @@ pub fn init_storage() -> Result<()> {
 pub fn save_app_state(state: &AppState) -> Result<()> {
     let path = get_state_file();
     let json = serde_json::to_string_pretty(state)?;
-    fs::write(&path, json)?;
+    atomic_write(&path, json.as_bytes())?;
     Ok(())
 }
 
@@ -75,7 +76,7 @@ pub fn load_app_state() -> Result<AppState> {
 pub fn save_history(history: &RequestHistory) -> Result<()> {
     let path = get_history_file();
     let json = serde_json::to_string_pretty(history)?;
-    fs::write(&path, json)?;
+    atomic_write(&path, json.as_bytes())?;
     Ok(())
 }
 
@@ -99,10 +100,10 @@ pub fn save_collection(collection: &Collection, path: Option<&Path>) -> Result<P
     } else if let Some(ref existing_path) = collection.file_path {
         PathBuf::from(existing_path)
     } else {
-        let safe_name = sanitize_filename(&collection.name);
-        get_collections_dir().join(format!("{}.json", safe_name))
+        get_collections_dir().join(format!("{}.json", storage_id(&collection.id)?))
     };
 
+    crate::models::validate_collection(collection)?;
     let json = serde_json::to_string_pretty(collection)?;
 
     // Ensure parent directory exists
@@ -110,7 +111,7 @@ pub fn save_collection(collection: &Collection, path: Option<&Path>) -> Result<P
         fs::create_dir_all(parent)?;
     }
 
-    fs::write(&file_path, json)?;
+    atomic_write(&file_path, json.as_bytes())?;
     Ok(file_path)
 }
 
@@ -122,6 +123,12 @@ pub fn load_collection(path: &Path) -> Result<Collection> {
     let mut collection: Collection = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse collection file: {:?}", path))?;
 
+    anyhow::ensure!(
+        collection.schema_version == 1,
+        "Unsupported collection schema {}",
+        collection.schema_version
+    );
+    crate::models::validate_collection(&collection)?;
     collection.file_path = Some(path.to_string_lossy().to_string());
     Ok(collection)
 }
@@ -149,15 +156,26 @@ pub fn load_all_collections() -> Vec<Collection> {
 
 /// Save an environment to a file
 pub fn save_environment(environment: &Environment) -> Result<PathBuf> {
-    let safe_name = format!(
-        "{}_{}",
-        sanitize_filename(&environment.name),
-        sanitize_filename(&environment.id.chars().take(8).collect::<String>())
-    );
-    let file_path = get_environments_dir().join(format!("{}.json", safe_name));
+    fs::create_dir_all(get_environments_dir())?;
+    let file_path = get_environments_dir().join(format!("{}.json", storage_id(&environment.id)?));
 
     let json = serde_json::to_string_pretty(environment)?;
-    fs::write(&file_path, json)?;
+    atomic_write(&file_path, json.as_bytes())?;
+    // Preserve legacy versions before retiring name-derived duplicate paths.
+    for entry in fs::read_dir(get_environments_dir())?.flatten() {
+        let old = entry.path();
+        if old != file_path
+            && old.extension().is_some_and(|e| e == "json")
+            && load_environment(&old).is_ok_and(|e| e.id == environment.id)
+        {
+            let backup = get_app_data_dir()
+                .join(".local/migrations")
+                .join(format!("{}.json", uuid::Uuid::new_v4()));
+            atomic_write(&backup, &fs::read(&old)?)?;
+            fs::remove_file(old)?;
+        }
+    }
+
     Ok(file_path)
 }
 
@@ -190,13 +208,23 @@ pub fn load_all_environments() -> Vec<Environment> {
             }
         }
     }
+    environments.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
+    let mut seen = std::collections::HashSet::new();
+    environments.retain(|e| seen.insert(e.id.clone()));
     environments
 }
 
 /// Delete a collection file
 pub fn delete_collection(collection: &Collection) -> Result<()> {
     if let Some(ref path) = collection.file_path {
-        fs::remove_file(path)?;
+        if Path::new(path).exists() {
+            fs::remove_file(path)?;
+        }
+    } else {
+        let path = get_collections_dir().join(format!("{}.json", storage_id(&collection.id)?));
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
     }
     Ok(())
 }
@@ -211,7 +239,7 @@ pub fn delete_environment(environment: &Environment) -> Result<()> {
                 if let Ok(env) = load_environment(&path) {
                     if env.id == environment.id {
                         fs::remove_file(path)?;
-                        return Ok(());
+                        continue;
                     }
                 }
             }
@@ -222,40 +250,42 @@ pub fn delete_environment(environment: &Environment) -> Result<()> {
 
 /// Export a collection to a specified path
 pub fn export_collection(collection: &Collection, path: &Path) -> Result<()> {
+    crate::models::validate_collection(collection)?;
     let json = serde_json::to_string_pretty(collection)?;
-    fs::write(path, json)?;
+    atomic_write(path, json.as_bytes())?;
     Ok(())
 }
 
 /// Import a collection from a file (any location)
 pub fn import_collection(path: &Path) -> Result<Collection> {
-    load_collection(path)
+    let mut collection = load_collection(path)?;
+    collection.file_path = None;
+    Ok(collection)
 }
 
-/// Sanitize filename
-fn sanitize_filename(name: &str) -> String {
-    let safe = name
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string();
-    let upper = safe.to_ascii_uppercase();
-    let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (upper.len() == 4
-            && (upper.starts_with("COM") || upper.starts_with("LPT"))
-            && matches!(upper.as_bytes()[3], b'1'..=b'9'));
-    if safe.is_empty() {
-        "Untitled".into()
-    } else if reserved {
-        format!("_{safe}")
+fn storage_id(id: &str) -> Result<&str> {
+    anyhow::ensure!(
+        !id.is_empty()
+            && id.len() <= 128
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'),
+        "Invalid storage identifier"
+    );
+    Ok(id)
+}
+
+pub fn save_drafts<T: Serialize>(value: &T) -> Result<()> {
+    atomic_write(
+        &get_app_data_dir().join("drafts.json"),
+        &serde_json::to_vec_pretty(value)?,
+    )
+}
+pub fn load_drafts<T: serde::de::DeserializeOwned + Default>() -> Result<T> {
+    let path = get_app_data_dir().join("drafts.json");
+    if path.exists() {
+        Ok(serde_json::from_slice(&fs::read(path)?)?)
     } else {
-        safe
+        Ok(T::default())
     }
 }
