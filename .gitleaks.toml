@@ -1,0 +1,5 @@
+# Gitleaks configuration for rustapi
+
+[extend]
+useDefault = true
+

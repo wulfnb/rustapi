@@ -6,6 +6,11 @@ cURL commands. There is no account requirement. Cloud/team features, hosted moni
 mocks, OpenAPI generation and specialized gRPC/WebSocket/GraphQL tooling remain later
 milestones. This release does not claim that arbitrary Postman collections run unchanged.
 
+For the current Postman v12/v3 format comparison, known import-fidelity gaps and
+future work, see the [feature comparison](postman-comparison.md) and
+[implementation plan](postman-implementation-plan.md). RustAPI currently imports
+v2.1 JSON, not Postman's v3 YAML directory format.
+
 ## Import and project data
 
 Imports retain nested folder/request ordering, enabled parameters/headers/form fields,

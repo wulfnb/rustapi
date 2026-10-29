@@ -1,0 +1,11 @@
+# Configuration for cargo-audit (RustSec)
+
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0195: Unbounded namespace-declaration allocation in NsReader (quick-xml)
+    # Transitive dependency via syntect -> plist; quick-xml 0.41 has breaking API changes not yet adopted by plist.
+    "RUSTSEC-2026-0195",
+    # RUSTSEC-2026-0194: Quadratic run time when checking start tag for duplicate attribute names (quick-xml)
+    "RUSTSEC-2026-0194",
+]
+

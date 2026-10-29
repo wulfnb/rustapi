@@ -20,8 +20,9 @@ stage = dist / name
 if stage.exists():
     shutil.rmtree(stage)
 stage.mkdir()
-for notice in ("LICENSE", "NOTICE", "CONTRIBUTING.md"):
-    shutil.copy2(notice, stage)
+for notice in ("LICENSE", "NOTICE", "CONTRIBUTING.md", "THIRD-PARTY-NOTICES.html"):
+    if Path(notice).exists():
+        shutil.copy2(notice, stage)
 
 if args.platform == "macos":
     app = stage / "RustAPI.app"
@@ -43,8 +44,9 @@ if args.platform == "macos":
     binary.chmod(0o755)
     resources = contents / "Resources"
     resources.mkdir()
-    for notice in ("LICENSE", "NOTICE"):
-        shutil.copy2(notice, resources)
+    for notice in ("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.html"):
+        if Path(notice).exists():
+            shutil.copy2(notice, resources)
     subprocess.run(["codesign", "--force", "--sign", "-", str(app)], check=True)
     subprocess.run(["codesign", "--verify", "--strict", str(app)], check=True)
     shutil.copy2("README.md", stage)
