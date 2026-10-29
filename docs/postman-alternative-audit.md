@@ -2,6 +2,8 @@
 
 > Historical baseline audit of main before implementation. See [current capabilities](../README.md)
 > and [compatibility boundaries](postman-compatibility.md) for the implementation on this branch.
+> The [2026-10-29 comparison](postman-comparison.md) and
+> [implementation plan](postman-implementation-plan.md) describe the newer checkout's remaining gaps.
 
 Reviewed on 2026-10-28 against freshly fetched `origin/main`, commit
 `8359bb4a640be57aed6323a1acdcda59679ffda0`.
@@ -112,7 +114,7 @@ transport trust default. P1 means necessary for the agreed usable REST release.
 - **Renaming a background request can rename the active tab's request instead.** The
   rename dialog receives the active request name regardless of its rename target.
   Resolve and update the matching tab by request ID, preserving its unsaved changes.
-  Source inspection: [caller](../src/app.rs#L396), [dialog](../src/ui/modals.rs#L94).
+  Source inspection: [caller](../src/app.rs#L396), [dialog at the audited baseline](https://github.com/wulfnb/rustapi/blob/8359bb4a640be57aed6323a1acdcda59679ffda0/src/ui/modals.rs#L94).
 - **A truncated response is shown as successful empty content.** `response.text()`
   errors become an empty body and `error: None`. A loopback server advertising 100
   bytes but sending only `abc` reproduced status 200 with empty body and no error.

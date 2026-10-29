@@ -8,6 +8,10 @@ This release targets the everyday REST workflow. It implements a documented subs
 of Postman's scripting APIs; it does not claim full Postman compatibility.
 See [migration and compatibility](docs/postman-compatibility.md).
 
+See the [Postman feature comparison](docs/postman-comparison.md) and
+[prioritized implementation plan](docs/postman-implementation-plan.md) for the
+2026-10-29 review of current capabilities, remaining gaps and planned work.
+
 ## Features
 
 - Collections and nested folders with inherited variables/authentication, rename,
