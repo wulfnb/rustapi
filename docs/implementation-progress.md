@@ -39,13 +39,32 @@ Validation:
 Validation covers the workflow suite and static content checks, not full release or
 packaged GUI validation. No new feature package is complete.
 
-## Next step — Step 2: E00 baseline and import fixture inventory
+## Step 2 — E00 baseline and import fixture inventory
 
-1. Inspect the existing import fixtures and record supported/unsupported cases.
-2. Run the relevant baseline checks on the current revision and record their scope.
-3. Define the first E01 slice: structured import diagnostics and fidelity fixtures.
-   Keep metadata preservation, path-variable behavior and multipart changes as separate
-   later slices, each with its own regression checks.
+Status: **complete**, verified locally. Step 1 was pushed to `origin/main` as `966ecd0`.
 
-Remaining packages E01–E12 are pending; consult the implementation plan for their
-dependencies and acceptance criteria. Do not begin the whole roadmap in one change.
+- Added sanitized fixtures for six HTTP body modes, environment values/disabled flags,
+  known metadata omissions, and a synthetic unsupported YAML boundary.
+- Added four integration tests for supported conversion, managed-copy CLI imports,
+  source preservation, unsupported schema/body rejection and no imported data on failure.
+- Documented the fixture classifications and precise limitations in
+  [import baseline](import-baseline.md). Production importer behavior is unchanged.
+
+Validation on macOS ARM64, Rust 1.98.0, against `966ecd0` plus this fixture-only change:
+
+- `cargo test --locked --offline --all-targets`: **121 passed, 0 failed**, including
+  native UI harness, CLI, workflow, transport, storage and fixture suites. Loopback
+  tests ran with the required local socket access.
+- `cargo clippy --locked --offline --all-targets -- -D warnings`: passed.
+- `cargo fmt --all --check` and `git diff --check`: passed.
+- Full platform packaging and coverage measurements remain separate release gates.
+
+## Next step — Step 3: E01.1 structured import diagnostics
+
+Add a report for known omitted fields with JSON-pointer locations and no field values.
+Show it before GUI persistence and require explicit continuation for lossy imports.
+Expose the same report and rejection policy in the CLI. Reuse the metadata fixture
+and prove cancellation/rejection leave imported project data unwritten.
+
+Preserving descriptions, path-variable behavior and multipart semantics remains later
+E01 work. E02–E12 are pending; do not begin the whole roadmap in one change.

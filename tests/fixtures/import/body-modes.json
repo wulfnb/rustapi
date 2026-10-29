@@ -1,0 +1,186 @@
+{
+  "info": {
+    "name": "Import baseline",
+    "schema": "https://example.test/collection/v2.1.0/schema.json"
+  },
+  "item": [
+    {
+      "name": "JSON",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/items",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Disabled",
+            "value": "ignored",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"ok\":true,\"count\":2}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Text",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/items",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Disabled",
+            "value": "ignored",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "hello\nworld",
+          "options": {
+            "raw": {
+              "language": "text"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "URL encoded",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/items",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Disabled",
+            "value": "ignored",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "name",
+              "value": "Ada Lovelace"
+            },
+            {
+              "key": "disabled",
+              "value": "skip",
+              "disabled": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Multipart",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/items",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Disabled",
+            "value": "ignored",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "label",
+              "value": "fixture"
+            },
+            {
+              "key": "upload",
+              "type": "file",
+              "src": "files/sample.bin"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Binary",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/items",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Disabled",
+            "value": "ignored",
+            "disabled": true
+          }
+        ],
+        "body": {
+          "mode": "file",
+          "file": {
+            "src": "files/sample.bin"
+          }
+        }
+      }
+    },
+    {
+      "name": "No body",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/items",
+        "auth": {
+          "type": "noauth"
+        },
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Disabled",
+            "value": "ignored",
+            "disabled": true
+          }
+        ]
+      }
+    }
+  ]
+}

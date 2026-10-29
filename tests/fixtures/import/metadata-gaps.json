@@ -1,0 +1,83 @@
+{
+  "info": {
+    "name": "Import baseline",
+    "schema": "https://example.test/collection/v2.1.0/schema.json"
+  },
+  "item": [
+    {
+      "name": "Folder",
+      "description": "Folder documentation",
+      "item": [
+        {
+          "name": "Metadata fixture",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "https://example.test/items/:id?limit=10",
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Page size"
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "42"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "description": "Expected response format"
+              },
+              {
+                "key": "X-Disabled",
+                "value": "ignored",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "upload",
+                  "type": "file",
+                  "src": [
+                    "files/first.bin",
+                    "files/second.bin"
+                  ],
+                  "contentType": "application/octet-stream",
+                  "description": "Upload both files"
+                }
+              ]
+            },
+            "description": "Request documentation"
+          },
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
+          "response": [
+            {
+              "name": "Success",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\"private_fixture_value\":\"never-log-example-body\"}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

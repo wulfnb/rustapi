@@ -1,0 +1,3 @@
+# Synthetic format-boundary fixture, not a complete interchange export.
+schema: v3.0.0
+name: Unsupported YAML collection

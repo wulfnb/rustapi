@@ -1,0 +1,23 @@
+{
+  "name": "Fixture environment",
+  "values": [
+    {
+      "key": "base",
+      "value": "https://example.test"
+    },
+    {
+      "key": "count",
+      "value": 2
+    },
+    {
+      "key": "off",
+      "value": "disabled",
+      "enabled": false
+    },
+    {
+      "key": "also_off",
+      "value": "disabled",
+      "disabled": true
+    }
+  ]
+}
