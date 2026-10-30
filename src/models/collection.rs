@@ -15,6 +15,8 @@ pub struct Folder {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_metadata: Option<super::DescriptionMetadata>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub imported_settings: std::collections::BTreeMap<String, serde_json::Value>,
     pub requests: Vec<ApiRequest>,
     #[serde(default)]
     pub order: Vec<String>,
@@ -39,6 +41,7 @@ impl Folder {
             name: name.into(),
             description: String::new(),
             description_metadata: None,
+            imported_settings: Default::default(),
             requests: vec![],
             order: vec![],
             folders: vec![],
@@ -63,6 +66,8 @@ pub struct Collection {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_metadata: Option<super::DescriptionMetadata>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub imported_settings: std::collections::BTreeMap<String, serde_json::Value>,
     pub version: String,
     #[serde(default = "schema_version")]
     pub schema_version: u32,
@@ -94,6 +99,7 @@ impl Default for Collection {
             name: String::from("New Collection"),
             description: String::new(),
             description_metadata: None,
+            imported_settings: Default::default(),
             version: String::from("1.0.0"),
             schema_version: schema_version(),
             auth: Default::default(),

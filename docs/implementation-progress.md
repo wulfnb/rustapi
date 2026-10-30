@@ -178,3 +178,19 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
   multipart workload strengthened to check two file bodies and text/file MIME types.
 
 Next: imported request settings and URL/header semantics.
+
+## Step 9 — Imported request settings
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Apply collection → folder → item → request settings for redirects, cookie-jar use,
+  TLS verification and timeout milliseconds. Explicit request overrides win.
+- Preserve original profile metadata, including unsupported options, while reporting
+  options the runtime cannot honor. Imported certificate-verification disablement
+  requires explicit review. Malformed supported options fail parsing.
+- Canonical request settings remain editable after import and are not overwritten by
+  stale profile metadata on native reload. Cookie-jar policy has a desktop control.
+- Full local suite: **140 passed**, warnings-denied Clippy and formatting passed.
+  Local HTTP fixtures verify redirect and cookie behavior, not just serialization.
+
+Next: shared URL/query and header repetition/override semantics.

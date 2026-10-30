@@ -108,6 +108,7 @@ pub fn render_request_editor(
             let s=&mut request.settings;
             ui.horizontal(|ui|{ui.label("Timeout (ms)");ui.add(egui::DragValue::new(&mut s.timeout_ms).range(1..=3_600_000));});
             ui.checkbox(&mut s.follow_redirects,"Follow redirects");ui.checkbox(&mut s.verify_tls,"Verify TLS certificates");
+            ui.checkbox(&mut s.use_cookies,"Use workspace cookie jar");
             if !s.verify_tls{ui.colored_label(egui::Color32::YELLOW,"TLS verification disabled for this request");}
             ui.label("Proxy URL (empty uses system configuration)");ui.text_edit_singleline(&mut s.proxy);
             ui.label("Custom CA PEM file");ui.text_edit_singleline(&mut s.ca_file);

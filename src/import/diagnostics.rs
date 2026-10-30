@@ -105,12 +105,26 @@ impl Scanner {
         }
     }
     fn settings_and_auth(&mut self, value: &Value, path: &str) {
-        self.omitted(
-            &value["protocolProfileBehavior"],
-            format!("{path}/protocolProfileBehavior"),
-            "request_settings",
-            "Imported request behavior settings are not applied.",
-        );
+        if let Some(profile) = value["protocolProfileBehavior"].as_object() {
+            if profile.iter().any(|(key, value)| {
+                !matches!(
+                    key.as_str(),
+                    "followRedirects" | "disableCookieJar" | "strictSSL" | "timeout"
+                ) && !(key == "disableUrlEncoding" && value == false)
+                    && !(key == "disableBodyPruning" && value == true)
+            }) {
+                self.add(format!("{path}/protocolProfileBehavior"), "request_settings", ImportDisposition::Unsupported,
+                    "Some source settings are retained as metadata but cannot be applied by this runtime.");
+            }
+            if profile.get("strictSSL") == Some(&Value::Bool(false)) {
+                self.add(
+                    format!("{path}/protocolProfileBehavior/strictSSL"),
+                    "tls_override",
+                    ImportDisposition::PartiallyPreserved,
+                    "Imported settings disable certificate verification. Review before accepting.",
+                );
+            }
+        }
         if let Some(kind) = value["auth"]["type"].as_str() {
             if !["inherit", "noauth", "bearer", "basic", "apikey", "oauth2"].contains(&kind) {
                 self.add(format!("{path}/auth"), "authentication", ImportDisposition::Unsupported,

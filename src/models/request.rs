@@ -153,6 +153,8 @@ pub struct ApiRequest {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description_metadata: Option<super::DescriptionMetadata>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub imported_settings: std::collections::BTreeMap<String, serde_json::Value>,
     pub method: HttpMethod,
     pub url: String,
     pub headers: Vec<KeyValue>,
@@ -190,6 +192,7 @@ impl Default for ApiRequest {
             name: String::from("New Request"),
             description: String::new(),
             description_metadata: None,
+            imported_settings: Default::default(),
             method: HttpMethod::GET,
             url: String::new(),
             headers: vec![],

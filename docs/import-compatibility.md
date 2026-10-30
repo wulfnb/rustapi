@@ -161,3 +161,15 @@ an explicitly supplied body Content-Type so it cannot disagree with the payload.
 The four existing snippet targets reproduce the same ordered parts and MIME types;
 file-based JavaScript snippets use Node. cURL multipart snippets use a temporary
 body file with cleanup, preserving binary bytes and literal text safely.
+
+## Imported behavior settings
+
+Supported `protocolProfileBehavior` fields are `followRedirects`, `disableCookieJar`,
+`strictSSL` (booleans), and `timeout` (1–3600000 milliseconds). They inherit through
+collections/folders/items with request-level overrides. Cookie-disabled requests
+neither send jar cookies nor store response cookies. A false `strictSSL` requires
+import review. `disableUrlEncoding: false` and `disableBodyPruning: true` match the
+runtime's existing behavior. Other options remain stored as metadata and require
+review because they are not applied. Known options with invalid types are rejected.
+After import, the Settings tab edits the canonical request settings; reloading a
+native workspace does not reapply old source metadata over those edits.

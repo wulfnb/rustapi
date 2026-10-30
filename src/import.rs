@@ -146,9 +146,58 @@ fn scripts(v: &Value) -> (String, String) {
     }
     (pre.join("\n"), post.join("\n"))
 }
-fn request(item: &Value, warnings: &mut Vec<String>) -> Result<ApiRequest> {
+fn imported_profile(
+    value: &Value,
+    inherited: &HttpSettings,
+) -> Result<(HttpSettings, std::collections::BTreeMap<String, Value>)> {
+    anyhow::ensure!(
+        value.is_null() || value.is_object(),
+        "Request settings must be an object"
+    );
+    let raw: std::collections::BTreeMap<String, Value> = value
+        .as_object()
+        .map(|v| v.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+    let mut settings = inherited.clone();
+    for (key, value) in &raw {
+        match key.as_str() {
+            "followRedirects" => {
+                settings.follow_redirects =
+                    value.as_bool().context("followRedirects must be boolean")?
+            }
+            "disableCookieJar" => {
+                settings.use_cookies = !value
+                    .as_bool()
+                    .context("disableCookieJar must be boolean")?
+            }
+            "strictSSL" => {
+                settings.verify_tls = value.as_bool().context("strictSSL must be boolean")?
+            }
+            "timeout" => {
+                let timeout = value.as_u64().context("timeout must be milliseconds")?;
+                anyhow::ensure!(
+                    (1..=3_600_000).contains(&timeout),
+                    "Timeout must be between 1 and 3600000 ms"
+                );
+                settings.timeout_ms = timeout;
+            }
+            _ => {}
+        }
+    }
+    Ok((settings, raw))
+}
+fn request(
+    item: &Value,
+    warnings: &mut Vec<String>,
+    inherited: &HttpSettings,
+) -> Result<ApiRequest> {
     let v = &item["request"];
     let mut r = ApiRequest::new(text(&item["name"]));
+    let (settings, mut profile) = imported_profile(&item["protocolProfileBehavior"], inherited)?;
+    let (settings, request_profile) = imported_profile(&v["protocolProfileBehavior"], &settings)?;
+    profile.extend(request_profile);
+    r.settings = settings;
+    r.imported_settings = profile;
     (r.description, r.description_metadata) = decode_description(&v["description"]);
     if let Some(url) = v.as_str() {
         r.url = url.into();
@@ -263,11 +312,15 @@ fn items(
     order: &mut Vec<String>,
     warnings: &mut Vec<String>,
     depth: usize,
+    inherited: &HttpSettings,
 ) -> Result<()> {
     anyhow::ensure!(depth < 64, "Folder nesting exceeds 64 levels");
     for item in v.as_array().context("Collection items must be an array")? {
         if item["item"].is_array() {
             let mut f = Folder::new(text(&item["name"]));
+            let (settings, profile) =
+                imported_profile(&item["protocolProfileBehavior"], inherited)?;
+            f.imported_settings = profile;
             (f.description, f.description_metadata) = decode_description(&item["description"]);
             f.auth = auth(&item["auth"], warnings);
             f.variable_metadata = values(&item["variable"]);
@@ -286,11 +339,12 @@ fn items(
                 &mut f.order,
                 warnings,
                 depth + 1,
+                &settings,
             )?;
             order.push(f.id.clone());
             folders.push(f);
         } else {
-            let r = request(item, warnings)?;
+            let r = request(item, warnings, inherited)?;
             order.push(r.id.clone());
             requests.push(r);
         }
@@ -313,6 +367,9 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             "Only collection schema v2.1 is supported"
         );
         let mut c = Collection::new(text(&v["info"]["name"]));
+        let (settings, profile) =
+            imported_profile(&v["protocolProfileBehavior"], &HttpSettings::default())?;
+        c.imported_settings = profile;
         (c.description, c.description_metadata) = decode_description(&v["info"]["description"]);
         c.auth = auth(&v["auth"], &mut warnings);
         if c.auth.auth_type == AuthType::Inherit {
@@ -334,6 +391,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             &mut c.order,
             &mut warnings,
             0,
+            &settings,
         )?;
         validate_collection(&c)?;
         Ok(ImportResult {

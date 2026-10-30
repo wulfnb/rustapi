@@ -167,15 +167,7 @@ fn known_omissions_report_exact_source_locations_without_values() {
         .iter()
         .map(|d| d.path.as_str())
         .collect();
-    assert_eq!(
-        paths,
-        [
-            "/item/0/item/0/protocolProfileBehavior",
-            "/item/0/item/0/response",
-        ]
-        .into_iter()
-        .collect()
-    );
+    assert_eq!(paths, ["/item/0/item/0/response",].into_iter().collect());
     for path in paths {
         assert!(source.pointer(path).is_some(), "{path}");
     }
@@ -266,7 +258,7 @@ fn cli_requires_explicit_loss_acceptance_and_emits_json_report() {
         );
         let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(report["requires_confirmation"], true);
-        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 2);
+        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
         assert_eq!(
             std::fs::read_dir(workspace.join("collections"))
                 .unwrap()

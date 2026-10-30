@@ -102,7 +102,6 @@ impl HttpService {
         }
         let mut b = Client::builder()
             .use_rustls_tls()
-            .cookie_provider(self.cookies.clone())
             .danger_accept_invalid_certs(!s.verify_tls)
             .timeout(Duration::from_millis(s.timeout_ms))
             .redirect(if s.follow_redirects {
@@ -110,6 +109,9 @@ impl HttpService {
             } else {
                 reqwest::redirect::Policy::none()
             });
+        if s.use_cookies {
+            b = b.cookie_provider(self.cookies.clone());
+        }
         if !s.proxy.is_empty() {
             b = b.proxy(reqwest::Proxy::all(&s.proxy).context("Invalid proxy")?);
         }
