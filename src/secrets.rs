@@ -262,3 +262,9 @@ pub fn redact_collection(c: &crate::models::Collection) -> crate::models::Collec
     }
     c
 }
+
+pub fn redact_environment(environment: &crate::models::Environment) -> crate::models::Environment {
+    let mut environment = environment.clone();
+    redact_rows(&mut environment.variables);
+    environment
+}

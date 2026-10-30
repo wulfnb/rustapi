@@ -82,6 +82,7 @@ enum Action {
     DeleteCollection(String),
     Export(String),
     ExportCredentials(String),
+    ExportPortable(String),
     Move(String, String),
     MoveFolder(String, String),
     Reorder(String, Option<String>, String, bool),
@@ -638,6 +639,22 @@ impl RustApiApp {
             }
             Action::Export(id) => self.export_collection(&id, false),
             Action::ExportCredentials(id) => self.export_collection(&id, true),
+            Action::ExportPortable(id) => {
+                if let Some(c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    if let Some(path) = self.dialogs.export(&c.name) {
+                        let result = rustapi::export::collection(&c, false).and_then(|exported| {
+                            rustapi::workspace::atomic_write(
+                                &path,
+                                &serde_json::to_vec_pretty(&exported.document)?,
+                            )?;
+                            Ok(exported.warnings.join("\n"))
+                        });
+                        if let Some(note) = self.result(result) {
+                            self.notice = note;
+                        }
+                    }
+                }
+            }
             Action::MoveFolder(c, r) => {
                 self.moving_folder = true;
                 self.move_request = Some((c, r));
@@ -1026,6 +1043,10 @@ impl RustApiApp {
                                 ("Add folder", Action::NewFolder(c.id.clone(), None)),
                                 ("Collection settings", Action::Edit(c.id.clone(), None)),
                                 ("Export (redacted)", Action::Export(c.id.clone())),
+                                (
+                                    "Export v2.1 (redacted)",
+                                    Action::ExportPortable(c.id.clone()),
+                                ),
                                 (
                                     "Export including credentials",
                                     Action::ExportCredentials(c.id.clone()),
@@ -1787,6 +1808,7 @@ impl RustApiApp {
                 }
                 let mut save = None;
                 let mut delete = None;
+                let mut export_environment = None;
                 for (i, e) in self.environments.iter_mut().enumerate() {
                     egui::CollapsingHeader::new(&e.name)
                         .id_salt(&e.id)
@@ -1798,6 +1820,9 @@ impl RustApiApp {
                                 e.updated_at = chrono::Utc::now();
                                 save = Some(e.clone());
                             }
+                            if ui.button("Export environment (redacted)").clicked() {
+                                export_environment = Some(e.clone());
+                            }
                             if ui.button("Delete environment").clicked() {
                                 delete = Some(i);
                             }
@@ -1805,6 +1830,19 @@ impl RustApiApp {
                 }
                 if let Some(e) = save {
                     self.result(storage::save_environment(&e));
+                }
+                if let Some(environment) = export_environment {
+                    if let Some(path) = self.dialogs.export(&environment.name) {
+                        let result = rustapi::export::environment(&environment, false).and_then(
+                            |exported| {
+                                rustapi::workspace::atomic_write(
+                                    &path,
+                                    &serde_json::to_vec_pretty(&exported.document)?,
+                                )
+                            },
+                        );
+                        self.result(result);
+                    }
                 }
                 if let Some(i) = delete {
                     if self

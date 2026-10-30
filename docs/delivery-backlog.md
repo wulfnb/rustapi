@@ -25,7 +25,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 
 ## Compatibility
 
-- [ ] Collection v2.1/environment export and semantic round trips.
+- [x] Collection v2.1/environment export and semantic round trips.
 - [ ] v3 YAML collection-directory import/export with bounded resource resolution.
 - [ ] Broader documented script support, including request mutation and workflow control.
 - [ ] JSON Schema response assertions using a maintained validator.

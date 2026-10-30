@@ -337,7 +337,29 @@ fn request(
             r.name
         ),
     }
+    if !v["x-rustapi"].is_null() {
+        let extension = &v["x-rustapi"];
+        anyhow::ensure!(
+            extension["version"] == 1,
+            "Unsupported native portable extension version"
+        );
+        if !extension["settings"].is_null() {
+            r.settings = serde_json::from_value(extension["settings"].clone())?;
+        }
+        if !extension["checks"].is_null() {
+            r.checks = serde_json::from_value(extension["checks"].clone())?;
+        }
+        if !extension["extractors"].is_null() {
+            r.extractors = serde_json::from_value(extension["extractors"].clone())?;
+        }
+    }
     (r.pre_script, r.post_script) = scripts(item);
+    if let Some(value) = v["x-rustapi"]["pre_script"].as_str() {
+        r.pre_script = value.into();
+    }
+    if let Some(value) = v["x-rustapi"]["post_script"].as_str() {
+        r.post_script = value.into();
+    }
     if let Some(examples) = item["response"].as_array() {
         anyhow::ensure!(examples.len() <= 100, "At most 100 examples per request");
         for source in examples {
@@ -366,6 +388,16 @@ fn request(
                 ..Default::default()
             };
             let mut example = RequestExample::capture(text(&source["name"]), &snapshot, &response)?;
+            if !source["x-rustapi"].is_null() {
+                anyhow::ensure!(
+                    source["x-rustapi"]["version"] == 1,
+                    "Unsupported example extension version"
+                );
+                if let Some(bytes) = source["x-rustapi"]["body_base64"].as_str() {
+                    example.body_base64 = bytes.into();
+                    example.validate()?;
+                }
+            }
             if let Some(object) = source.as_object() {
                 example.metadata = object
                     .iter()
@@ -378,6 +410,7 @@ fn request(
                             "header",
                             "body",
                             "id",
+                            "x-rustapi",
                         ]
                         .contains(&key.as_str())
                     })

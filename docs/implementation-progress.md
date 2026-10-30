@@ -280,3 +280,22 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
 The requested daily-workflow group is complete within documented limits.
 Next: portable v2.1/environment export, v3 directory support and the remaining
 compatibility entries in the active backlog.
+
+## Step 15 — Portable collection and environment export
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- GUI/CLI export portable v2.1 collections and environments with default redaction;
+  CLI including credentials is an explicit flag. Native JSON export remains.
+- Preserve ordering, structured descriptions, disabled/scope metadata, path/query
+  rows, repeated headers, multipart files/MIME, inherited settings, auth, scripts
+  and saved examples. Binary bytes and native-only checks/extraction/settings use
+  a versioned x-rustapi extension with an export note.
+- Native-extension TLS disablement participates in import review. Export cannot
+  overwrite its CLI input. The neutral version identifier and external-consumer
+  extension limits are explicit in the compatibility contract.
+- Full local suite: **163 passed**; formatting and warnings-denied Clippy passed.
+  Tests include exact portable re-export equality, binary examples, native options,
+  environment CLI redaction and the desktop shared-adapter export path.
+
+Next: bounded v3 YAML collection-directory import/export.

@@ -105,6 +105,11 @@ impl Scanner {
         }
     }
     fn settings_and_auth(&mut self, value: &Value, path: &str) {
+        if value["x-rustapi"]["settings"]["verify_tls"] == false
+            && value["protocolProfileBehavior"]["strictSSL"] != false
+        {
+            self.add(format!("{path}/x-rustapi/settings/verify_tls"), "tls_override", ImportDisposition::PartiallyPreserved,"Imported native settings disable certificate verification. Review before accepting.");
+        }
         if let Some(profile) = value["protocolProfileBehavior"].as_object() {
             if profile.iter().any(|(key, value)| {
                 !matches!(

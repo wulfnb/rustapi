@@ -10,7 +10,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
+const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi export INPUT.json OUTPUT.json [--format v2.1|environment|native] [--include-credentials] [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
 pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     if args == ["--version"] {
         println!("RustAPI {}", env!("CARGO_PKG_VERSION"));
@@ -30,7 +30,7 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     }
     let command = args.first().context("Missing command")?.as_str();
     anyhow::ensure!(
-        ["run", "import", "vault"].contains(&command),
+        ["run", "import", "export", "vault"].contains(&command),
         "Unknown command {command}\n{HELP}"
     );
     let mut options = BTreeMap::new();
@@ -42,6 +42,7 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
             "--stop-on-failure",
             "--allow-lossy-import",
             "--import-report",
+            "--include-credentials",
         ]
         .contains(&a.as_str())
         {
@@ -60,7 +61,8 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
                     "--delay",
                     "--report-json",
                     "--report-junit",
-                    "--curl"
+                    "--curl",
+                    "--format"
                 ]
                 .contains(&a.as_str()),
                 "Unknown option {a}\n{HELP}"
@@ -85,6 +87,12 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
         command != "vault" || !options.contains_key("--allow-lossy-import"),
         "--allow-lossy-import is only available for import or run"
     );
+    anyhow::ensure!(
+        command == "export"
+            || (!options.contains_key("--format")
+                && !options.contains_key("--include-credentials")),
+        "Export options are only available for export"
+    );
     let allow_lossy = options.contains_key("--allow-lossy-import");
     let root = if let Some(path) = options.get("--workspace") {
         workspace::open_workspace(Path::new(path))?
@@ -102,6 +110,57 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     std::env::set_var("RUSTAPI_DATA_DIR", &root);
     storage::init_storage()?;
     match command {
+        "export" => {
+            anyhow::ensure!(
+                positional.len() == 2,
+                "export needs an input and output path"
+            );
+            let source = absolute(&positional[0])?;
+            let target = absolute(&positional[1])?;
+            anyhow::ensure!(
+                source.canonicalize().ok() != target.canonicalize().ok() || !target.exists(),
+                "Export output must differ from input"
+            );
+            let bytes = std::fs::read(&source)?;
+            let source_value: serde_json::Value = serde_json::from_slice(&bytes)?;
+            let include = options.contains_key("--include-credentials");
+            let format = options
+                .get("--format")
+                .map(String::as_str)
+                .unwrap_or("v2.1");
+            let exported = if format == "environment" {
+                let environment = if source_value["values"].is_array() {
+                    let imported = crate::import::json(&bytes)?;
+                    review_import(&imported, allow_lossy, false)?;
+                    imported.environment.context("Expected environment")?
+                } else {
+                    serde_json::from_value(source_value)?
+                };
+                crate::export::environment(&environment, include)?
+            } else {
+                let imported = crate::import::json(&bytes)?;
+                review_import(&imported, allow_lossy, false)?;
+                let collection = imported.collection.context("Expected collection")?;
+                match format {
+                    "v2.1" => crate::export::collection(&collection, include)?,
+                    "native" => crate::export::PortableExport {
+                        document: serde_json::to_value(if include {
+                            collection
+                        } else {
+                            crate::secrets::redact_collection(&collection)
+                        })?,
+                        warnings: vec![],
+                    },
+                    _ => bail!("Unknown export format; choose v2.1, environment or native"),
+                }
+            };
+            workspace::atomic_write(&target, &serde_json::to_vec_pretty(&exported.document)?)?;
+            for warning in exported.warnings {
+                eprintln!("Export note: {warning}");
+            }
+            println!("{}", target.display());
+            Ok(Some(0))
+        }
         "run" => {
             anyhow::ensure!(
                 positional.len() == 1,

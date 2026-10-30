@@ -242,3 +242,22 @@ shows headers, body transfer and total, without claiming a DNS/connect/TLS break
 Preview decodes PNG/JPEG only, with 8 MiB input, 4096-pixel dimensions, 4-megapixel
 and decoder allocation limits. JSON uses the structural view. HTML/XML and other
 text previews stay inert source: no scripts execute or remote resources load.
+
+## Portable JSON export
+
+Desktop collection menus provide Export v2.1 (redacted), and environment settings
+provide Export environment (redacted). Existing native JSON export remains available.
+CLI: rustapi export INPUT.json OUTPUT.json --format v2.1|environment|native.
+The default redacts recognized credential fields; --include-credentials is explicit.
+Input and output must differ. Import-review rules also apply to source documents
+that contain known omissions or disable TLS checks.
+
+Portable collections use v2.1 HTTP structure, a neutral urn:collection:v2.1.0 version
+identifier, ordered items/events/rows, structured descriptions, scoped variables,
+auth, settings and examples. Native assertions, extraction, script snapshots and
+additional transport settings use x-rustapi version 1. Binary examples retain exact
+bytes in that extension and offer a text preview in the standard body field. Other
+clients may ignore the extension or require a different schema identifier; acceptance
+by every external client is not claimed. Export notes disclose this boundary.
+Semantic round trips are verified through RustAPI's independent import adapter;
+this is not a universal format-conformance or scripting-parity claim.

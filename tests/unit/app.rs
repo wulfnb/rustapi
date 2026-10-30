@@ -399,3 +399,27 @@ fn unsaved_document_draft_recovers_in_its_workspace() {
     assert_eq!(recovered.name, "Draft.md");
     assert_eq!(recovered.text, "Unsaved local text");
 }
+
+#[test]
+fn desktop_portable_export_uses_shared_adapter_and_redacts() {
+    let profile = Profile::new();
+    let output = profile.directory.path().join("portable.json");
+    let mut app = app_with_collection();
+    app.dialogs = Box::new(ChosenFile(Some(output.clone())));
+    let mut request = ApiRequest {
+        url: "https://example.test".into(),
+        ..Default::default()
+    };
+    request
+        .headers
+        .push(KeyValue::new("Authorization", "private-token"));
+    app.collections[0].requests.push(request);
+    let id = app.collections[0].id.clone();
+    app.action(Action::ExportPortable(id));
+    assert!(app.error.is_none());
+    let bytes = std::fs::read(output).unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains("private-token"));
+    let document: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(document["info"]["schema"], "urn:collection:v2.1.0");
+    assert!(document["item"].is_array());
+}
