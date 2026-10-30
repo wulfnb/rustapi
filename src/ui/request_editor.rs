@@ -193,15 +193,33 @@ fn render_body_editor(ui: &mut Ui, request: &mut ApiRequest) {
         BodyType::FormData | BodyType::UrlEncoded => {
             render_key_value_editor(ui, &mut request.form_data);
             if request.body_type == BodyType::FormData {
-                for f in &mut request.form_data {
+                let mut additions = vec![];
+                for (index, f) in request.form_data.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         ui.checkbox(&mut f.file, format!("{} is a file", f.key));
-                        if f.file && ui.button("Choose file").clicked() {
-                            if let Some(p) = rfd::FileDialog::new().pick_file() {
-                                f.value = p.to_string_lossy().into();
+                        if f.file && ui.button("Choose files").clicked() {
+                            if let Some(paths) = rfd::FileDialog::new().pick_files() {
+                                if let Some(first) = paths.first() {
+                                    f.value = first.to_string_lossy().into();
+                                    let extra: Vec<_> = paths
+                                        .into_iter()
+                                        .skip(1)
+                                        .map(|path| {
+                                            let mut part = f.clone();
+                                            part.value = path.to_string_lossy().into();
+                                            part
+                                        })
+                                        .collect();
+                                    additions.push((index, extra));
+                                }
                             }
                         }
+                        ui.label("Part MIME type");
+                        ui.text_edit_singleline(&mut f.content_type);
                     });
+                }
+                for (index, parts) in additions.into_iter().rev() {
+                    request.form_data.splice(index + 1..index + 1, parts);
                 }
             }
         }

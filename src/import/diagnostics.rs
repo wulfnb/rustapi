@@ -178,27 +178,6 @@ impl Scanner {
                 ] {
                     self.rows(rows, &format!("{base}/{suffix}"), RowContext::Fields);
                 }
-                if let Some(parts) = request["body"]["formdata"].as_array() {
-                    for (j, part) in parts.iter().enumerate() {
-                        let base = format!("{base}/body/formdata/{j}");
-                        self.omitted(
-                            &part["contentType"],
-                            format!("{base}/contentType"),
-                            "part_content_type",
-                            "Per-part content types are not retained.",
-                        );
-                        if part["type"] == "file"
-                            && part["src"].as_array().is_some_and(|a| a.len() > 1)
-                        {
-                            self.add(
-                                format!("{base}/src"),
-                                "multiple_upload_files",
-                                ImportDisposition::PartiallyPreserved,
-                                "Only the first file in this upload field is retained.",
-                            );
-                        }
-                    }
-                }
             }
         }
     }

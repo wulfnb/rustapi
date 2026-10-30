@@ -68,7 +68,14 @@ class CodegenSmokeTests(unittest.TestCase):
                 bodies = {
                     "json": b'{"ready":true,"nil":null}',
                     "text": "${never}\x01🦀".encode(),
-                    "form": b"Ada & friends\0\xff\x80\x01\r\n",
+                    "form": (
+                        b'--fixture\r\nContent-Disposition: form-data; name="name"\r\n'
+                        b'Content-Type: text/plain; charset=utf-8\r\n\r\nAda & friends\r\n'
+                        b'--fixture\r\nContent-Disposition: form-data; name="upload"; filename="upload.bin"\r\n'
+                        b'Content-Type: application/x-fixture\r\n\r\n\0\xff\x80\x01\r\n\r\n'
+                        b'--fixture\r\nContent-Disposition: form-data; name="upload"; filename="second.bin"\r\n'
+                        b'Content-Type: application/x-fixture\r\n\r\n\x07\x06\x05\x04\r\n--fixture--\r\n'
+                    ),
                     "urlencoded": b"name=Ada+%26+friends",
                     "binary": bytes([0, 255, 128, 1, 13, 10]),
                     "options": b"",

@@ -92,6 +92,10 @@ try:
                     assert b"${never}" in body and b"\x01" in body and "🦀" in body.decode()
                 elif case == "form":
                     assert b"Ada & friends" in body and bytes([0, 255, 128, 1, 13, 10]) in body
+                    assert bytes([7, 6, 5, 4]) in body
+                    assert body.count(b'name="upload"') == 2
+                    assert body.lower().count(b"content-type: application/x-fixture") == 2
+                    assert b"content-type: text/plain; charset=utf-8" in body.lower()
                     assert "multipart/form-data; boundary=" in headers["content-type"]
                 elif case == "urlencoded":
                     assert parse_qs(body.decode()) == {"name": ["Ada & friends"]}

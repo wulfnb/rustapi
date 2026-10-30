@@ -162,3 +162,19 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
 - Full local suite: **136 passed**, warnings-denied Clippy and formatting passed.
 
 Next: multiple multipart files and per-part MIME types, including generated samples.
+
+## Step 8 — Multipart files and MIME types
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Expand imported upload arrays into ordered, independently editable repeated file
+  rows. Preserve descriptions, disabled flags and per-part content types.
+- Support multi-file selection and part MIME editing. Resolve variables and workspace
+  paths before sending; validate MIME types and keep disabled uploads unread.
+- The multipart encoder owns the body Content-Type/boundary. Existing cURL, Python,
+  JavaScript and Rust generators preserve repeated parts and text/file MIME types.
+- Full local suite: **138 passed**; warnings-denied Clippy and formatting passed.
+- Python tooling: **15 passed**. All **24 generated HTTP requests passed**, with the
+  multipart workload strengthened to check two file bodies and text/file MIME types.
+
+Next: imported request settings and URL/header semantics.

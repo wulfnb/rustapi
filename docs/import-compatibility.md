@@ -43,7 +43,7 @@ recoverable duplicate instead of losing the request.
 ## Known import omissions
 
 Collection v2.1 and environment JSON imports now produce a structured report for
-known data they cannot retain or apply: saved response examples, request behavior settings, multipart part MIME types/additional files,
+known data they cannot retain or apply: saved response examples, request behavior settings,
 malformed description/type representations and unsupported authentication configurations.
 
 The desktop presents **Review import omissions** before saving. Cancel or close
@@ -148,3 +148,16 @@ segment. Slashes, spaces, percent signs, Unicode, query and fragment characters 
 values cannot change URL structure. Missing/disabled/duplicate path variables and
 `.`/`..` values are rejected before sending. Existing encoded static segments remain
 encoded. Query rows are resolved and encoded separately by the shared HTTP pipeline.
+
+## Multipart imports and generated requests
+
+Upload arrays become repeated file rows with the same key in source order. Each
+row retains its description, enabled state and MIME type and can be edited or
+removed independently. Choose files adds repeated rows; an empty upload selection
+remains an editable unconfigured file row. Text parts can also specify a MIME type.
+Variables in MIME types and file paths resolve before sending. Disabled rows are
+not opened. The encoder sets the multipart body Content-Type and boundary, replacing
+an explicitly supplied body Content-Type so it cannot disagree with the payload.
+The four existing snippet targets reproduce the same ordered parts and MIME types;
+file-based JavaScript snippets use Node. cURL multipart snippets use a temporary
+body file with cleanup, preserving binary bytes and literal text safely.

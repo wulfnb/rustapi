@@ -81,6 +81,7 @@ impl Variables {
             if h.enabled {
                 h.key = self.resolve(&h.key)?;
                 h.value = self.resolve(&h.value)?;
+                h.content_type = self.resolve(&h.content_type)?;
             }
         }
         r.url = resolve_path_variables(&r.url, &r.path_params)?;

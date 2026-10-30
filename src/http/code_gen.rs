@@ -36,6 +36,32 @@ fn quoted(v: &str) -> String {
 fn shell(v: &str) -> String {
     format!("'{}'", v.replace('\'', "'\\''"))
 }
+fn multipart_part_headers(field: &KeyValue) -> String {
+    fn escape(value: &str) -> String {
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\r', "%0D")
+            .replace('\n', "%0A")
+    }
+    let mut head = format!(
+        "Content-Disposition: form-data; name=\"{}\"",
+        escape(&field.key)
+    );
+    if field.file {
+        let name = std::path::Path::new(&field.value)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        head.push_str(&format!("; filename=\"{}\"", escape(&name)));
+    }
+    head.push_str("\r\n");
+    if !field.content_type.is_empty() {
+        head.push_str(&format!("Content-Type: {}\r\n", field.content_type));
+    }
+    head.push_str("\r\n");
+    head
+}
 pub fn generate_code(
     request: &ApiRequest,
     language: CodeGenLanguage,
@@ -75,13 +101,27 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
             .entry("content-type".into())
             .or_insert_with(|| r.body_type.content_type().unwrap_or_default().into());
     }
+    if r.body_type == BodyType::FormData {
+        headers.remove("content-type");
+    }
     let form: Vec<_> = r
         .form_data
         .iter()
         .filter(|v| v.enabled && !v.key.is_empty())
         .collect();
+    if r.body_type == BodyType::FormData
+        && form.iter().any(|field| {
+            !field.content_type.is_empty()
+                && reqwest::multipart::Part::text("")
+                    .mime_str(&field.content_type)
+                    .is_err()
+        })
+    {
+        return "Cannot generate code: Invalid multipart content type".into();
+    }
     match language {
         CodeGenLanguage::Curl => {
+            let mut prelude = String::new();
             let mut p = vec![format!("curl -X {}", r.method.as_str())];
             for (k, v) in &headers {
                 p.push(format!("-H {}", shell(&format!("{k}: {v}"))));
@@ -105,18 +145,29 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                     }
                 }
                 BodyType::FormData => {
-                    for f in &form {
-                        p.push(format!(
-                            "{} {}",
-                            if f.file { "--form" } else { "--form-string" },
-                            shell(&format!(
-                                "{}={}{}",
-                                f.key,
-                                if f.file { "@" } else { "" },
-                                f.value
-                            ))
-                        ));
+                    let boundary = format!("----rustapi-{}", uuid::Uuid::new_v4());
+                    prelude.push_str("set -eu\nbody=$(mktemp)\ntrap 'rm -f \"$body\"' EXIT\n{\n");
+                    for field in &form {
+                        let head = format!("--{boundary}\r\n{}", multipart_part_headers(field));
+                        prelude.push_str(&format!("  printf '%s' {}\n", shell(&head)));
+                        if field.file {
+                            prelude.push_str(&format!("  cat -- {}\n", shell(&field.value)));
+                        } else {
+                            prelude.push_str(&format!("  printf '%s' {}\n", shell(&field.value)));
+                        }
+                        prelude.push_str("  printf '\\r\\n'\n");
                     }
+                    prelude.push_str(&format!(
+                        "  printf '%s' {}\n}} > \"$body\"\n",
+                        shell(&format!("--{boundary}--\r\n"))
+                    ));
+                    p.push(format!(
+                        "-H {}",
+                        shell(&format!(
+                            "Content-Type: multipart/form-data; boundary={boundary}"
+                        ))
+                    ));
+                    p.push("--data-binary \"@$body\"".into());
                 }
                 BodyType::None => {}
             }
@@ -140,7 +191,7 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                 p.push(format!("--cert {}", shell(&r.settings.identity_file)));
             }
             p.push(shell(&url));
-            p.join(" \\\n  ")
+            prelude + &p.join(" \\\n  ")
         }
         CodeGenLanguage::Python => {
             let mut p=format!("import json\nimport requests\nfrom contextlib import ExitStack\n\nurl = {}\nheaders = json.loads({})\nwith ExitStack() as stack:\n",quoted(&url),quoted(&serde_json::to_string(&headers).unwrap()));
@@ -172,21 +223,29 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                     args = format!(
                         ", files=[{}]",
                         form.iter()
-                            .map(|f| if f.file {
-                                format!(
-                                    "({}, ({}, stack.enter_context(open({}, 'rb'))))",
-                                    quoted(&f.key),
+                            .map(|f| {
+                                let name = if f.file {
                                     quoted(
                                         std::path::Path::new(&f.value)
                                             .file_name()
                                             .unwrap_or_default()
                                             .to_string_lossy()
-                                            .as_ref()
-                                    ),
+                                            .as_ref(),
+                                    )
+                                } else {
+                                    "None".into()
+                                };
+                                let value = if f.file {
+                                    format!("stack.enter_context(open({}, 'rb'))", quoted(&f.value))
+                                } else {
                                     quoted(&f.value)
-                                )
-                            } else {
-                                format!("({}, (None, {}))", quoted(&f.key), quoted(&f.value))
+                                };
+                                let mime = if f.content_type.is_empty() {
+                                    "None".into()
+                                } else {
+                                    quoted(&f.content_type)
+                                };
+                                format!("({}, ({}, {}, {}))", quoted(&f.key), name, value, mime)
                             })
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -224,18 +283,24 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                     .unwrap()
                 ),
                 BodyType::FormData => {
-                    p.push_str("const body = new FormData();\n");
-                    for f in &form {
-                        if f.file {
-                            p.push_str(&format!("body.append({}, new Blob([await (await import('node:fs/promises')).readFile({})]), {});\n",quoted(&f.key),quoted(&f.value),quoted(std::path::Path::new(&f.value).file_name().unwrap_or_default().to_string_lossy().as_ref())));
+                    let boundary = format!("----rustapi-{}", uuid::Uuid::new_v4());
+                    p.push_str("const parts = [];\n");
+                    for field in &form {
+                        p.push_str(&format!(
+                            "parts.push({});\n",
+                            quoted(&format!(
+                                "--{boundary}\r\n{}",
+                                multipart_part_headers(field)
+                            ))
+                        ));
+                        if field.file {
+                            p.push_str(&format!("parts.push(await (await import('node:fs/promises')).readFile({}));\n", quoted(&field.value)));
                         } else {
-                            p.push_str(&format!(
-                                "body.append({}, {});\n",
-                                quoted(&f.key),
-                                quoted(&f.value)
-                            ));
+                            p.push_str(&format!("parts.push({});\n", quoted(&field.value)));
                         }
+                        p.push_str("parts.push('\\r\\n');\n");
                     }
+                    p.push_str(&format!("parts.push({});\nconst body = new Blob(parts);\nheaders['content-type'] = {};\n", quoted(&format!("--{boundary}--\r\n")), quoted(&format!("multipart/form-data; boundary={boundary}"))));
                     "body".into()
                 }
                 BodyType::None => String::new(),
@@ -297,7 +362,32 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                 BodyType::FormData => {
                     p.push_str("    let mut form = reqwest::multipart::Form::new();\n");
                     for f in form {
-                        p.push_str(&if f.file{format!("    form = form.part({}, reqwest::multipart::Part::bytes(std::fs::read({})?).file_name({}));\n",quoted(&f.key),quoted(&f.value),quoted(std::path::Path::new(&f.value).file_name().unwrap_or_default().to_string_lossy().as_ref()))}else{format!("    form = form.text({}, {});\n",quoted(&f.key),quoted(&f.value))});
+                        let part = if f.file {
+                            format!(
+                                "reqwest::multipart::Part::bytes(std::fs::read({})?).file_name({})",
+                                quoted(&f.value),
+                                quoted(
+                                    std::path::Path::new(&f.value)
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .as_ref()
+                                )
+                            )
+                        } else {
+                            format!("reqwest::multipart::Part::text({})", quoted(&f.value))
+                        };
+                        let mime = if f.content_type.is_empty() {
+                            String::new()
+                        } else {
+                            format!(".mime_str({})?", quoted(&f.content_type))
+                        };
+                        p.push_str(&format!(
+                            "    form = form.part({}, {}{});\n",
+                            quoted(&f.key),
+                            part,
+                            mime
+                        ));
                     }
                     p.push_str("    request = request.multipart(form);\n");
                 }

@@ -121,6 +121,8 @@ pub struct KeyValue {
     #[serde(default)]
     pub file: bool,
     #[serde(default)]
+    pub content_type: String,
+    #[serde(default)]
     pub value_type: String,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub extensions: std::collections::BTreeMap<String, serde_json::Value>,
@@ -135,6 +137,7 @@ impl KeyValue {
             description: String::new(),
             description_metadata: None,
             file: false,
+            content_type: String::new(),
             value_type: String::new(),
             extensions: Default::default(),
         }

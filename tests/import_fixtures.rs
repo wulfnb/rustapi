@@ -172,8 +172,6 @@ fn known_omissions_report_exact_source_locations_without_values() {
         [
             "/item/0/item/0/protocolProfileBehavior",
             "/item/0/item/0/response",
-            "/item/0/item/0/request/body/formdata/0/contentType",
-            "/item/0/item/0/request/body/formdata/0/src",
         ]
         .into_iter()
         .collect()
@@ -194,10 +192,12 @@ fn known_omissions_report_exact_source_locations_without_values() {
     let report: serde_json::Value = serde_json::from_str(&report).unwrap();
     assert_eq!(report["schema_version"], 1);
     assert_eq!(report["requires_confirmation"], true);
-    assert!(imported
-        .diagnostics
-        .iter()
-        .any(|d| d.disposition == import::ImportDisposition::PartiallyPreserved));
+    assert_eq!(
+        imported.collection.as_ref().unwrap().folders[0].requests[0]
+            .form_data
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -266,7 +266,7 @@ fn cli_requires_explicit_loss_acceptance_and_emits_json_report() {
         );
         let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(report["requires_confirmation"], true);
-        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 4);
+        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 2);
         assert_eq!(
             std::fs::read_dir(workspace.join("collections"))
                 .unwrap()

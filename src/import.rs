@@ -44,6 +44,7 @@ fn values(v: &Value) -> Vec<KeyValue> {
                         description,
                         description_metadata,
                         value_type: v["type"].as_str().unwrap_or_default().into(),
+                        content_type: v["contentType"].as_str().unwrap_or_default().into(),
                         extensions: v
                             .as_object()
                             .map(|object| {
@@ -200,17 +201,39 @@ fn request(item: &Value, warnings: &mut Vec<String>) -> Result<ApiRequest> {
             r.body_type = BodyType::FormData;
             r.form_data = values(&body["formdata"]);
             if let Some(a) = body["formdata"].as_array() {
-                for (field, source) in r.form_data.iter_mut().zip(a) {
+                let mut fields = vec![];
+                for (mut field, source) in r.form_data.into_iter().zip(a) {
+                    anyhow::ensure!(
+                        source["contentType"].is_null() || source["contentType"].is_string(),
+                        "Part content type must be a string"
+                    );
                     if source["type"] == "file" {
                         field.file = true;
-                        field.value = source["src"]
-                            .as_str()
-                            .map(String::from)
-                            .or_else(|| source["src"].as_array().and_then(|a| a.first()).map(text))
-                            .unwrap_or_default();
+                        let paths = if let Some(paths) = source["src"].as_array() {
+                            anyhow::ensure!(
+                                paths.iter().all(Value::is_string),
+                                "Upload paths must be strings"
+                            );
+                            paths.iter().map(text).collect::<Vec<_>>()
+                        } else {
+                            vec![text(&source["src"])]
+                        };
+                        let paths = if paths.is_empty() {
+                            vec![String::new()]
+                        } else {
+                            paths
+                        };
+                        for path in paths {
+                            let mut file = field.clone();
+                            file.value = path;
+                            fields.push(file);
+                        }
                         warnings.push(format!("Check local upload path for {}", r.name));
+                    } else {
+                        fields.push(field);
                     }
                 }
+                r.form_data = fields;
             }
         }
         "file" => {

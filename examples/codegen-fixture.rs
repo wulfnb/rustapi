@@ -7,6 +7,8 @@ fn main() -> anyhow::Result<()> {
     let base = &args[2];
     let upload = dir.join("upload.bin");
     std::fs::write(&upload, [0, 255, 128, 1, 13, 10])?;
+    let second = dir.join("second.bin");
+    std::fs::write(&second, [7, 6, 5, 4])?;
     for case in ["json", "text", "form", "urlencoded", "binary", "options"] {
         let mut r = ApiRequest {
             url: format!("{base}/{case}#fragment"),
@@ -39,9 +41,16 @@ fn main() -> anyhow::Result<()> {
             "form" => {
                 r.body_type = BodyType::FormData;
                 r.form_data.push(KeyValue::new("name", "Ada & friends"));
+                r.form_data[0].content_type = "text/plain; charset=utf-8".into();
                 r.form_data.push(KeyValue {
                     file: true,
+                    content_type: "application/x-fixture".into(),
                     ..KeyValue::new("upload", upload.to_string_lossy())
+                });
+                r.form_data.push(KeyValue {
+                    file: true,
+                    content_type: "application/x-fixture".into(),
+                    ..KeyValue::new("upload", second.to_string_lossy())
                 });
             }
             "urlencoded" => {

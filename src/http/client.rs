@@ -240,23 +240,28 @@ impl HttpService {
                 );
             }
             BodyType::FormData => {
+                // The encoder owns Content-Type and its boundary.
+                headers.remove(reqwest::header::CONTENT_TYPE);
                 let mut form = reqwest::multipart::Form::new();
                 for v in &r.form_data {
                     if v.enabled && !v.key.is_empty() {
-                        if v.file {
+                        let mut part = if v.file {
                             let bytes = std::fs::read(&v.value).context("Read multipart upload")?;
                             let name = std::path::Path::new(&v.value)
                                 .file_name()
                                 .unwrap_or_default()
                                 .to_string_lossy()
                                 .into_owned();
-                            form = form.part(
-                                v.key.clone(),
-                                reqwest::multipart::Part::bytes(bytes).file_name(name),
-                            );
+                            reqwest::multipart::Part::bytes(bytes).file_name(name)
                         } else {
-                            form = form.text(v.key.clone(), v.value.clone());
+                            reqwest::multipart::Part::text(v.value.clone())
+                        };
+                        if !v.content_type.is_empty() {
+                            part = part
+                                .mime_str(&v.content_type)
+                                .context("Invalid part content type")?;
                         }
+                        form = form.part(v.key.clone(), part);
                     }
                 }
                 b = b.multipart(form);
