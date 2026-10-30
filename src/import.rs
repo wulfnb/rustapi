@@ -485,6 +485,9 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
         "Import exceeds 64 MiB limit"
     );
     let v: Value = serde_json::from_slice(bytes)?;
+    if v["$kind"] == "collection" {
+        return crate::v3::import_document(&v);
+    }
     let mut warnings = vec![];
     if v["info"]["schema"].is_string() {
         anyhow::ensure!(
@@ -666,4 +669,27 @@ pub fn curl(command: &str) -> Result<ImportResult> {
         warnings: vec![],
         diagnostics: vec![],
     })
+}
+
+pub(crate) fn imported_profile_for_v3(
+    value: &Value,
+) -> Result<(HttpSettings, std::collections::BTreeMap<String, Value>)> {
+    imported_profile(value, &HttpSettings::default())
+}
+
+pub fn path(path: &std::path::Path) -> Result<ImportResult> {
+    if path.is_dir() {
+        return crate::v3::import_directory(path);
+    }
+    let metadata = std::fs::metadata(path)?;
+    anyhow::ensure!(metadata.len() <= 64 * 1024 * 1024, "Import exceeds 64 MiB");
+    let bytes = std::fs::read(path)?;
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "yaml" || extension == "yml")
+    {
+        crate::v3::import_document(&crate::v3::parse_yaml(std::str::from_utf8(&bytes)?)?)
+    } else {
+        json(&bytes)
+    }
 }

@@ -238,7 +238,9 @@ impl Collection {
         if let Some(path) = &self.file_path {
             let path = std::path::Path::new(path);
             let parent = path.parent().unwrap_or(std::path::Path::new("."));
-            let base = if parent.file_name().is_some_and(|n| n == "collections") {
+            let base = if path.is_dir() {
+                path
+            } else if parent.file_name().is_some_and(|n| n == "collections") {
                 parent.parent().unwrap_or(parent)
             } else {
                 parent

@@ -423,3 +423,25 @@ fn desktop_portable_export_uses_shared_adapter_and_redacts() {
     assert_eq!(document["info"]["schema"], "urn:collection:v2.1.0");
     assert!(document["item"].is_array());
 }
+
+#[test]
+fn desktop_v3_import_uses_directory_adapter_and_preserves_source() {
+    let profile = Profile::new();
+    let source = profile.directory.path().join("source-v3");
+    std::fs::create_dir_all(&source).unwrap();
+    let yaml = "$kind: http-request\nname: Local\nurl: https://example.test\nmethod: GET\n";
+    std::fs::write(source.join("Local.request.yaml"), yaml).unwrap();
+    let mut app = RustApiApp {
+        dialogs: Box::new(ChosenFile(Some(source.clone()))),
+        ..Default::default()
+    };
+    app.choose_import();
+    assert!(app.error.is_none());
+    assert!(app.pending_import.is_none());
+    assert_eq!(app.collections.len(), 1);
+    assert_eq!(app.collections[0].requests[0].name, "Local");
+    assert_eq!(
+        std::fs::read_to_string(source.join("Local.request.yaml")).unwrap(),
+        yaml
+    );
+}

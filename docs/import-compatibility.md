@@ -8,8 +8,8 @@ milestones. This release does not claim that arbitrary imported collections run 
 
 For supported format boundaries, known import-fidelity gaps and
 future work, see the [feature gap analysis](feature-gap-analysis.md) and
-[implementation plan](implementation-plan.md). RustAPI currently imports
-v2.1 JSON; v3 YAML collection directories are not supported.
+[implementation plan](implementation-plan.md). RustAPI imports
+v2.1 JSON and a bounded v3 HTTP subset in JSON/YAML and directory form.
 
 ## Import and project data
 
@@ -261,3 +261,36 @@ clients may ignore the extension or require a different schema identifier; accep
 by every external client is not claimed. Export notes disclose this boundary.
 Semantic round trips are verified through RustAPI's independent import adapter;
 this is not a universal format-conformance or scripting-parity claim.
+
+## v3 HTTP collections
+
+GUI import accepts a v3 directory, while CLI import/run accepts a directory or
+collection JSON/YAML file. Export v3 directory is available from collection menus
+and CLI --format v3. Export creates a new directory and never replaces an existing
+one. Definition files use .resources/definition.yaml; requests use *.request.yaml;
+examples use sibling <request>.resources/examples/*.example.yaml. Import also
+accepts .yml, root definition.yaml and the documented resource-folder alternative.
+Numeric order values sort items/examples; filename order breaks ties. Scripts are
+inline JavaScript, with HTTP lifecycle mapping to the existing bounded runtime.
+
+The supported subset covers HTTP methods, raw/JSON, form, file and multipart bodies,
+headers/query/path variables, plain scope variables, supported auth, settings,
+folders, scripts and examples. External secret providers, rule-selected auth arrays,
+linked assets, other protocols, script package/request dependencies and external
+script/include resources are rejected before persistence. Unknown resource files
+are rejected rather than silently skipped. Upload references still require checking
+local paths; export does not copy upload files. Rich annotations unsupported by the
+native model are outside this HTTP subset.
+
+Native-only metadata is retained in .resources/rustapi.json. It is restored only
+when regenerating standard YAML from that native collection matches every parsed
+YAML resource. YAML edits require explicit import review before stale native data
+is omitted. Other consumers use standard YAML fields and may ignore native metadata,
+including folder variables, native assertions and extra transport settings.
+
+Limits: 1000 files, 64 MiB aggregate, 8 MiB per YAML resource, 32 directory levels,
+64 YAML levels and bounded parser events/nodes/scalars. Aliases, anchors, merge keys,
+unsupported tags, symlinks, ambiguous definitions and case-insensitive filename
+collisions are rejected. Export uses staging plus directory rename. Metadata
+resources are discovered within the selected canonical directory; includes never
+read external files or make network calls.

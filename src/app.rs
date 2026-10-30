@@ -30,7 +30,7 @@ impl CollectionDialogs for NativeCollectionDialogs {
     fn import(&self) -> Option<std::path::PathBuf> {
         rfd::FileDialog::new()
             .set_title("Import collection")
-            .add_filter("JSON", &["json"])
+            .add_filter("Collections", &["json", "yaml", "yml"])
             .pick_file()
     }
     fn export(&self, name: &str) -> Option<std::path::PathBuf> {
@@ -83,6 +83,7 @@ enum Action {
     Export(String),
     ExportCredentials(String),
     ExportPortable(String),
+    ExportV3(String),
     Move(String, String),
     MoveFolder(String, String),
     Reorder(String, Option<String>, String, bool),
@@ -639,6 +640,23 @@ impl RustApiApp {
             }
             Action::Export(id) => self.export_collection(&id, false),
             Action::ExportCredentials(id) => self.export_collection(&id, true),
+            Action::ExportV3(id) => {
+                if let Some(c) = self.collections.iter().find(|c| c.id == id).cloned() {
+                    if let Some(parent) = rfd::FileDialog::new()
+                        .set_title("Choose parent folder for new v3 export")
+                        .pick_folder()
+                    {
+                        let target = parent.join(format!("collection-{}", uuid::Uuid::new_v4()));
+                        let result =
+                            rustapi::v3::export_directory(&c, &target, false).map(|notes| {
+                                format!("Exported {}\n{}", target.display(), notes.join("\n"))
+                            });
+                        if let Some(notice) = self.result(result) {
+                            self.notice = notice;
+                        }
+                    }
+                }
+            }
             Action::ExportPortable(id) => {
                 if let Some(c) = self.collections.iter().find(|c| c.id == id).cloned() {
                     if let Some(path) = self.dialogs.export(&c.name) {
@@ -884,9 +902,7 @@ impl eframe::App for RustApiApp {
 impl RustApiApp {
     fn choose_import(&mut self) {
         if let Some(path) = self.dialogs.import() {
-            let result = std::fs::read(path)
-                .map_err(anyhow::Error::from)
-                .and_then(|bytes| rustapi::import::json(&bytes));
+            let result = rustapi::import::path(&path);
             self.import(result);
         }
     }
@@ -1046,6 +1062,10 @@ impl RustApiApp {
                                 (
                                     "Export v2.1 (redacted)",
                                     Action::ExportPortable(c.id.clone()),
+                                ),
+                                (
+                                    "Export v3 directory (redacted)",
+                                    Action::ExportV3(c.id.clone()),
                                 ),
                                 (
                                     "Export including credentials",
@@ -1356,6 +1376,11 @@ impl RustApiApp {
                     ui.label("JSON imports create a managed copy. Source files are unchanged.");
                     if ui.button("Choose collection or environment JSON").clicked() {
                         self.choose_import();
+                    }
+                    if ui.button("Choose v3 collection directory").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                            self.import(rustapi::import::path(&path));
+                        }
                     }
                     ui.label("Or paste a cURL command");
                     ui.add(

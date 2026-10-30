@@ -299,3 +299,26 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
   environment CLI redaction and the desktop shared-adapter export path.
 
 Next: bounded v3 YAML collection-directory import/export.
+
+## Step 16 — Bounded v3 collection import/export
+
+Status: **complete for the documented HTTP subset**, verified locally; delivery is
+recorded in Git history.
+
+- GUI/CLI import/export and CLI runs accept v3 JSON/YAML/directory collections.
+  Definition/request/example layout, numeric ordering, .yml aliases, inline scripts,
+  supported auth, variables, bodies and settings map through shared services.
+- Native sidecars restore extra metadata only after exact regenerated-YAML matching;
+  edits trigger omission review instead of overriding new source values. Export
+  stages a new directory and refuses an existing destination.
+- Resource, parser and filesystem limits reject symlinks, ambiguous/colliding names,
+  unsupported files/protocols/providers/packages/includes and expansion constructs.
+- Full local suite: **169 passed**; formatting and warnings-denied Clippy passed.
+  Headless v3 execution exercised real path/query encoding, scripts and HTTP traffic.
+- Independently checked **11 emitted YAML documents** against published JSON
+  definitions, excluding directory-only order indexes. This found and corrected
+  folder auth inheritance representation. It is not a whole-ecosystem parity claim.
+- Maintained-file naming/content scan passed.
+
+Next: JSON Schema assertions, broader scripts/debugging, OAuth options and additional
+code-generation targets.
