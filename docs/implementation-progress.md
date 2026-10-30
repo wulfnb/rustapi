@@ -232,3 +232,18 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
 
 Next: workspace documents and description editing, then bulk rows/presets,
 variable inspection and richer response views.
+
+## Step 12 — Workspace documents and descriptions
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Offline Documents window reads/edits UTF-8 Markdown source with atomic saves,
+  new-name copies, collision checks and workspace-specific local draft recovery.
+- Document storage rejects traversal, symlink components and files over 1 MiB.
+  Drafts are bounded separately; another workspace never loads this draft.
+- Request, collection, folder and key/value-row descriptions are editable while
+  imported format metadata remains intact. New row controls enable rows by default.
+- Full local suite: **152 passed**; formatting and warnings-denied Clippy passed.
+  A final targeted description UI rerun passed after a test-only lint cleanup.
+
+Next: lossless bulk row editing and persistent header presets.

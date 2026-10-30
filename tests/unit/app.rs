@@ -362,3 +362,40 @@ fn saved_example_ui_capture_try_and_restart() {
     assert!(tried.collection_id.is_none());
     assert_eq!(saved[0].request(&rid).unwrap().examples.len(), 1);
 }
+
+#[test]
+fn workspace_document_ui_saves_and_reopens_offline() {
+    let profile = Profile::new();
+    let mut app = RustApiApp::default();
+    app.documents.open = true;
+    app.documents.name = "WORKSPACE-README.md".into();
+    app.documents.text = "# API guide\nLocal text".into();
+    let mut h = Harness::new(app, |ctx: &egui::Context, app: &mut RustApiApp| {
+        app.render(ctx)
+    });
+    h.click("Save document");
+    assert!(h.state.documents.error.is_empty());
+    assert_eq!(
+        storage::read_document(profile.directory.path(), "WORKSPACE-README.md").unwrap(),
+        "# API guide\nLocal text"
+    );
+    h.click("Close documents");
+    h.click("Documents");
+    h.click("WORKSPACE-README.md");
+    assert_eq!(h.state.documents.text, "# API guide\nLocal text");
+}
+
+#[test]
+fn unsaved_document_draft_recovers_in_its_workspace() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    app.documents.open = true;
+    app.documents.name = "Draft.md".into();
+    app.documents.text = "Unsaved local text".into();
+    let _h = Harness::new(app, |ctx: &egui::Context, app: &mut RustApiApp| {
+        app.render(ctx)
+    });
+    let recovered = DocumentEditor::recover();
+    assert_eq!(recovered.name, "Draft.md");
+    assert_eq!(recovered.text, "Unsaved local text");
+}

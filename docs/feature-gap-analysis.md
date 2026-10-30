@@ -54,8 +54,8 @@ later local capabilities; **P3** means a separate platform decision.
 | ID | Workflow capability | RustAPI status and remaining work | Priority / package |
 | --- | --- | --- | --- |
 | G01 | Portable collection formats, including v3. | **Partial.** [import adapter](../src/import.rs#L238) accepts JSON and checks v2.1; no v3 YAML/directory adapter. Add clear format detection and a documented v2.1 fallback before v3 support. | P0 diagnostics; P1 adapter / E01, E04 |
-| G02 | Descriptions, structured path parameters and richer multipart inputs. | **Partial.** [Row conversion](../src/import.rs#L35) retains plain-text header/query/form/environment descriptions; structured descriptions and scope-variable metadata are preserved. [Request conversion](../src/import.rs#L120) retains plain-text request/folder descriptions but omits structured URL variables and request-specific behavior settings. Multipart arrays expand into repeated file rows with per-part MIME types; path variables are resolved by the shared pipeline. [Known omissions](../src/import/diagnostics.rs) require explicit continuation before persistence; preserving the remaining fields is pending. | P0 / E01 |
-| G03 | Named saved examples per request, editable response and Try action. | **Absent.** [ApiRequest](../src/models/request.rs#L137) has no examples; importer reports saved responses as omitted before persistence. [History](../src/models/history.rs#L63) omits bodies and raw responses. | P0 import disclosure; P1 entity / E01, E02 |
+| G02 | Descriptions, structured path parameters and richer multipart inputs. | **Implemented for the documented HTTP subset.** Structured descriptions, scope metadata, editable path variables, multipart arrays/MIME, inherited settings and shared URL/header semantics are delivered. Unknown behavior settings require import review. See [compatibility](import-compatibility.md). | P0 / E01 |
+| G03 | Named saved examples per request, editable response and Try action. | **Implemented.** Bounded exact response bytes, original request snapshots, import, native persistence, edit/duplicate/delete and independent Try tabs. Default capture/export redacts recognized fields; history omits examples. | P1 / E01, E02 |
 | G04 | Exchange collections with other clients and tooling. | **Partial.** Import exists; [export](../src/storage/file_storage.rs#L255) serializes native RustAPI collections only. No collection v2.1/environment exporter or supported round-trip contract. | P1 / E04 |
 | G05 | Parameter/header descriptions, bulk editing, header presets/autocomplete and effective-header explanations. | **Partial.** [KeyValue.description](../src/models/request.rs#L114) exists but [editor](../src/ui/request_editor.rs#L117) shows only enabled/key/value/delete. No bulk editor, presets or computed-header view. | P1 / E03 |
 | G06 | Custom methods, URL/query/path editing and syntax-aware raw bodies. | **Partial.** [Method enum](../src/models/request.rs#L10) is closed; no custom methods, dedicated `:id` controls or URL/query synchronization. JSON/Text can carry raw content but lack XML/HTML modes and language editing tools. | P1 / E01, E03 |
@@ -68,15 +68,15 @@ later local capabilities; **P3** means a separate platform decision.
 | G13 | JavaScript request mutation, auxiliary requests, workflow control, assertion libraries and packages. | **Partial.** [scripts.rs](../src/scripts.rs#L7) implements only scoped accessors, basic response access/tests and limited assertions. No `pm.request`, `pm.sendRequest`, `pm.execution`, `pm.globals`, `pm.vault`, packages, full Chai or async support. | P1 common subset; P2 async/packages / E05 |
 | G14 | Schema/spec validation and contract workflows. | **Absent for schemas.** [AssertionKind](../src/models/workflow.rs#L42) has status/header/JSON Pointer/contains/time checks, but no JSON Schema validation or specification link. Spec linting and response validation need separate services. | P1 assertions; P2 spec integration / E05, E07 |
 | G15 | Reusable datasets and richer repeatable runs. | **Partial.** [Runner](../src/runner.rs#L10) accepts CSV/JSON per run, but lacks a managed dataset library, saved run profiles, persisted run history or selected-request plans. SQL views and database sources are additional possible extensions. | P2 / E09 |
-| G16 | Rich workspace navigation, overview and documents; reusable linked assets. | **Partial.** [Manifest](../src/workspace.rs#L24) contains name/version; [tree search](../src/app.rs#L1083) matches request names/URLs. No README/document hub, global content search, favorites, linked requests or embedded Git changes/conflict view. | P1 docs/search; P2 Git/links / E02, E03, E12 |
+| G16 | Rich workspace navigation, overview and documents; reusable linked assets. | **Partial.** [Manifest](../src/workspace.rs#L24) contains name/version; [tree search](../src/app.rs#L1083) matches request names/URLs. The local Documents editor provides bounded Markdown files and draft recovery. No global content search, favorites, linked requests or embedded Git changes/conflict view. | P1 docs/search; P2 Git/links / E02, E03, E12 |
 
 ### Additional correctness details
 
-The header editor permits repeated names, but [HTTP execution](../src/http/client.rs#L191)
-and [code generation](../src/http/code_gen.rs#L61) collapse them through map insertion.
-Define and expose override/repetition semantics before extending bulk editing or
-signing. This is a source-observed limitation that needs an explicit contract;
-repeated headers can have different semantics from overriding an earlier value.
+The shared [header preparation](../src/http/prepared.rs) now preserves ordinary
+repeated fields, rejects duplicate singleton fields and applies explicit-auth
+precedence consistently. Map-based snippet targets reject unsupported repetition
+instead of collapsing it. The [compatibility contract](import-compatibility.md)
+documents raw-query replacement and encoder-owned multipart boundaries.
 
 Script limits are intentional: 256 KiB source, 16 MiB heap, 250 ms execution and a
 1 MiB response-input limit; see [scripts.rs:41](../src/scripts.rs#L41). Adding

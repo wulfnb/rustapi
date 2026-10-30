@@ -203,3 +203,33 @@ fn history_panel_loads_and_clears_entries() {
     assert!(!h.state.0);
     h.refresh();
 }
+
+#[test]
+fn description_controls_edit_content_without_discarding_import_metadata() {
+    let request = ApiRequest {
+        description: "Original request description".into(),
+        description_metadata: Some(std::collections::BTreeMap::from([(
+            "type".into(),
+            serde_json::json!("text/markdown"),
+        )])),
+        ..Default::default()
+    };
+    let mut h = Harness::new(
+        (request, RequestTab::Description, false),
+        |ctx: &egui::Context, s: &mut (ApiRequest, RequestTab, bool)| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_request_editor(ui, &mut s.0, &mut s.1, &mut s.2, true)
+            });
+        },
+    );
+    h.edit(
+        egui::accesskit::Role::MultilineTextInput,
+        0,
+        "Edited Markdown",
+    );
+    assert_eq!(h.state.0.description, "Edited Markdown");
+    assert_eq!(
+        h.state.0.description_metadata.as_ref().unwrap()["type"],
+        "text/markdown"
+    );
+}

@@ -21,3 +21,6 @@ mod tests;
 
 mod examples;
 pub use examples::*;
+
+mod documents;
+pub use documents::*;

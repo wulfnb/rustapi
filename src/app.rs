@@ -104,6 +104,7 @@ pub struct RustApiApp {
     format_json: bool,
     search: String,
     response_search: String,
+    documents: DocumentEditor,
     show_history: bool,
     show_environments: bool,
     show_import: bool,
@@ -200,6 +201,7 @@ impl Default for RustApiApp {
             format_json: true,
             search: String::new(),
             response_search: String::new(),
+            documents: DocumentEditor::recover(),
             show_history: false,
             show_environments: false,
             show_import: false,
@@ -953,6 +955,9 @@ impl RustApiApp {
                 if ui.button("Cookies").clicked() {
                     self.show_cookies = true;
                 }
+                if ui.button("Documents").clicked() {
+                    self.documents.open = true;
+                }
                 if ui.button("History").clicked() {
                     self.show_history = true;
                 }
@@ -1297,6 +1302,7 @@ fn folder_choices(
 
 impl RustApiApp {
     fn windows(&mut self, ctx: &egui::Context) {
+        self.documents.window(ctx);
         if self.show_new_collection {
             egui::Window::new("New collection").show(ctx, |ui| {
                 ui.text_edit_singleline(&mut self.new_name);
@@ -1463,10 +1469,11 @@ impl RustApiApp {
                     .default_width(600.)
                     .vscroll(true)
                     .show(ctx, |ui| {
-                        let (name, vars, auth, pre, post) = if let Some(id) = &folder {
+                        let (name, description, vars, auth, pre, post) = if let Some(id) = &folder {
                             if let Some(f) = c.folder_mut(id) {
                                 (
                                     &mut f.name,
+                                    &mut f.description,
                                     &mut f.variables,
                                     &mut f.auth,
                                     &mut f.pre_script,
@@ -1478,6 +1485,7 @@ impl RustApiApp {
                         } else {
                             (
                                 &mut c.name,
+                                &mut c.description,
                                 &mut c.variables,
                                 &mut c.auth,
                                 &mut c.pre_script,
@@ -1486,6 +1494,12 @@ impl RustApiApp {
                         };
                         ui.label("Name");
                         ui.text_edit_singleline(name);
+                        ui.label("Description");
+                        ui.add(
+                            egui::TextEdit::multiline(description)
+                                .desired_rows(4)
+                                .desired_width(f32::INFINITY),
+                        );
                         ui.separator();
                         ui.label("Variables");
                         edit_variables(ui, vars);

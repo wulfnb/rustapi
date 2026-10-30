@@ -23,7 +23,7 @@ String and structured descriptions retain their text, format and extension metad
 Scope-variable rows retain descriptions, type hints, disabled flags and extensions;
 legacy maps remain authoritative for active values. Disabled rows are preserved but
 excluded from resolution. Script changes do not resurrect removed values when rows
-are reconstructed for export. Description editing in the UI is separate pending work.
+are reconstructed for export. The desktop edits request, collection, folder and row descriptions while retaining their format metadata.
 
 Scripts are preserved as source and their compatibility warning is visible after import.
 OAuth requires local authorization and upload paths may need adjustment. Unsupported
@@ -199,3 +199,13 @@ request to persist example changes. Editing a response body replaces its bytes w
 UTF-8 text. Capturing/default exporting redacts recognized sensitive fields; history
 omits examples entirely. Imported examples keep source values until explicitly
 redacted for export. The tree exposes saved examples as separate Try actions.
+
+## Workspace documents
+
+The Documents window reads and edits local UTF-8 Markdown files under documents/.
+Save writes atomically; a new filename saves a copy and cannot overwrite a different
+existing document. Drafts recover from .local/document-draft.json after restart.
+Switching workspaces uses that workspace's own draft. Documents are limited to
+1 MiB each, a flat directory and 1000 listed files. Invalid filenames and symlink
+components are rejected. This editor displays Markdown source offline; rich
+rendered Markdown and document synchronization are outside this delivery.

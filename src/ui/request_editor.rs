@@ -15,6 +15,7 @@ pub enum RequestTab {
     Tests,
     Scripts,
     Settings,
+    Description,
 }
 
 /// Render the request editor
@@ -56,6 +57,7 @@ pub fn render_request_editor(
             (RequestTab::Tests, "Tests"),
             (RequestTab::Scripts, "Scripts"),
             (RequestTab::Settings, "Settings"),
+            (RequestTab::Description, "Description"),
         ] {
             ui.selectable_value(current_tab, tab, label);
         }
@@ -104,6 +106,7 @@ pub fn render_request_editor(
             ui.label("Pre-request");ui.add(egui::TextEdit::multiline(&mut request.pre_script).code_editor().desired_width(f32::INFINITY));
             ui.label("Post-response");ui.add(egui::TextEdit::multiline(&mut request.post_script).code_editor().desired_width(f32::INFINITY));
         }
+        RequestTab::Description => { ui.label("Request description (plain text or Markdown)"); ui.add(egui::TextEdit::multiline(&mut request.description).desired_rows(8).desired_width(f32::INFINITY)); }
         RequestTab::Settings => {
             let s=&mut request.settings;
             ui.horizontal(|ui|{ui.label("Timeout (ms)");ui.add(egui::DragValue::new(&mut s.timeout_ms).range(1..=3_600_000));});
@@ -133,22 +136,31 @@ pub fn render_key_value_editor(ui: &mut Ui, items: &mut Vec<KeyValue>) {
     ui.add_space(4.0);
 
     for (idx, item) in items.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut item.enabled, "");
+        ui.push_id(idx, |ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut item.enabled, "");
 
-            let key_edit = egui::TextEdit::singleline(&mut item.key)
-                .hint_text("Key")
-                .desired_width(180.0);
-            ui.add(key_edit);
+                let key_edit = egui::TextEdit::singleline(&mut item.key)
+                    .hint_text("Key")
+                    .desired_width(180.0);
+                ui.add(key_edit);
 
-            let value_edit = egui::TextEdit::singleline(&mut item.value)
-                .hint_text("Value")
-                .desired_width(ui.available_width() - 40.0);
-            ui.add(value_edit);
+                let value_edit = egui::TextEdit::singleline(&mut item.value)
+                    .hint_text("Value")
+                    .desired_width(ui.available_width() - 40.0);
+                ui.add(value_edit);
 
-            if ui.small_button("🗑").clicked() {
-                to_delete = Some(idx);
-            }
+                if ui.small_button("🗑").clicked() {
+                    to_delete = Some(idx);
+                }
+            });
+            egui::CollapsingHeader::new("Row description").show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut item.description)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY),
+                );
+            });
         });
     }
 
@@ -160,7 +172,7 @@ pub fn render_key_value_editor(ui: &mut Ui, items: &mut Vec<KeyValue>) {
     ui.add_space(8.0);
 
     if ui.button("➕ Add").clicked() {
-        items.push(KeyValue::default());
+        items.push(KeyValue::new("", ""));
     }
 }
 

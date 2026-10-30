@@ -17,8 +17,8 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 ## Daily workflow
 
 - [x] Saved request/response examples with import, persistence, editing and Try.
-- [ ] Workspace documents with offline viewing/editing.
-- [ ] Request/folder/row description editing.
+- [x] Workspace documents with offline viewing/editing.
+- [x] Request/folder/row description editing.
 - [ ] Lossless bulk row editing and persistent header presets.
 - [ ] Variable inspection with scope origins and masked secrets.
 - [ ] Rich response inspection with syntax/tree/raw/filter/preview controls.
