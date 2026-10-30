@@ -124,6 +124,10 @@ release, verifies its SHA256, and requires the resulting Setup EXE. Missing inst
 fail publication instead of leaving an advertised download absent. Checksums include
 all seven native distributions.
 
+macOS DMG verification retries the temporary DiskImages "Resource temporarily
+unavailable" error up to four times (1, 2, 4 and 8 seconds). Other verification
+errors fail immediately, and a persistent resource error still fails packaging.
+
 ### Website downloads
 
 Main builds are GitHub prereleases. GitHub's `releases/latest/download/...` URLs

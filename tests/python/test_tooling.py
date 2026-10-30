@@ -53,7 +53,7 @@ class PackageTests(unittest.TestCase):
                     else:
                         self.assertEqual(command[:2], ["hdiutil", "verify"])
                         self.assertTrue(Path(command[-1]).is_file())
-                    return subprocess.CompletedProcess(command, 0)
+                    return subprocess.CompletedProcess(command, 0, "", "")
 
                 with contextlib.chdir(base), patch("subprocess.run", side_effect=external), patch("subprocess.check_output", return_value=b'{"packages":[{"version":"0.1.0"}]}'):
                     icon_file = base / "assets" / "icons" / "RustAPIIcon.icns"
@@ -79,6 +79,39 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, contextlib.chdir(directory):
             with self.assertRaises(FileNotFoundError):
                 run_script("scripts/package.py", ["--binary", "missing", "--platform", "linux", "--arch", "x86_64"])
+
+    def test_disk_image_verification_retries_only_temporary_resource_failures(self):
+        for mode, expected_attempts in (("recover", 2), ("exhausted", 5), ("corrupt", 1), ("unknown", 1)):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                (base / "input.bin").write_bytes(b"native-binary-fixture")
+                (base / "README.md").write_text("fixture")
+                attempts = []
+
+                def external(command, **kwargs):
+                    self.assertTrue(kwargs["check"])
+                    if command[:2] == ["hdiutil", "verify"]:
+                        attempts.append(command)
+                        self.assertTrue(kwargs["capture_output"])
+                        self.assertTrue(kwargs["text"])
+                        if mode != "recover" or len(attempts) == 1:
+                            stderr = {"recover": "Resource temporarily unavailable",
+                                      "exhausted": "Resource temporarily unavailable",
+                                      "corrupt": "checksum mismatch", "unknown": None}[mode]
+                            raise subprocess.CalledProcessError(1, command, stderr=stderr)
+                    return subprocess.CompletedProcess(command, 0, "Verified DMG\n", "")
+
+                with contextlib.chdir(base), patch("subprocess.run", side_effect=external), patch("time.sleep") as sleep:
+                    with patch("subprocess.check_output", return_value=b'{"packages":[{"version":"0.1.0"}]}'):
+                        args = ["--binary", "input.bin", "--platform", "macos", "--arch", "arm64"]
+                        if mode == "recover":
+                            run_script("scripts/package.py", args)
+                        else:
+                            with self.assertRaises(subprocess.CalledProcessError):
+                                run_script("scripts/package.py", args)
+                    self.assertEqual(len(attempts), expected_attempts)
+                    self.assertEqual([call.args[0] for call in sleep.call_args_list],
+                                     [2 ** attempt for attempt in range(expected_attempts - 1)])
 
 
 class DesktopSmokeTests(unittest.TestCase):

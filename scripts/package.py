@@ -5,7 +5,9 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import sys
 import tarfile
+import time
 import zipfile
 
 parser = argparse.ArgumentParser()
@@ -62,7 +64,22 @@ if args.platform == "macos":
     shutil.copytree(app, dmg_stage / app.name)
     (dmg_stage / "Applications").symlink_to("/Applications")
     subprocess.run(["hdiutil", "create", "-volname", "RustAPI", "-srcfolder", str(dmg_stage), "-ov", "-format", "UDZO", str(dist / (name + ".dmg"))], check=True)
-    subprocess.run(["hdiutil", "verify", str(dist / (name + ".dmg"))], check=True)
+    # DiskImages may report a temporary resource error just after creation.
+    # Retry only that temporary failure; never suppress an integrity failure.
+    attempt = 0
+    while True:
+        try:
+            verified = subprocess.run(["hdiutil", "verify", str(dist / (name + ".dmg"))],
+                                      check=True, capture_output=True, text=True)
+            print(verified.stdout, end="")
+            break
+        except subprocess.CalledProcessError as error:
+            if attempt == 4 or "Resource temporarily unavailable" not in (error.stderr or ""):
+                print(error.stderr or "", file=sys.stderr, end="")
+                raise
+            print(f"DMG verification resource busy; retrying ({attempt + 1}/4)")
+            time.sleep(2 ** attempt)
+            attempt += 1
 else:
     binary = stage / ("rustapi.exe" if args.platform == "windows" else "rustapi")
     shutil.copy2(args.binary, binary)
