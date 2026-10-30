@@ -26,6 +26,7 @@ pub fn render_request_editor(
     on_save: &mut bool,
     _has_save_target: bool,
 ) {
+    ui.push_id(request.id.clone(), |ui| {
     // Tabs
     ui.horizontal(|ui| {
         if ui
@@ -81,6 +82,7 @@ pub fn render_request_editor(
             ui.push_id("path_parameters", |ui| render_key_value_editor(ui, &mut request.path_params));
         }
         RequestTab::Headers => {
+            super::render_header_presets(ui,&mut request.headers);
             render_key_value_editor(ui, &mut request.headers);
         }
         RequestTab::Body => {
@@ -119,10 +121,12 @@ pub fn render_request_editor(
             ui.horizontal(|ui|{ui.label("Maximum response bytes");ui.add(egui::DragValue::new(&mut s.max_response_bytes).range(1..=256*1024*1024));});
         }
     });
+    });
 }
 
 /// Render key-value editor
 pub fn render_key_value_editor(ui: &mut Ui, items: &mut Vec<KeyValue>) {
+    super::render_bulk_rows(ui, items);
     let mut to_delete: Option<usize> = None;
 
     // Header row

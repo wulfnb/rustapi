@@ -209,3 +209,18 @@ Switching workspaces uses that workspace's own draft. Documents are limited to
 1 MiB each, a flat directory and 1000 listed files. Invalid filenames and symlink
 components are rejected. This editor displays Markdown source offline; rich
 rendered Markdown and document synchronization are outside this delivery.
+
+## Bulk editing and header presets
+
+Every key/value table has a JSON bulk editor. Apply atomically replaces rows after
+parsing a bounded array (1 MiB, 1000 rows); invalid JSON leaves the table unchanged.
+The format retains all native row fields, ordering, duplicate keys, disabled flags
+and imported metadata. Reload explicitly discards the staged JSON in favor of the
+current table. Drafts are isolated by request/table context during the session.
+
+Header presets persist in .local/header-presets.json, with explicit Append, Replace
+and Delete actions. They are workspace-specific, bounded and excluded from project
+Git files. Recognized credential fields require a variable reference, optionally
+prefixed by Bearer or Basic, rather than a literal credential. Custom names and
+metadata still require care when entering data. Presets validate header semantics;
+Append may create singleton conflicts that sending reports before network I/O.

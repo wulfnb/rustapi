@@ -247,3 +247,17 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
   A final targeted description UI rerun passed after a test-only lint cleanup.
 
 Next: lossless bulk row editing and persistent header presets.
+
+## Step 13 — Lossless bulk rows and header presets
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- JSON bulk editors preserve ordered duplicate rows and every native metadata field;
+  invalid or oversized input leaves the table untouched. Apply and Reload are explicit.
+  Request/table IDs isolate staged JSON across contexts.
+- Named header presets persist under workspace .local with append/replace/delete
+  controls, schema/size limits, collision checks and shared header validation.
+  Recognized credential fields require references rather than literal secrets.
+- Full local suite: **155 passed**; formatting and warnings-denied Clippy passed.
+
+Next: contextual variable/effective-header inspection and richer response views.

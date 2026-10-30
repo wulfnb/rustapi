@@ -233,3 +233,78 @@ fn description_controls_edit_content_without_discarding_import_metadata() {
         "text/markdown"
     );
 }
+
+#[test]
+fn bulk_editor_is_atomic_and_keeps_separate_context_drafts() {
+    let row = KeyValue::new("X-Old", "original");
+    let mut h = Harness::new(
+        ("first".to_owned(), vec![row]),
+        |ctx: &egui::Context, s: &mut (String, Vec<KeyValue>)| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.push_id(&s.0, |ui| render_bulk_rows(ui, &mut s.1));
+            });
+        },
+    );
+    h.click("Bulk edit JSON");
+    h.edit(egui::accesskit::Role::MultilineTextInput, 0, "[invalid");
+    h.click("Apply bulk rows");
+    assert_eq!(h.state.1[0].value, "original");
+    h.state.0 = "second".into();
+    h.refresh();
+    h.click("Bulk edit JSON");
+    let rows = vec![KeyValue {
+        description: "kept".into(),
+        enabled: false,
+        ..KeyValue::new("X-New", "updated")
+    }];
+    h.edit(
+        egui::accesskit::Role::MultilineTextInput,
+        0,
+        &serde_json::to_string(&rows).unwrap(),
+    );
+    h.click("Apply bulk rows");
+    assert_eq!(h.state.1[0].key, "X-New");
+    assert!(!h.state.1[0].enabled);
+    assert_eq!(h.state.1[0].description, "kept");
+    h.state.0 = "first".into();
+    h.refresh();
+    assert!(h
+        .nodes()
+        .iter()
+        .any(|(_, node)| node.value() == Some("[invalid")));
+}
+
+#[test]
+fn header_preset_ui_persists_and_replaces_headers() {
+    let _profile = Profile::new();
+    let mut row = KeyValue::new("Accept", "application/json");
+    row.description = "Retained metadata".into();
+    let mut h = Harness::new(
+        vec![row],
+        |ctx: &egui::Context, rows: &mut Vec<KeyValue>| {
+            egui::CentralPanel::default().show(ctx, |ui| render_header_presets(ui, rows));
+        },
+    );
+    h.click("Header presets");
+    h.edit(egui::accesskit::Role::TextInput, 0, "JSON headers");
+    h.click("Save headers as preset");
+    assert_eq!(
+        crate::storage::HeaderPresets::load(&crate::storage::get_app_data_dir())
+            .unwrap()
+            .presets
+            .len(),
+        1
+    );
+    h.state.clear();
+    h.click("Replace headers");
+    assert_eq!(h.state[0].description, "Retained metadata");
+    h.click("Append preset");
+    assert_eq!(h.state.len(), 2);
+    h.click("Delete preset");
+    assert!(
+        crate::storage::HeaderPresets::load(&crate::storage::get_app_data_dir())
+            .unwrap()
+            .presets
+            .is_empty()
+    );
+}

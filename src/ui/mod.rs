@@ -24,3 +24,6 @@ pub use examples::*;
 
 mod documents;
 pub use documents::*;
+
+mod bulk_rows;
+pub use bulk_rows::*;
