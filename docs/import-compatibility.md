@@ -43,8 +43,7 @@ recoverable duplicate instead of losing the request.
 ## Known import omissions
 
 Collection v2.1 and environment JSON imports now produce a structured report for
-known data they cannot retain or apply: saved response examples, structured path
-variables, request behavior settings, multipart part MIME types/additional files,
+known data they cannot retain or apply: saved response examples, request behavior settings, multipart part MIME types/additional files,
 malformed description/type representations and unsupported authentication configurations.
 
 The desktop presents **Review import omissions** before saving. Cancel or close
@@ -140,3 +139,12 @@ exported as an already acquired token: use explicit Bearer auth for that code sa
 Browser Fetch is subject to CORS/forbidden headers and cannot configure custom TLS or
 proxy settings. JavaScript samples call out runtime-specific dispatcher requirements.
 The other generators include request timeout, redirect, proxy and certificate options.
+
+## Path variables
+
+Imported `:name` path segments use retained path-variable rows, editable in Params.
+Values may use scoped `{{variables}}`; replacement encodes each value once as a path
+segment. Slashes, spaces, percent signs, Unicode, query and fragment characters in
+values cannot change URL structure. Missing/disabled/duplicate path variables and
+`.`/`..` values are rejected before sending. Existing encoded static segments remain
+encoded. Query rows are resolved and encoded separately by the shared HTTP pipeline.

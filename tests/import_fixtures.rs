@@ -172,7 +172,6 @@ fn known_omissions_report_exact_source_locations_without_values() {
         [
             "/item/0/item/0/protocolProfileBehavior",
             "/item/0/item/0/response",
-            "/item/0/item/0/request/url/variable",
             "/item/0/item/0/request/body/formdata/0/contentType",
             "/item/0/item/0/request/body/formdata/0/src",
         ]
@@ -267,7 +266,7 @@ fn cli_requires_explicit_loss_acceptance_and_emits_json_report() {
         );
         let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(report["requires_confirmation"], true);
-        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 5);
+        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 4);
         assert_eq!(
             std::fs::read_dir(workspace.join("collections"))
                 .unwrap()

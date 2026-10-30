@@ -162,6 +162,11 @@ fn request(item: &Value, warnings: &mut Vec<String>) -> Result<ApiRequest> {
     };
     anyhow::ensure!(!r.url.is_empty(), "Request {} has no raw URL", r.name);
     r.query_params = values(&v["url"]["query"]);
+    anyhow::ensure!(
+        v["url"]["variable"].is_null() || v["url"]["variable"].is_array(),
+        "Path variables must be an array"
+    );
+    r.path_params = values(&v["url"]["variable"]);
     if !r.query_params.is_empty() {
         let (before, fragment) = r.url.split_once('#').unwrap_or((&r.url, ""));
         let base = before.split('?').next().unwrap_or(before);

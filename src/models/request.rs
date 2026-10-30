@@ -154,6 +154,8 @@ pub struct ApiRequest {
     pub url: String,
     pub headers: Vec<KeyValue>,
     pub query_params: Vec<KeyValue>,
+    #[serde(default)]
+    pub path_params: Vec<KeyValue>,
     pub body_type: BodyType,
     pub body: String,
     pub form_data: Vec<KeyValue>,
@@ -189,6 +191,7 @@ impl Default for ApiRequest {
             url: String::new(),
             headers: vec![],
             query_params: vec![],
+            path_params: vec![],
             body_type: BodyType::None,
             body: String::new(),
             form_data: vec![],

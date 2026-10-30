@@ -165,11 +165,10 @@ impl Scanner {
                         "Description content must be a string.",
                     );
                 }
-                self.omitted(
+                self.rows(
                     &request["url"]["variable"],
-                    format!("{base}/url/variable"),
-                    "path_variables",
-                    "Structured path variables are not applied to the URL.",
+                    &format!("{base}/url/variable"),
+                    RowContext::Environment,
                 );
                 for (rows, suffix) in [
                     (&request["header"], "header"),

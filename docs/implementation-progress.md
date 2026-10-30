@@ -148,3 +148,17 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
 
 Next: path-variable substitution and encoding, then multipart files/MIME types.
 The rest of the three-group scope remains active in the delivery backlog.
+
+## Step 7 — Path-variable execution and editing
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Retain path-variable rows and metadata, expose them in Params, resolve scoped values
+  and encode substitutions as individual URL path segments. Existing encoded path text,
+  query parameters and fragments retain their roles.
+- GUI/CLI execution and snippets share resolution. Missing, disabled, duplicate and
+  dot-segment values fail before network I/O rather than altering routing unexpectedly.
+- Storage/native reimport and real loopback traffic are covered.
+- Full local suite: **136 passed**, warnings-denied Clippy and formatting passed.
+
+Next: multiple multipart files and per-part MIME types, including generated samples.

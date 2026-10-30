@@ -72,7 +72,11 @@ pub fn render_request_editor(
     // Tab content
     egui::ScrollArea::vertical().show(ui, |ui| match current_tab {
         RequestTab::Params => {
-            render_key_value_editor(ui, &mut request.query_params);
+            ui.label("Query parameters");
+            ui.push_id("query_parameters", |ui| render_key_value_editor(ui, &mut request.query_params));
+            ui.separator();
+            ui.label("Path variables (:name segments)");
+            ui.push_id("path_parameters", |ui| render_key_value_editor(ui, &mut request.path_params));
         }
         RequestTab::Headers => {
             render_key_value_editor(ui, &mut request.headers);

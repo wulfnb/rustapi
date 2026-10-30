@@ -180,7 +180,8 @@ impl HttpService {
         if let Some((k, v)) = r.auth.get_api_key_query_param() {
             params.push(KeyValue::new(k, v));
         }
-        let url = build_url_with_params(&r.url, &params, None);
+        let path_url = crate::variables::resolve_path_variables(&r.url, &r.path_params)?;
+        let url = build_url_with_params(&path_url, &params, None);
         let mut headers = HeaderMap::new();
         if let Some((k, v)) = r.auth.get_auth_header() {
             headers.insert(

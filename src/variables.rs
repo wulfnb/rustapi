@@ -75,6 +75,7 @@ impl Variables {
             .headers
             .iter_mut()
             .chain(&mut r.query_params)
+            .chain(&mut r.path_params)
             .chain(&mut r.form_data)
         {
             if h.enabled {
@@ -82,6 +83,7 @@ impl Variables {
                 h.value = self.resolve(&h.value)?;
             }
         }
+        r.url = resolve_path_variables(&r.url, &r.path_params)?;
         r.body = self.resolve(&r.body)?;
         r.binary_file = self.resolve(&r.binary_file)?;
         for field in [
@@ -130,4 +132,42 @@ impl Variables {
         }
         Ok(r)
     }
+}
+
+pub fn resolve_path_variables(url: &str, params: &[KeyValue]) -> Result<String> {
+    if params.is_empty() {
+        return Ok(url.into());
+    }
+    let mut parsed = reqwest::Url::parse(url)?;
+    let mut values = BTreeMap::new();
+    for row in params.iter().filter(|row| row.enabled) {
+        anyhow::ensure!(!row.key.is_empty(), "Empty path variable name");
+        anyhow::ensure!(
+            values
+                .insert(row.key.as_str(), row.value.as_str())
+                .is_none(),
+            "Duplicate path variable"
+        );
+    }
+    let path = parsed
+        .path()
+        .split('/')
+        .map(|segment| -> Result<String> {
+            if let Some(name) = segment.strip_prefix(':') {
+                let value = values
+                    .get(name)
+                    .ok_or_else(|| anyhow::anyhow!("Unresolved path variable"))?;
+                anyhow::ensure!(
+                    ![".", ".."].contains(value),
+                    "Dot segments cannot be path variable values"
+                );
+                Ok(urlencoding::encode(value).into_owned())
+            } else {
+                Ok(segment.into())
+            }
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join("/");
+    parsed.set_path(&path);
+    Ok(parsed.into())
 }

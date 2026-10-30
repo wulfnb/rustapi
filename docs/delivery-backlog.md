@@ -9,7 +9,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 
 - [x] Request/folder descriptions with backward-compatible storage.
 - [x] Structured descriptions and collection/folder variable metadata.
-- [ ] Path-variable substitution and encoding.
+- [x] Path-variable substitution and encoding.
 - [ ] Multiple multipart files and per-part MIME types, including generated samples.
 - [ ] Imported request settings and explicit unsupported-setting diagnostics.
 - [ ] URL/query and header repetition/override semantics shared with snippets.
