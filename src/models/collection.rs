@@ -11,6 +11,8 @@ use uuid::Uuid;
 pub struct Folder {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub description: String,
     pub requests: Vec<ApiRequest>,
     #[serde(default)]
     pub order: Vec<String>,
@@ -31,6 +33,7 @@ impl Folder {
         Self {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
+            description: String::new(),
             requests: vec![],
             order: vec![],
             folders: vec![],

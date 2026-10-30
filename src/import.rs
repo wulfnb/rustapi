@@ -120,6 +120,7 @@ fn scripts(v: &Value) -> (String, String) {
 fn request(item: &Value, warnings: &mut Vec<String>) -> Result<ApiRequest> {
     let v = &item["request"];
     let mut r = ApiRequest::new(text(&item["name"]));
+    r.description = v["description"].as_str().unwrap_or_default().into();
     if let Some(url) = v.as_str() {
         r.url = url.into();
         return Ok(r);
@@ -211,6 +212,7 @@ fn items(
     for item in v.as_array().context("Collection items must be an array")? {
         if item["item"].is_array() {
             let mut f = Folder::new(text(&item["name"]));
+            f.description = item["description"].as_str().unwrap_or_default().into();
             f.auth = auth(&item["auth"], warnings);
             f.variables = values(&item["variable"])
                 .into_iter()

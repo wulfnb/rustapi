@@ -151,12 +151,14 @@ impl Scanner {
         if let Some(items) = items.as_array() {
             for (i, item) in items.iter().enumerate() {
                 let base = format!("{path}/{i}");
-                self.omitted(
-                    &item["description"],
-                    format!("{base}/description"),
-                    "item_description",
-                    "Item and folder descriptions are not retained.",
-                );
+                if !item["item"].is_array() || !item["description"].is_string() {
+                    self.omitted(
+                        &item["description"],
+                        format!("{base}/description"),
+                        "item_description",
+                        "Only plain-text folder descriptions are retained.",
+                    );
+                }
                 if item["item"].is_array() {
                     self.scope(item, &base);
                     self.items(&item["item"], &format!("{base}/item"));
@@ -172,12 +174,14 @@ impl Scanner {
                 let request = &item["request"];
                 let base = format!("{base}/request");
                 self.settings_and_auth(request, &base);
-                self.omitted(
-                    &request["description"],
-                    format!("{base}/description"),
-                    "request_description",
-                    "Request descriptions are not retained.",
-                );
+                if !request["description"].is_string() {
+                    self.omitted(
+                        &request["description"],
+                        format!("{base}/description"),
+                        "request_description",
+                        "Only plain-text request descriptions are retained.",
+                    );
+                }
                 self.omitted(
                     &request["url"]["variable"],
                     format!("{base}/url/variable"),

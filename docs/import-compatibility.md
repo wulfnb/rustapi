@@ -19,7 +19,7 @@ and collection/folder/request pre/post scripts. Bodies support raw JSON/text, UR
 multipart and file modes. Unrecognized methods/body modes stop the import before files
 are written. Collection v1/v2.0 documents must be exported as v2.1 first.
 
-Plain-text descriptions on headers, query parameters, URL-encoded/multipart rows
+Plain-text request/folder descriptions and descriptions on headers, query parameters, URL-encoded/multipart rows
 and environment variables are retained, including disabled rows, Unicode and line
 breaks. They survive workspace save/reload and native collection reimport. Editing
 these descriptions in the request UI is separate, pending work.
@@ -42,7 +42,7 @@ recoverable duplicate instead of losing the request.
 ## Known import omissions
 
 Collection v2.1 and environment JSON imports now produce a structured report for
-known data they cannot retain: request/folder descriptions, structured row descriptions,
+known data they cannot retain: structured request/folder/row descriptions,
 collection/folder variable descriptions, saved response examples, structured path
 variables, request behavior settings, multipart part MIME
 types and additional files, variable type metadata, disabled collection/folder

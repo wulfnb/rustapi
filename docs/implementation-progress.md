@@ -1,6 +1,6 @@
 # RustAPI implementation progress
 
-Updated: **2026-10-30**. Source baseline for the current step: `7f84ef8`.
+Updated: **2026-10-30**. Source baseline for the current step: `d73cf4f`.
 
 ## Working agreement
 
@@ -90,7 +90,7 @@ fields or the remainder of E01.
 
 ## Step 4 — E01.2 preserve plain-text row descriptions
 
-Status: **complete**, verified locally. Delivery is recorded in Git history.
+Status: **complete**, verified locally and pushed as `d73cf4f`.
 
 - Retain plain-text descriptions on headers, query rows, URL-encoded/multipart fields
   and environment variables, including disabled rows, Unicode and line breaks.
@@ -111,12 +111,20 @@ Validation on macOS ARM64, Rust 1.98.0, against `7f84ef8` plus this implementati
 - No native model/schema change or new platform/package validation was required by
   this import-metadata change; cross-platform release checks remain separate gates.
 
-## Next step — Step 5: E01.3 preserve request and folder descriptions
+## Step 5 — E01.3 preserve request and folder descriptions
 
-Add backward-compatible description fields to request and folder models, preserve
-plain-text descriptions during import, and prove save/reload and native reimport.
-Keep unsupported structured descriptions visible until their representation is defined.
-Remove corresponding omission diagnostics only after the data is retained.
+Status: **complete**, verified locally; delivery is recorded in Git history.
 
-Scope-variable metadata, path-variable behavior, multi-file multipart semantics and
-remaining E01 work stay in later slices. E02–E12 remain pending.
+- Added defaulted description fields to request/folder models without changing the
+  native schema version. Older files load with empty descriptions.
+- Imported plain-text descriptions now survive storage, native reimport and request
+  duplication. Structured descriptions remain explicitly reported until the next slice.
+- Full local suite: **132 passed**, warnings-denied Clippy and formatting passed.
+
+## Active scope and next step
+
+The user requested completion of import correctness, daily workflow and compatibility
+on 2026-10-30. [Delivery backlog](delivery-backlog.md) tracks every requested capability.
+Continue with structured descriptions and scope-variable metadata, then path variables,
+files, settings and URL/header semantics. Verify, commit and push each slice before
+starting the next. Later protocol/hosted-platform work is outside these three groups.

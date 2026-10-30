@@ -6,6 +6,46 @@ const ENVIRONMENT: &[u8] = include_bytes!("fixtures/import/environment.json");
 const METADATA: &[u8] = include_bytes!("fixtures/import/metadata-gaps.json");
 
 #[test]
+fn request_folder_descriptions_survive_storage_duplication_and_legacy_loading() {
+    let imported = import::json(METADATA).unwrap();
+    let original = imported.collection.unwrap();
+    assert_eq!(original.folders[0].description, "Folder documentation");
+    assert_eq!(
+        original.folders[0].requests[0].description,
+        "Request documentation"
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("native.json");
+    rustapi::storage::export_collection(&original, &path).unwrap();
+    let saved = rustapi::storage::load_collection(&path).unwrap();
+    let copy = import::json(&std::fs::read(path).unwrap())
+        .unwrap()
+        .collection
+        .unwrap();
+    for collection in [saved, copy] {
+        assert_eq!(collection.folders[0].description, "Folder documentation");
+        let request = &collection.folders[0].requests[0];
+        assert_eq!(request.description, "Request documentation");
+        assert_eq!(request.duplicate().description, request.description);
+    }
+    let mut legacy = serde_json::to_value(original).unwrap();
+    legacy["folders"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("description");
+    legacy["folders"][0]["requests"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("description");
+    let legacy = import::json(&serde_json::to_vec(&legacy).unwrap())
+        .unwrap()
+        .collection
+        .unwrap();
+    assert!(legacy.folders[0].description.is_empty());
+    assert!(legacy.folders[0].requests[0].description.is_empty());
+}
+
+#[test]
 fn row_descriptions_survive_cli_import_storage_and_native_collection_reimport() {
     let mut collection: serde_json::Value = serde_json::from_slice(BODIES).unwrap();
     collection["item"][0]["request"]["header"][0]["description"] =
@@ -133,10 +173,8 @@ fn known_omissions_report_exact_source_locations_without_values() {
     assert_eq!(
         paths,
         [
-            "/item/0/description",
             "/item/0/item/0/protocolProfileBehavior",
             "/item/0/item/0/response",
-            "/item/0/item/0/request/description",
             "/item/0/item/0/request/url/variable",
             "/item/0/item/0/request/body/formdata/0/contentType",
             "/item/0/item/0/request/body/formdata/0/src",
@@ -228,7 +266,7 @@ fn cli_requires_explicit_loss_acceptance_and_emits_json_report() {
         );
         let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(report["requires_confirmation"], true);
-        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 7);
+        assert_eq!(report["diagnostics"].as_array().unwrap().len(), 5);
         assert_eq!(
             std::fs::read_dir(workspace.join("collections"))
                 .unwrap()

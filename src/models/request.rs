@@ -137,6 +137,8 @@ impl KeyValue {
 pub struct ApiRequest {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub description: String,
     pub method: HttpMethod,
     pub url: String,
     pub headers: Vec<KeyValue>,
@@ -170,6 +172,7 @@ impl Default for ApiRequest {
         Self {
             id: Uuid::new_v4().to_string(),
             name: String::from("New Request"),
+            description: String::new(),
             method: HttpMethod::GET,
             url: String::new(),
             headers: vec![],
