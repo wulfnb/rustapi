@@ -152,13 +152,17 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
         }
         CodeGenLanguage::Curl => {
             let mut prelude = String::new();
+            let mut input = String::new();
             let mut p = vec![format!("curl -X {}", r.method.as_str())];
             for (k, v) in &configured {
                 p.push(format!("-H {}", shell(&format!("{k}: {v}"))));
             }
             match r.body_type {
                 BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => {
-                    p.push(format!("--data-raw {}", shell(&r.body)))
+                    // Keep UTF-8 and control bytes out of Windows' native argv
+                    // conversion. Bash printf writes the literal body to stdin.
+                    prelude = format!("printf '%s' {} | \\\n", shell(&r.body));
+                    p.push("--data-binary @-".into());
                 }
                 BodyType::Binary => p.push(format!(
                     "--data-binary {}",
@@ -199,7 +203,8 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                             "Content-Type: multipart/form-data; boundary={boundary}"
                         ))
                     ));
-                    p.push("--data-binary \"@$body\"".into());
+                    p.push("--data-binary @-".into());
+                    input = " < \"$body\"".into();
                 }
                 BodyType::None => {}
             }
@@ -223,7 +228,7 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                 p.push(format!("--cert {}", shell(&r.settings.identity_file)));
             }
             p.push(shell(&url));
-            prelude + &p.join(" \\\n  ")
+            prelude + &p.join(" \\\n  ") + &input
         }
         CodeGenLanguage::Python => {
             let mut p=format!("import json\nimport requests\nfrom contextlib import ExitStack\n\nurl = {}\nheaders = json.loads({})\nwith ExitStack() as stack:\n",quoted(&url),quoted(&serde_json::to_string(&headers).unwrap()));

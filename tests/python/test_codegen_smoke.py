@@ -73,7 +73,7 @@ class CodegenSmokeTests(unittest.TestCase):
                 headers = {"x-quote": 'quote-"-dollar-$(echo nope)'}
                 bodies = {
                     "json": b'{"ready":true,"nil":null}',
-                    "text": "${never}\x01🦀".encode(),
+                    "text": "quotes '\" backtick ` interpolation ${never} newline\ncontrol \x01 Unicode 🦀 separators \x85\u2028\u2029".encode("utf-8"),
                     "form": (
                         b'--fixture\r\nContent-Disposition: form-data; name="name"\r\n'
                         b'Content-Type: text/plain; charset=utf-8\r\n\r\nAda & friends\r\n'

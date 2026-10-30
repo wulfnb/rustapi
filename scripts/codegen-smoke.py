@@ -90,7 +90,8 @@ try:
                 if case == "json":
                     assert json.loads(body)["ready"] is True and json.loads(body)["nil"] is None
                 elif case == "text":
-                    assert b"${never}" in body and b"\x01" in body and "🦀" in body.decode()
+                    expected = "quotes '\" backtick ` interpolation ${never} newline\ncontrol \x01 Unicode 🦀 separators \x85\u2028\u2029".encode("utf-8")
+                    assert body == expected, (case, language, body)
                 elif case == "form":
                     assert b"Ada & friends" in body and bytes([0, 255, 128, 1, 13, 10]) in body
                     assert bytes([7, 6, 5, 4]) in body

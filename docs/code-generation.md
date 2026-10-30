@@ -8,7 +8,7 @@ interpolation or expanding template markers inside request values.
 
 | Target | Runtime / artifact | Request support and limits |
 | --- | --- | --- |
-| cURL | curl | Existing shell export with upload files. |
+| cURL | Bash and curl (Git Bash on Windows) | Shell export with upload files; raw text/JSON/XML/HTML and assembled multipart bodies are passed through stdin to preserve UTF-8 and control bytes across Windows command-line encodings. |
 | Python | requests | Existing export; repeated header fields are rejected. |
 | JavaScript | Fetch | Existing export; repeated fields and transport settings unavailable to Fetch are rejected. |
 | Rust | reqwest | Existing standalone Rust export. |
