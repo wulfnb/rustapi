@@ -125,16 +125,20 @@ jobs:
           binary=target/release/rustapi
           if [ "$RUNNER_OS" = Windows ]; then binary="$binary.exe"; fi
           python scripts/package.py --binary "$binary" --platform '${{ matrix.platform }}' --arch '${{ matrix.arch }}'
-      - name: Build Windows installer
+      - name: Install verified compiler and build Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-          if ($compiler) { $iscc = $compiler.Source }
-          else { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
-          if (Test-Path $iscc) {
-            & $iscc packaging\windows\rustapi.iss
-          }
+          $installer = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.1.exe'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe' -OutFile $installer
+          $expected = '4d11e8050b6185e0d49bd9e8cc661a7a59f44959a621d31d11033124c4e8a7b0'
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Inno Setup checksum mismatch' }
+          $compilerDir = Join-Path $env:RUNNER_TEMP 'innosetup'
+          $install = Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$compilerDir`"" -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Inno Setup installation failed: $($install.ExitCode)" }
+          & (Join-Path $compilerDir 'ISCC.exe') packaging\windows\rustapi.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (!(Test-Path dist\RustAPI-windows-x86_64-Setup.exe)) { throw "Windows installer was not created" }
       - name: Verify packaged application (Linux)
         if: runner.os == 'Linux'
         env:
@@ -247,16 +251,17 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: release-files
-      - name: Require all six distributions and generate checksums
+      - name: Require all seven distributions and generate checksums
         working-directory: release-files
         run: |
-          test -f RustAPI-linux-x86_64.tar.gz
-          test -f RustAPI-windows-x86_64.zip
+          test -s RustAPI-linux-x86_64.tar.gz
+          test -s RustAPI-windows-x86_64.zip
+          test -s RustAPI-windows-x86_64-Setup.exe
           for arch in arm64 x86_64; do
-            test -f "RustAPI-macos-$arch.zip"
-            test -f "RustAPI-macos-$arch.dmg"
+            test -s "RustAPI-macos-$arch.zip"
+            test -s "RustAPI-macos-$arch.dmg"
           done
-          sha256sum -- *.zip *.dmg *.tar.gz *.exe 2>/dev/null > SHA256SUMS.txt || sha256sum -- *.zip *.dmg *.tar.gz > SHA256SUMS.txt
+          sha256sum -- *.zip *.dmg *.tar.gz *.exe > SHA256SUMS.txt
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: github.event.repository.private == false || vars.ENABLE_PRIVATE_ATTESTATIONS == 'true'
         with:

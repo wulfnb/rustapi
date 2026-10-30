@@ -5,6 +5,8 @@ COPY docker/build-packages.txt /tmp/build-packages.txt
 RUN apt-get update && xargs -a /tmp/build-packages.txt apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY build.rs ./
+COPY assets ./assets
 COPY src ./src
 COPY tests ./tests
 COPY examples ./examples

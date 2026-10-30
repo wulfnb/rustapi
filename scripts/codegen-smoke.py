@@ -1,12 +1,11 @@
 """Execute generated cURL, Python, JavaScript and Rust against a local fixture server.
 
-Requires requests, Node 20+, curl, bash and the repository's Rust toolchain.
+Requires requests, Node 20+, curl, Bash (Git Bash on Windows) and the repository's Rust toolchain.
 Run cargo build --locked --examples first. Accepts the target/debug directory.
 """
 import http.server
 import json
 import os
-import shlex
 import shutil
 import tomllib
 from pathlib import Path
@@ -77,10 +76,12 @@ try:
                     run(["cargo", "build", "--offline", "--manifest-path", str(project / "Cargo.toml"), "--target-dir", str(build.parent), "--bin", "rustapi-codegen-sample"])
                     run([str(binary)])
                     binary.unlink()
-                elif language == "sh" and os.name == "nt":
-                    run(shlex.split(source.read_text(encoding="utf-8").replace("\\\n", "")))
+                elif language == "sh":
+                    # Multipart exports are shell programs (mktemp/trap/printf/cat),
+                    # not argv lists. Windows CI supplies Git Bash explicitly.
+                    run([os.environ.get("RUSTAPI_BASH", "bash"), str(source)])
                 else:
-                    run([{"sh": "bash", "py": sys.executable, "mjs": "node"}[language], str(source)])
+                    run([{"py": sys.executable, "mjs": "node"}[language], str(source)])
                 assert len(records) == before + 1, (case, language, "request count")
                 actual, query, headers, body = records[-1]
                 assert actual == case and query == {"q": ["a b&c"], "api_key": ["key with spaces"]}, (case, language, query)

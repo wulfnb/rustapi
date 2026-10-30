@@ -487,25 +487,28 @@
       </p>
 
       <div class="download-grid" id="downloads" aria-label="Download RustAPI Releases">
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.dmg" class="btn-download" id="download-mac-arm">
+        <a href="https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-macos-arm64.dmg" data-release-asset="RustAPI-macos-arm64.dmg" class="btn-download" id="download-mac-arm">
           macOS · Apple Silicon (.dmg)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.dmg" class="btn-download" id="download-mac-intel">
+        <a href="https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-macos-x86_64.dmg" data-release-asset="RustAPI-macos-x86_64.dmg" class="btn-download" id="download-mac-intel">
           macOS · Intel (.dmg)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64-Setup.exe" class="btn-download" id="download-win-exe">
+        <a href="https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-windows-x86_64-Setup.exe" data-release-asset="RustAPI-windows-x86_64-Setup.exe" class="btn-download" id="download-win-exe">
           Windows · x64 Installer (.exe)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64.zip" class="btn-secondary">
+        <a href="https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-windows-x86_64.zip" data-release-asset="RustAPI-windows-x86_64.zip" class="btn-secondary">
           Windows · Portable (.zip)
         </a>
-        <a href="https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-linux-x86_64.tar.gz" class="btn-download" id="download-linux">
+        <a href="https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-linux-x86_64.tar.gz" data-release-asset="RustAPI-linux-x86_64.tar.gz" class="btn-download" id="download-linux">
           Linux · x86_64 (.tar.gz)
         </a>
         <a href="#docker" class="btn-secondary">Run in Docker</a>
         <a href="https://github.com/wulfnb/rustapi/releases" class="btn-secondary" target="_blank" rel="noopener">All releases &amp; checksums</a>
       </div>
 
+      <p id="release-status" role="status" aria-live="polite">Preview preview-887ded7d5f0b. Downloads use the last complete published build.</p>
+      <p><a href="https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/SHA256SUMS.txt" data-release-asset="SHA256SUMS.txt">SHA256 checksums</a></p>
+      <noscript><p>JavaScript is disabled. These links download preview preview-887ded7d5f0b; check All releases for newer builds.</p></noscript>
       <p class="copy-status" id="copy-status" role="status" aria-live="polite"></p>
       
       <!-- Docker Launch Box -->
@@ -520,11 +523,9 @@
         <div class="terminal-body" id="docker-command" tabindex="0" aria-label="Docker launch command">
           <span class="cmd">docker run</span> -d \<br>
           &nbsp;&nbsp;--name rustapi-client \<br>
-          &nbsp;&nbsp;-p 127.0.0.1:7443:7443 \<br>
-          &nbsp;&nbsp;-e API_USER=tester \<br>
-          &nbsp;&nbsp;-e API_PASSWORD=<span style="color: #f59e0b;">'choose-a-strong-password'</span> \<br>
-          &nbsp;&nbsp;-v rustapi-data:/config \<br>
-          &nbsp;&nbsp;ghcr.io/wulfnb/rustapi:latest
+          &nbsp;&nbsp;-p 127.0.0.1:6080:6080 \<br>
+          &nbsp;&nbsp;-v rustapi-data:/data \<br>
+          &nbsp;&nbsp;ghcr.io/wulfnb/rustapi:edge
         </div>
       </div>
     </section>
@@ -623,7 +624,7 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
           </div>
           <h3>Docker Web Streaming</h3>
-          <p>Deploy RustAPI as an internal web portal without installing native binaries. Secured with HTTP Basic Auth and TLS on port 7443.</p>
+          <p>Run the desktop UI in your browser through noVNC on localhost port 6080. Workspace data persists in the mounted Docker volume.</p>
         </div>
       </div>
     </section>

@@ -119,6 +119,42 @@ Release assets:
 - `SHA256SUMS.txt`
 - `THIRD-PARTY-NOTICES.html` bundled in every release and app bundle
 
+Windows packaging installs a pinned Inno Setup 6.7.1 compiler from its official
+release, verifies its SHA256, and requires the resulting Setup EXE. Missing installers
+fail publication instead of leaving an advertised download absent. Checksums include
+all seven native distributions.
+
+### Website downloads
+
+Main builds are GitHub prereleases. GitHub's `releases/latest/download/...` URLs
+only resolve stable releases, so the website uses explicit release asset URLs.
+`site/site.js` selects the most recently published complete release (preview or
+stable) from the public GitHub API. It requires all seven distributions and the
+checksum file to be uploaded and nonempty, and keeps downloads and checksums on
+the same release. Drafts and incomplete releases are ignored. The HTML and README
+pin `preview-887ded7d5f0b` as a complete fallback; the HTML links keep working when
+JavaScript is disabled or the API is unavailable or rate-limited. Update that pin
+when retiring an old release. `node --test tests/site_tests.mjs` covers selection,
+incomplete assets, stable/preview releases and fallback behavior.
+
+The website's Docker quickstart uses `edge`, port 6080 and `/data`, matching the
+runtime image. Stable tags additionally publish `latest`. Native download fixes do
+not promote a preview to a stable release.
+
+Download recovery validation on 2026-10-30:
+
+- All eight pinned preview asset URLs (seven packages and checksums) returned HTTP 200.
+- The website resolver selected the complete preview using real GitHub release metadata.
+- All 12 website tests and Actionlint passed.
+- All 15 Python tooling tests passed, retaining 100% statement and branch coverage.
+- The code-generation smoke test executed and validated 24 real loopback HTTP requests.
+- The Docker test target compiled and passed all 205 Rust tests on Linux ARM64.
+
+The [failed main CD run](https://github.com/wulfnb/rustapi/actions/runs/41094830748)
+identified the missing Docker icon and Windows shell-program execution failures.
+This validation is local; the Windows compiler/installer and full publication must
+also pass hosted CD after these changes reach main.
+
 macOS apps are ad-hoc signed and verified. They are **not Apple Developer ID signed or
 notarized**. The Linux archive is built on Ubuntu 24.04 and needs a compatible glibc,
 OpenSSL 3, and desktop graphics libraries; Docker supplies its own Debian runtime.

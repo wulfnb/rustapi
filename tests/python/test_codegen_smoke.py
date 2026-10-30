@@ -42,7 +42,10 @@ class CodegenSmokeTests(unittest.TestCase):
                     output = Path(command[1])
                     for case in ("json", "text", "form", "urlencoded", "binary", "options"):
                         for extension in ("sh", "py", "mjs", "rs"):
-                            (output / f"request-{case}.{extension}").write_text(f"curl http://fixture/request-{case}", encoding="utf-8")
+                            content = f"curl http://fixture/request-{case}"
+                            if case == "form" and extension == "sh":
+                                content = "set -eu\nbody=$(mktemp)\n" + content
+                            (output / f"request-{case}.{extension}").write_text(content, encoding="utf-8")
                     captured["handler"].log_message(None)
                     return subprocess.CompletedProcess(command, 0, "", "")
                 if executable == "cargo":
@@ -62,6 +65,9 @@ class CodegenSmokeTests(unittest.TestCase):
                 # Each runner must address the expected sample, not a different language.
                 globals_ = captured["handler"].do_POST.__globals__
                 case = globals_["case"]
+                if globals_["language"] == "sh":
+                    self.assertEqual(executable, "git-bash")
+                    self.assertTrue(Path(command[1]).is_file())
                 if not executable.startswith("rustapi-codegen-sample"):
                     self.assertIn(f"request-{case}", str(command[-1]))
                 headers = {"x-quote": 'quote-"-dollar-$(echo nope)'}
@@ -98,7 +104,7 @@ class CodegenSmokeTests(unittest.TestCase):
 
             argv = ["scripts/codegen-smoke.py", *([] if default_directory else [str(build)])]
             with contextlib.chdir(directory), patch.object(sys, "argv", argv):
-                with patch.dict(sys.modules, {"os": SimpleNamespace(name=platform)}):
+                with patch.dict(sys.modules, {"os": SimpleNamespace(name=platform, environ={"RUSTAPI_BASH": "git-bash"})}):
                     with patch("http.server.ThreadingHTTPServer", side_effect=server), patch("subprocess.run", side_effect=command):
                         with contextlib.redirect_stdout(io.StringIO()) as output:
                             try:

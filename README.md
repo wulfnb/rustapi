@@ -12,31 +12,31 @@ from the desktop or a headless CLI. No account or cloud service is required.
 
 ## Download
 
-[Website](https://wulfnb.github.io/rustapi/) · [All releases](https://github.com/wulfnb/rustapi/releases) · [SHA256 checksums](https://github.com/wulfnb/rustapi/releases/latest/download/SHA256SUMS.txt)
+[Website](https://wulfnb.github.io/rustapi/) · [All releases](https://github.com/wulfnb/rustapi/releases) · [SHA256 checksums](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/SHA256SUMS.txt)
 
 | Platform | Download Preview |
 | --- | --- |
-| macOS · Apple Silicon (ARM64) | [Download DMG](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.dmg) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-arm64.zip) |
-| macOS · Intel (x86_64) | [Download DMG](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.dmg) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-macos-x86_64.zip) |
-| Windows · x64 | [Download Setup EXE](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64-Setup.exe) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-windows-x86_64.zip) |
-| Linux · x86_64 | [Download tar.gz](https://github.com/wulfnb/rustapi/releases/latest/download/RustAPI-linux-x86_64.tar.gz) |
+| macOS · Apple Silicon (ARM64) | [Download DMG](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-macos-arm64.dmg) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-macos-arm64.zip) |
+| macOS · Intel (x86_64) | [Download DMG](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-macos-x86_64.dmg) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-macos-x86_64.zip) |
+| Windows · x64 | [Download Setup EXE](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-windows-x86_64-Setup.exe) · [Download ZIP](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-windows-x86_64.zip) |
+| Linux · x86_64 | [Download tar.gz](https://github.com/wulfnb/rustapi/releases/download/preview-887ded7d5f0b/RustAPI-linux-x86_64.tar.gz) |
+
+Download links point to the last complete preview, `preview-887ded7d5f0b`. The [website](https://wulfnb.github.io/rustapi/) automatically selects newer complete releases, including previews. Main builds are prereleases and do not appear at GitHub's `releases/latest` URL.
 
 On macOS, open the DMG and drag **RustAPI.app** into **Applications**, then launch the installed app from Applications. The release is ad-hoc signed, so macOS may require you to approve that specific app in **System Settings → Privacy & Security → Open Anyway** after trying to open it.
 
 ### Docker Quickstart (Browser Desktop)
 
-Run the full RustAPI desktop UI inside Docker, accessed via loopback HTTPS and noVNC in your browser:
+Run the full RustAPI desktop UI inside Docker, accessed via loopback HTTP and noVNC in your browser:
 
 ```sh
 docker run -d --name rustapi-client \
-  -p 127.0.0.1:7443:7443 \
-  -e API_USER=tester \
-  -e API_PASSWORD='choose-a-strong-password' \
-  -v rustapi-data:/config \
-  ghcr.io/wulfnb/rustapi:latest
+  -p 127.0.0.1:6080:6080 \
+  -v rustapi-data:/data \
+  ghcr.io/wulfnb/rustapi:edge
 ```
 
-Open `https://127.0.0.1:7443` in your browser and log in with your credentials.
+Open `http://localhost:6080/vnc.html?autoconnect=true&resize=scale` in your browser. The viewer is bound to localhost; it does not provide authentication. The `edge` image follows successful main builds; stable version tags publish `latest`.
 
 This release targets the everyday REST workflow. It implements a documented subset
 of collection scripting APIs; imported scripts must use the supported subset.
@@ -224,7 +224,7 @@ python scripts/codegen-smoke.py target/debug
 python scripts/desktop-smoke.py target/debug/rustapi
 ```
 
-Code-generation validation also needs Node 20+, curl and bash (POSIX systems).
+Code-generation validation also needs Node 20+, curl and Bash (Git Bash on Windows).
 Run `python tests/codegen_targets.py target/debug` with Go, .NET 8 SDK, Java 17
 and Dart 3.11+ to compile and execute the additional exports and transport checks.
 On headless Linux, run desktop smoke under Xvfb with `LIBGL_ALWAYS_SOFTWARE=1`.
