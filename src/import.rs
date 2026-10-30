@@ -39,6 +39,7 @@ fn values(v: &Value) -> Vec<KeyValue> {
                 .map(|v| KeyValue {
                     enabled: v["enabled"].as_bool().unwrap_or(true)
                         && !v["disabled"].as_bool().unwrap_or(false),
+                    description: v["description"].as_str().unwrap_or_default().into(),
                     ..KeyValue::new(text(&v["key"]), text(&v["value"]))
                 })
                 .collect()

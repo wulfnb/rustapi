@@ -84,3 +84,12 @@ These are local validation results, not new cross-platform package or coverage c
 See [implementation progress](implementation-progress.md) for per-step delivery and
 [import compatibility](import-compatibility.md#known-import-omissions) for the exact
 known-omission boundary. Field preservation remains separate work.
+
+## Row description preservation checkpoint — 2026-10-30
+
+The implementation on `7f84ef8` plus plain-text row description preservation passed
+131 all-target Rust tests on macOS ARM64. Final formatting and warnings-denied Clippy
+passed. CLI persistence, disabled rows, Unicode/line breaks and native collection
+reimport retain descriptions. Remaining scope-variable and structured descriptions
+still produce omission diagnostics. This is local regression evidence; see the
+[progress record](implementation-progress.md) for the next slice and release limits.

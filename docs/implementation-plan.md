@@ -84,8 +84,9 @@ is derived from a fixture count.
 
 ## E01 — Preserve imported data and request semantics
 
-E01.1 known-omission reporting and GUI/CLI review are implemented. Field preservation
-and broader format/transport correctness remain pending; see the [progress record](implementation-progress.md).
+E01.1 known-omission reporting and GUI/CLI review, and E01.2 plain-text row description
+preservation, are implemented. Remaining field preservation and broader format/transport
+correctness are pending; see the [progress record](implementation-progress.md).
 
 **Priority:** P0. **Gaps:** G01–G03, G06. **Depends on:** E00.
 

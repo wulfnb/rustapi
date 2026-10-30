@@ -130,8 +130,8 @@ compatibility warnings. Unsupported body modes stop import; unsupported script A
 fail when executed rather than silently passing. Review local file paths and OAuth
 configuration after migration.
 
-Known omissions, such as saved examples, descriptions, path variables and additional
-multipart files, are listed before saving. The desktop asks you to review and accept
+Known omissions, such as saved examples, request/folder descriptions, path variables
+and additional multipart files, are listed before saving. The desktop asks you to review and accept
 them. CLI imports and runs exit with code **2** by default when these omissions are
 found. Use `--allow-lossy-import` only after reviewing the report:
 
@@ -143,6 +143,10 @@ rustapi import collection.v2.1.json --workspace /path/to/api-project --allow-los
 `--import-report` emits JSON diagnostics on stdout instead of saved paths; it is not
 a dry run. A supported import without known omissions is saved normally. See
 [import review and its limits](docs/import-compatibility.md#known-import-omissions).
+
+Plain-text descriptions on headers, query parameters, form fields and environment
+variables are preserved during import and save/reload. These descriptions alone do
+not require omission review.
 
 ## Tests and collection runs
 

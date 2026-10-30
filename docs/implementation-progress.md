@@ -1,6 +1,6 @@
 # RustAPI implementation progress
 
-Updated: **2026-10-29**. Source baseline for the current step: `688edcd`.
+Updated: **2026-10-30**. Source baseline for the current step: `7f84ef8`.
 
 ## Working agreement
 
@@ -61,7 +61,7 @@ Validation on macOS ARM64, Rust 1.98.0, against `966ecd0` plus this fixture-only
 
 ## Step 3 — E01.1 structured import diagnostics
 
-Status: **complete**, verified locally. Delivery is recorded in Git history.
+Status: **complete**, verified locally and pushed to `origin/main` as `7f84ef8`.
 
 - Added versioned, bounded JSON reports with structural source locations, stable
   feature codes, warning severity and omission/partial/unsupported dispositions.
@@ -88,12 +88,35 @@ The report covers the documented known fields; an empty report is not a guarante
 complete import fidelity. This checkpoint does not implement preservation of omitted
 fields or the remainder of E01.
 
-## Next step — Step 4: E01.2 preserve row descriptions
+## Step 4 — E01.2 preserve plain-text row descriptions
 
-Preserve descriptions already supported by the `KeyValue` model across headers,
-query/form rows and environments. Add save/reload regression tests, remove the
-corresponding omission diagnostic only after preservation is proved, and retain
-warnings for request/folder descriptions until their models support them.
+Status: **complete**, verified locally. Delivery is recorded in Git history.
 
-Path-variable behavior, multi-file multipart semantics and the remaining E01 work
-stay in later slices. E02–E12 remain pending.
+- Retain plain-text descriptions on headers, query rows, URL-encoded/multipart fields
+  and environment variables, including disabled rows, Unicode and line breaks.
+- Remove omission diagnostics only for descriptions that are now retained. Collection
+  and folder variable descriptions still require review because their scope models use
+  plain value maps; structured row descriptions also remain unsupported and reported.
+- Add regression checks through real CLI imports, workspace save/reload and native
+  collection reimport, proving descriptions alone do not need lossy-import acceptance.
+- Keep remaining omission reports, report limits, redaction and unsupported metadata
+  checks intact. Description editing in the request UI remains E03 work.
+
+Validation on macOS ARM64, Rust 1.98.0, against `7f84ef8` plus this implementation:
+
+- `cargo test --locked --offline --all-targets`: **131 passed, 0 failed**.
+- `cargo clippy --locked --offline --all-targets -- -D warnings`: passed.
+- `cargo fmt --all --check` and `git diff --check`: passed.
+- Naming scan over 119 maintained files and documentation-link checks: passed.
+- No native model/schema change or new platform/package validation was required by
+  this import-metadata change; cross-platform release checks remain separate gates.
+
+## Next step — Step 5: E01.3 preserve request and folder descriptions
+
+Add backward-compatible description fields to request and folder models, preserve
+plain-text descriptions during import, and prove save/reload and native reimport.
+Keep unsupported structured descriptions visible until their representation is defined.
+Remove corresponding omission diagnostics only after the data is retained.
+
+Scope-variable metadata, path-variable behavior, multi-file multipart semantics and
+remaining E01 work stay in later slices. E02–E12 remain pending.

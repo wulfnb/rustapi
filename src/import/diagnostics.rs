@@ -37,6 +37,14 @@ pub struct ImportReport<'a> {
 struct Scanner {
     diagnostics: Vec<ImportDiagnostic>,
 }
+
+#[derive(Clone, Copy)]
+enum RowContext {
+    Fields,
+    Environment,
+    ScopeVariables,
+}
+
 impl Scanner {
     fn add(&mut self, path: String, feature: &str, disposition: ImportDisposition, message: &str) {
         const MAX_DETAILS: usize = 256;
@@ -73,17 +81,27 @@ impl Scanner {
             self.add(path, feature, ImportDisposition::Omitted, message);
         }
     }
-    fn rows(&mut self, value: &Value, path: &str, variables: bool) {
+    fn rows(&mut self, value: &Value, path: &str, context: RowContext) {
         if let Some(rows) = value.as_array() {
             for (i, row) in rows.iter().enumerate() {
                 let base = format!("{path}/{i}");
-                self.omitted(
-                    &row["description"],
-                    format!("{base}/description"),
-                    "row_description",
-                    "Row descriptions are not retained.",
-                );
-                if variables {
+                // Scope variables become plain maps; request/environment rows retain strings.
+                if matches!(context, RowContext::ScopeVariables) {
+                    self.omitted(
+                        &row["description"],
+                        format!("{base}/description"),
+                        "row_description",
+                        "Collection and folder variable descriptions are not retained.",
+                    );
+                } else if !row["description"].is_string() {
+                    self.omitted(
+                        &row["description"],
+                        format!("{base}/description"),
+                        "row_description",
+                        "Only plain-text row descriptions are retained.",
+                    );
+                }
+                if !matches!(context, RowContext::Fields) {
                     self.omitted(
                         &row["type"],
                         format!("{base}/type"),
@@ -111,7 +129,11 @@ impl Scanner {
     fn scope(&mut self, value: &Value, path: &str) {
         self.settings_and_auth(value, path);
         let variables = &value["variable"];
-        self.rows(variables, &format!("{path}/variable"), true);
+        self.rows(
+            variables,
+            &format!("{path}/variable"),
+            RowContext::ScopeVariables,
+        );
         if let Some(rows) = variables.as_array() {
             for (i, row) in rows.iter().enumerate() {
                 if row["disabled"] == true || row["enabled"] == false {
@@ -168,7 +190,7 @@ impl Scanner {
                     (&request["body"]["urlencoded"], "body/urlencoded"),
                     (&request["body"]["formdata"], "body/formdata"),
                 ] {
-                    self.rows(rows, &format!("{base}/{suffix}"), false);
+                    self.rows(rows, &format!("{base}/{suffix}"), RowContext::Fields);
                 }
                 if let Some(parts) = request["body"]["formdata"].as_array() {
                     for (j, part) in parts.iter().enumerate() {
@@ -206,6 +228,6 @@ pub(super) fn collection(value: &Value) -> Vec<ImportDiagnostic> {
 
 pub(super) fn environment(value: &Value) -> Vec<ImportDiagnostic> {
     let mut scanner = Scanner::default();
-    scanner.rows(&value["values"], "/values", true);
+    scanner.rows(&value["values"], "/values", RowContext::Environment);
     scanner.diagnostics
 }

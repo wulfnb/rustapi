@@ -13,8 +13,8 @@ criteria, and [implementation progress](implementation-progress.md) for the curr
 step. The [historical audit](local-rest-audit.md) describes an earlier baseline;
 its missing-feature table is not the status of the current checkout.
 
-Delivery update: E00 fixtures and E01.1 known-omission review are now implemented.
-The review protects imports before saving; it does not preserve the omitted fields.
+Delivery update: E00 fixtures, E01.1 known-omission review and E01.2 plain-text row
+description preservation are implemented. Other omitted fields still require review.
 
 ## Evidence and scope
 
@@ -54,7 +54,7 @@ later local capabilities; **P3** means a separate platform decision.
 | ID | Workflow capability | RustAPI status and remaining work | Priority / package |
 | --- | --- | --- | --- |
 | G01 | Portable collection formats, including v3. | **Partial.** [import adapter](../src/import.rs#L238) accepts JSON and checks v2.1; no v3 YAML/directory adapter. Add clear format detection and a documented v2.1 fallback before v3 support. | P0 diagnostics; P1 adapter / E01, E04 |
-| G02 | Descriptions, structured path parameters and richer multipart inputs. | **Partial.** [row conversion](../src/import.rs#L35) drops row descriptions; [request adapter](../src/import.rs#L119) omits request descriptions, structured URL variables and request-specific behavior settings. Multipart file arrays retain only their first entry; per-part MIME types are unrepresented. [Known omissions](../src/import/diagnostics.rs) now require explicit continuation before persistence; preserving these fields remains pending. | P0 / E01 |
+| G02 | Descriptions, structured path parameters and richer multipart inputs. | **Partial.** [Row conversion](../src/import.rs#L35) retains plain-text header/query/form/environment descriptions; collection/folder variable and structured descriptions still require review. [Request conversion](../src/import.rs#L120) omits request descriptions, structured URL variables and request-specific behavior settings. Multipart file arrays retain only their first entry; per-part MIME types are unrepresented. [Known omissions](../src/import/diagnostics.rs) require explicit continuation before persistence; preserving the remaining fields is pending. | P0 / E01 |
 | G03 | Named saved examples per request, editable response and Try action. | **Absent.** [ApiRequest](../src/models/request.rs#L137) has no examples; importer reports saved responses as omitted before persistence. [History](../src/models/history.rs#L63) omits bodies and raw responses. | P0 import disclosure; P1 entity / E01, E02 |
 | G04 | Exchange collections with other clients and tooling. | **Partial.** Import exists; [export](../src/storage/file_storage.rs#L255) serializes native RustAPI collections only. No collection v2.1/environment exporter or supported round-trip contract. | P1 / E04 |
 | G05 | Parameter/header descriptions, bulk editing, header presets/autocomplete and effective-header explanations. | **Partial.** [KeyValue.description](../src/models/request.rs#L114) exists but [editor](../src/ui/request_editor.rs#L117) shows only enabled/key/value/delete. No bulk editor, presets or computed-header view. | P1 / E03 |
