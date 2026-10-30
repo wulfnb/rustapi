@@ -62,6 +62,15 @@ jobs:
         run: |
           cargo build --locked --examples
           python scripts/codegen-smoke.py target/debug
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1
+        if: runner.os == 'Linux'
+        with:
+          sdk: '3.13.7'
+      - name: Validate additional SDK exports and transport policies
+        if: runner.os == 'Linux'
+        env:
+          RUSTAPI_CODEGEN_CACHE: ${{ runner.temp }}/rustapi-codegen
+        run: python tests/codegen_targets.py target/debug
       - name: Desktop startup (Linux software renderer)
         if: runner.os == 'Linux'
         env:

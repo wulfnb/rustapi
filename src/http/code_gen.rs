@@ -8,10 +8,25 @@ pub enum CodeGenLanguage {
     Python,
     JavaScript,
     Rust,
+    Http,
+    Go,
+    CSharp,
+    Java,
+    Dart,
 }
 impl CodeGenLanguage {
     pub fn all() -> &'static [Self] {
-        &[Self::Curl, Self::Python, Self::JavaScript, Self::Rust]
+        &[
+            Self::Curl,
+            Self::Python,
+            Self::JavaScript,
+            Self::Rust,
+            Self::Http,
+            Self::Go,
+            Self::CSharp,
+            Self::Java,
+            Self::Dart,
+        ]
     }
     pub fn file_extension(&self) -> &'static str {
         match self {
@@ -19,6 +34,11 @@ impl CodeGenLanguage {
             Self::Python => "py",
             Self::JavaScript => "js",
             Self::Rust => "rs",
+            Self::Http => "http",
+            Self::Go => "go",
+            Self::CSharp => "cs",
+            Self::Java => "java",
+            Self::Dart => "dart",
         }
     }
     pub fn as_str(&self) -> &'static str {
@@ -27,6 +47,11 @@ impl CodeGenLanguage {
             Self::Python => "Python",
             Self::JavaScript => "JavaScript",
             Self::Rust => "Rust",
+            Self::Http => "HTTP",
+            Self::Go => "Go",
+            Self::CSharp => "C#",
+            Self::Java => "Java",
+            Self::Dart => "Dart",
         }
     }
 }
@@ -36,7 +61,7 @@ fn quoted(v: &str) -> String {
 fn shell(v: &str) -> String {
     format!("'{}'", v.replace('\'', "'\\''"))
 }
-fn multipart_part_headers(field: &KeyValue) -> String {
+pub(super) fn multipart_part_headers(field: &KeyValue) -> String {
     fn escape(value: &str) -> String {
         value
             .replace('\\', "\\\\")
@@ -115,6 +140,16 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
         return "Cannot generate code: Invalid multipart content type".into();
     }
     match language {
+        CodeGenLanguage::Http
+        | CodeGenLanguage::Go
+        | CodeGenLanguage::CSharp
+        | CodeGenLanguage::Java
+        | CodeGenLanguage::Dart => {
+            match super::codegen_targets::generate(r, language, &url, &configured) {
+                Ok(code) => code,
+                Err(error) => format!("Cannot generate code: {error}"),
+            }
+        }
         CodeGenLanguage::Curl => {
             let mut prelude = String::new();
             let mut p = vec![format!("curl -X {}", r.method.as_str())];

@@ -1,15 +1,35 @@
 //! Fixtures for executable code-generation validation; not part of the product CLI.
 use rustapi::{http::*, models::*};
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
+struct Profile {
+    settings: HttpSettings,
+    auth: Option<AuthConfig>,
+    headers: Vec<KeyValue>,
+}
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     let dir = std::path::Path::new(&args[1]);
     std::fs::create_dir_all(dir)?;
     let base = &args[2];
+    let profile: Profile = if let Some(path) = args.get(3) {
+        serde_json::from_slice(&std::fs::read(path)?)?
+    } else {
+        Profile::default()
+    };
     let upload = dir.join("upload.bin");
     std::fs::write(&upload, [0, 255, 128, 1, 13, 10])?;
     let second = dir.join("second.bin");
     std::fs::write(&second, [7, 6, 5, 4])?;
-    for case in ["json", "text", "form", "urlencoded", "binary", "options"] {
+    for case in [
+        "json",
+        "text",
+        "form",
+        "urlencoded",
+        "binary",
+        "options",
+        "headers",
+    ] {
         let mut r = ApiRequest {
             url: format!("{base}/{case}#fragment"),
             method: if case == "options" {
@@ -17,6 +37,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 HttpMethod::POST
             },
+            settings: profile.settings.clone(),
             ..Default::default()
         };
         r.query_params.push(KeyValue::new("q", "a b&c"));
@@ -27,6 +48,10 @@ fn main() -> anyhow::Result<()> {
             api_key_location: ApiKeyLocation::QueryParam,
             ..Default::default()
         };
+        if let Some(auth) = &profile.auth {
+            r.auth = auth.clone();
+        }
+        r.headers.extend(profile.headers.clone());
         r.headers
             .push(KeyValue::new("x-quote", "quote-\"-dollar-$(echo nope)"));
         match case {
@@ -36,7 +61,7 @@ fn main() -> anyhow::Result<()> {
             }
             "text" => {
                 r.body_type = BodyType::Text;
-                r.body="quotes '\" backtick ` interpolation ${never} newline\ncontrol \u{1} Unicode 🦀".into();
+                r.body="quotes '\" backtick ` interpolation ${never} newline\ncontrol \u{1} Unicode 🦀 separators \u{85}\u{2028}\u{2029}".into();
             }
             "form" => {
                 r.body_type = BodyType::FormData;
@@ -61,6 +86,10 @@ fn main() -> anyhow::Result<()> {
                 r.body_type = BodyType::Binary;
                 r.binary_file = upload.to_string_lossy().into();
             }
+            "headers" => {
+                r.headers.push(KeyValue::new("x-repeat", "one"));
+                r.headers.push(KeyValue::new("x-repeat", "two"));
+            }
             _ => {}
         }
         for (lang, ext) in [
@@ -68,6 +97,11 @@ fn main() -> anyhow::Result<()> {
             (CodeGenLanguage::Python, "py"),
             (CodeGenLanguage::JavaScript, "mjs"),
             (CodeGenLanguage::Rust, "rs"),
+            (CodeGenLanguage::Http, "http"),
+            (CodeGenLanguage::Go, "go"),
+            (CodeGenLanguage::CSharp, "cs"),
+            (CodeGenLanguage::Java, "java"),
+            (CodeGenLanguage::Dart, "dart"),
         ] {
             std::fs::write(
                 dir.join(format!("request-{case}.{ext}")),

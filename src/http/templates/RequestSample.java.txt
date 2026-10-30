@@ -1,0 +1,52 @@
+// Java 17+. Save as RequestSample.java; javac -encoding UTF-8 RequestSample.java; java RequestSample
+import java.io.*;
+import java.net.*;
+import java.net.http.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.security.*;
+import java.security.cert.*;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.*;
+import javax.net.ssl.*;
+public class RequestSample {
+ static X509TrustManager manager(KeyStore store)throws Exception{TrustManagerFactory factory=TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());factory.init(store);for(TrustManager manager:factory.getTrustManagers())if(manager instanceof X509TrustManager)return (X509TrustManager)manager;throw new IllegalStateException("No trust manager");}
+ static SSLContext context(String ca)throws Exception{
+  X509TrustManager system=manager(null);KeyStore store=KeyStore.getInstance(KeyStore.getDefaultType());store.load(null,null);
+  try(InputStream input=Files.newInputStream(Path.of(ca))){int i=0;for(java.security.cert.Certificate certificate:CertificateFactory.getInstance("X.509").generateCertificates(input))store.setCertificateEntry("root-"+(i++),certificate);}
+  X509TrustManager custom=manager(store);SSLContext context=SSLContext.getInstance("TLS");
+  context.init(null,new TrustManager[]{new X509TrustManager(){public void checkClientTrusted(X509Certificate[] chain,String auth)throws CertificateException{system.checkClientTrusted(chain,auth);}public void checkServerTrusted(X509Certificate[] chain,String auth)throws CertificateException{try{system.checkServerTrusted(chain,auth);}catch(CertificateException error){custom.checkServerTrusted(chain,auth);}}public X509Certificate[] getAcceptedIssuers(){return custom.getAcceptedIssuers();}}},null);return context;
+ }
+ static byte[] readLimited(InputStream stream)throws Exception{try(stream;ByteArrayOutputStream output=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int size;while((size=stream.read(buffer))!=-1){if(output.size()+size>@@LIMIT@@)throw new IOException("Response size limit exceeded");output.write(buffer,0,size);}return output.toByteArray();}}
+ static long remaining(long deadline)throws TimeoutException{long value=deadline-System.nanoTime();if(value<=0)throw new TimeoutException("Request timeout");return value;}
+ public static void main(String[] args)throws Exception{
+  ByteArrayOutputStream bodyBuilder=new ByteArrayOutputStream();
+  @@BODY@@
+  byte[] payload=bodyBuilder.toByteArray();URI uri=URI.create(@@URL@@);String method=@@METHOD@@;
+  List<String[]> headers=new ArrayList<>(List.<String[]>of(@@HEADERS@@));
+  HttpClient.Builder config=HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).connectTimeout(Duration.ofMillis(@@TIMEOUT@@));
+  if(@@COOKIES@@)config.cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ORIGINAL_SERVER));
+  String proxy=@@PROXY@@;if(!proxy.isEmpty()){URI value=URI.create(proxy);config.proxy(ProxySelector.of(new InetSocketAddress(value.getHost(),value.getPort()<0?80:value.getPort())));}
+  String ca=@@CA@@;if(!ca.isEmpty())config.sslContext(context(ca));
+  HttpClient client=config.build();long deadline=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(@@TIMEOUT@@);
+  ExecutorService reader=Executors.newSingleThreadExecutor(task->{Thread thread=new Thread(task);thread.setDaemon(true);return thread;});
+  try{
+   for(int hop=0;;hop++){
+    HttpRequest.Builder builder=HttpRequest.newBuilder(uri).timeout(Duration.ofNanos(remaining(deadline))).method(method,payload.length==0?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofByteArray(payload));
+    for(String[] header:headers)builder.header(header[0],header[1]);
+    CompletableFuture<HttpResponse<InputStream>> pending=client.sendAsync(builder.build(),HttpResponse.BodyHandlers.ofInputStream());
+    HttpResponse<InputStream> response;try{response=pending.get(remaining(deadline),TimeUnit.NANOSECONDS);}catch(Exception error){pending.cancel(true);throw error;}
+    int status=response.statusCode();Optional<String> location=response.headers().firstValue("location");
+    if(@@FOLLOW@@ && location.isPresent() && List.of(301,302,303,307,308).contains(status)){
+     response.body().close();if(hop>=10)throw new IOException("Redirect limit exceeded");URI next=uri.resolve(location.get());if(!List.of("http","https").contains(next.getScheme()))throw new IOException("Unsupported redirect scheme");
+     if(!Objects.equals(next.getScheme(),uri.getScheme())||!Objects.equals(next.getAuthority(),uri.getAuthority()))headers.removeIf(header->List.of("authorization","cookie","proxy-authorization").contains(header[0].toLowerCase(Locale.ROOT)));
+     if((status==303&&!method.equals("HEAD"))||((status==301||status==302)&&method.equals("POST"))){method="GET";payload=new byte[0];headers.removeIf(header->List.of("content-type","content-length","content-encoding","transfer-encoding").contains(header[0].toLowerCase(Locale.ROOT)));}uri=next;continue;
+    }
+    Future<byte[]> body=reader.submit(()->readLimited(response.body()));
+    byte[] data;try{data=body.get(remaining(deadline),TimeUnit.NANOSECONDS);}catch(Exception error){response.body().close();body.cancel(true);throw error;}
+    System.out.println(status);System.out.write(data);break;
+   }
+  }finally{reader.shutdownNow();}
+ }
+}

@@ -1,0 +1,35 @@
+// Dart 3+, dart:io. Save as request.dart and run: dart request.dart
+// Standalone request: workspace cookie state is not embedded; configure needed Cookie headers.
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+Future<void> main() async {
+ final bodyBuilder=BytesBuilder(copy:false);
+ @@BODY@@
+ List<int> payload=bodyBuilder.takeBytes();var uri=Uri.parse(@@URL@@);var method=@@METHOD@@;
+ final headers=<List<String>>[ @@HEADERS@@ ];
+ final security=SecurityContext(withTrustedRoots:true);final ca=@@CA@@;final identity=@@IDENTITY@@;
+ if(ca.isNotEmpty)security.setTrustedCertificates(ca);
+ if(identity.isNotEmpty){security.useCertificateChain(identity);security.usePrivateKey(identity);}
+ final client=HttpClient(context:security)..autoUncompress=false..userAgent=null;
+ if(@@INSECURE@@)client.badCertificateCallback=(_,_,_)=>true;
+ final proxy=@@PROXY@@;
+ if(proxy.isNotEmpty){final parsed=Uri.parse(proxy);client.findProxy=(_)=>'PROXY ${parsed.host}:${parsed.hasPort?parsed.port:80}';if(parsed.userInfo.isNotEmpty){final parts=parsed.userInfo.split(':');client.authenticateProxy=(host,port,scheme,realm)async{client.addProxyCredentials(host,port,realm ?? '',HttpClientBasicCredentials(Uri.decodeComponent(parts.first),parts.length>1?Uri.decodeComponent(parts.sublist(1).join(':')):''));return true;};}}
+ try{
+  await (()async{
+   for(var hop=0;;hop++){
+    final request=await client.openUrl(method,uri);request.followRedirects=false;request.contentLength=payload.length;
+    for(final header in headers){request.headers.add(header[0],header[1]);request.headers.noFolding(header[0]);}
+    request.add(payload);final response=await request.close();final status=response.statusCode;final location=response.headers.value(HttpHeaders.locationHeader);
+    if(@@FOLLOW@@ && location!=null && [301,302,303,307,308].contains(status)){
+     final socket=await response.detachSocket();socket.destroy();if(hop>=10)throw StateError('Redirect limit exceeded');final next=uri.resolve(location);if(!['http','https'].contains(next.scheme))throw StateError('Unsupported redirect scheme');
+     if(next.scheme!=uri.scheme||next.authority!=uri.authority)headers.removeWhere((header)=>['authorization','cookie','proxy-authorization'].contains(header[0].toLowerCase()));
+     if((status==303&&method!='HEAD')||([301,302].contains(status)&&method=='POST')){method='GET';payload=<int>[];headers.removeWhere((header)=>['content-type','content-length','content-encoding','transfer-encoding'].contains(header[0].toLowerCase()));}uri=next;continue;
+    }
+    final output=BytesBuilder(copy:false);var count=0;await for(final chunk in response){count+=chunk.length;if(count>@@LIMIT@@)throw StateError('Response size limit exceeded');output.add(chunk);}
+    stdout.writeln(status);stdout.add(output.takeBytes());await stdout.flush();break;
+   }
+  })().timeout(const Duration(milliseconds:@@TIMEOUT@@),onTimeout:(){client.close(force:true);throw TimeoutException('Request timeout');});
+ }finally{client.close(force:true);}
+}

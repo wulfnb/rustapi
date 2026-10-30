@@ -1,0 +1,42 @@
+// Go standard library. Save as request.go and run: go run request.go
+package main
+import (
+ "bytes"
+ "context"
+ "crypto/tls"
+ "crypto/x509"
+ "fmt"
+ "io"
+ "net/http"
+ "net/http/cookiejar"
+ "net/url"
+ "os"
+ "time"
+)
+func transport(proxy, ca, identity string, insecure bool) *http.Transport {
+ tlsConfig := &tls.Config{InsecureSkipVerify: insecure} // Explicit request TLS policy.
+ if ca != "" { roots, err := x509.SystemCertPool(); if err != nil { roots=x509.NewCertPool() }; pem, err := os.ReadFile(ca); if err != nil { panic(err) }; if !roots.AppendCertsFromPEM(pem) { panic("Invalid CA PEM") }; tlsConfig.RootCAs=roots }
+ if identity != "" { cert, err := tls.LoadX509KeyPair(identity, identity); if err != nil { panic(err) }; tlsConfig.Certificates=[]tls.Certificate{cert} }
+ result := &http.Transport{TLSClientConfig:tlsConfig, Proxy:http.ProxyFromEnvironment, DisableCompression:true}
+ if proxy != "" { parsed, err := url.Parse(proxy); if err != nil { panic(err) }; result.Proxy=http.ProxyURL(parsed) }
+ return result
+}
+func main() {
+ var body bytes.Buffer
+ @@BODY@@
+ ctx, cancel := context.WithTimeout(context.Background(), time.Duration(@@TIMEOUT@@)*time.Millisecond); defer cancel()
+ client := &http.Client{Transport:transport(@@PROXY@@,@@CA@@,@@IDENTITY@@,@@INSECURE@@)}
+ if @@COOKIES@@ { jar, err := cookiejar.New(nil); if err != nil { panic(err) }; client.Jar=jar }
+ client.CheckRedirect=func(request *http.Request, previous []*http.Request) error {
+  if !@@FOLLOW@@ { return http.ErrUseLastResponse }; if len(previous)>=10 { return fmt.Errorf("Redirect limit exceeded") }
+  last:=previous[len(previous)-1].URL
+  if request.URL.Scheme!=last.Scheme || request.URL.Host!=last.Host { for _,key:=range []string{"Authorization","Cookie","Proxy-Authorization"} { request.Header.Del(key) } }
+  return nil
+ }
+ request, err := http.NewRequestWithContext(ctx,@@METHOD@@,@@URL@@,bytes.NewReader(body.Bytes())); if err != nil { panic(err) }
+ request.Header.Set("User-Agent","")
+ for _,header:=range [][2]string{@@HEADERS@@} { if header[0]=="host" {request.Host=header[1]} else {request.Header.Add(header[0],header[1])} }
+ response, err := client.Do(request); if err != nil { panic(err) }; defer response.Body.Close()
+ data, err := io.ReadAll(io.LimitReader(response.Body,@@LIMIT@@+1)); if err != nil { panic(err) }; if len(data)>@@LIMIT@@ { panic("Response size limit exceeded") }
+ fmt.Println(response.StatusCode); _,err=os.Stdout.Write(data); if err!=nil {panic(err)}
+}

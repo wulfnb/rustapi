@@ -1757,7 +1757,7 @@ impl RustApiApp {
             egui::Window::new("Generate code")
                 .default_size([700., 500.])
                 .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         for lang in CodeGenLanguage::all() {
                             ui.selectable_value(&mut self.code_language, *lang, lang.as_str());
                         }

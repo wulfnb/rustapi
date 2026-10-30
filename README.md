@@ -67,7 +67,8 @@ See the [feature gap analysis](docs/feature-gap-analysis.md) and
   reports. The GUI and CLI share the same execution pipeline.
 - Collection v2.1/environment JSON and cURL import. Native collection export
   redacts known sensitive fields by default; including credentials is an explicit action.
-- cURL, Python requests, JavaScript Fetch and Rust reqwest code generation.
+- cURL, Python requests, JavaScript Fetch, Rust reqwest, raw HTTP, Go, C#, Java
+  and Dart code generation. See [target capabilities](docs/code-generation.md).
 
 ## Build and run
 
@@ -224,6 +225,8 @@ python scripts/desktop-smoke.py target/debug/rustapi
 ```
 
 Code-generation validation also needs Node 20+, curl and bash (POSIX systems).
+Run `python tests/codegen_targets.py target/debug` with Go, .NET 8 SDK, Java 17
+and Dart 3.11+ to compile and execute the additional exports and transport checks.
 On headless Linux, run desktop smoke under Xvfb with `LIBGL_ALWAYS_SOFTWARE=1`.
 Tests use temporary profiles and loopback servers. CI validates native platforms,
 Docker, packaging and coverage; see [CI/CD](docs/ci-cd.md) and

@@ -31,7 +31,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 - [x] JSON Schema response assertions using a maintained validator.
 - [x] Bounded script/network debugging console with redaction.
 - [x] OAuth provider/client-auth options.
-- [ ] Additional snippet targets: raw HTTP, Go, C#, Java and Dart.
+- [x] Additional snippet targets: raw HTTP, Go, C#, Java and Dart.
 
 Completed checkpoints must record exact tests and limitations. Checking an item
 requires an implemented GUI/CLI path where relevant, persistence and regression

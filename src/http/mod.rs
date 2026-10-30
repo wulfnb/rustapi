@@ -9,3 +9,5 @@ pub use code_gen::*;
 pub use prepared::*;
 
 pub mod oauth;
+
+mod codegen_targets;

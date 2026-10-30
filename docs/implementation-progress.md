@@ -1,6 +1,6 @@
 # RustAPI implementation progress
 
-Updated: **2026-10-30**. Source baseline for the current step: `0990c95`.
+Updated: **2026-10-30**. Source baseline for the final requested step: `eaf6684`.
 
 ## Working agreement
 
@@ -404,3 +404,33 @@ delivery is recorded in Git history.
   rejection and callback fragmentation/validation.
 
 Next and final requested capability: raw HTTP, Go, C#, Java and Dart code targets.
+
+## Step 21 — Additional executable code targets
+
+Status: **complete for the documented target subset**, verified locally;
+delivery is recorded in Git history. All items in the active delivery backlog
+are implemented; broader platform roadmap features remain separate scope.
+
+- Added raw HTTP, Go, C#, Java and Dart to the existing request code panel, with
+  wrapped target controls. Shared resolution/auth/header semantics feed escaped
+  language literals and byte-preserving upload/multipart builders.
+- SDK targets implement redirect policies, one network deadline and response bounds.
+  CA/client-certificate/proxy/TLS policies are emitted where supported; unsupported
+  options fail explicitly. Raw HTTP uses exact framing and rejects external uploads.
+  See the [capability matrix](code-generation.md) for all compatibility limits.
+- Extended the executable fixture with repeated headers, control/Unicode separators
+  and policy profiles. The added driver compiles real SDK code against isolated HTTP,
+  TLS and proxy fixtures, including trusted-chain wrong-host rejection, mutual TLS,
+  delayed bodies and same/cross-origin credential handling. Certificates are temporary.
+- Final local Rust suite: **196 passed**; documentation tests, formatting and
+  warnings-denied Clippy passed. Python tooling: **15 tests**, **100% statement/branch
+  coverage**. Actionlint, maintained-content naming and Markdown link checks passed.
+  The final desktop build passed isolated native event-loop startup/shutdown smoke.
+- Generated requests: existing four targets **24 passed**, additional targets/policies
+  **70 passed**. Local SDKs: Go 1.27.3, .NET 8.0.427, Java 17 and Dart 3.13.7.
+  A fresh short-lived certificate fixture resolved Apple platform certificate-policy
+  failures from the older long-lived test certificate. C# validates URI hostname and
+  server-auth usage independently alongside chain trust.
+- Added Linux CI execution of the extra SDK driver, pinning patched Dart 3.13.7.
+  Hosted CI, other-platform SDK execution and packaged GUI/release validation were
+  not observed in this step and are not implied by the local results.

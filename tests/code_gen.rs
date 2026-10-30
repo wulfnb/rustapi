@@ -40,7 +40,12 @@ fn every_generator_handles_auth_body_fields_and_query_parameters() {
                     assert!(code.contains("Resolve inherited auth"));
                     continue;
                 }
-                assert!(code.contains("https://test/resource"));
+                if *language == CodeGenLanguage::Http {
+                    assert!(code.starts_with("POST /resource?"));
+                    assert!(code.contains("host: test"));
+                } else {
+                    assert!(code.contains("https://test/resource"));
+                }
                 assert!(code.contains("resolved"));
                 assert!(!code.contains("{{value}}"));
                 let without_env = generate_code(&request, *language, None);
@@ -116,4 +121,60 @@ fn curl_encodes_query_and_preserves_existing_parameters() {
     request.query_params = vec![KeyValue::new("name", "Ada Lovelace")];
     let code = generate_code(&request, CodeGenLanguage::Curl, None);
     assert!(code.contains("?first=1&name=Ada%20Lovelace"));
+}
+
+language_case!(go_post_with_environment, Go, "http.NewRequestWithContext");
+language_case!(csharp_post_with_environment, CSharp, "HttpRequestMessage");
+language_case!(java_post_with_environment, Java, "HttpRequest.newBuilder");
+language_case!(dart_post_with_environment, Dart, "client.openUrl");
+
+#[test]
+fn raw_http_uses_wire_target_host_and_utf8_byte_length() {
+    let request = ApiRequest {
+        url: "https://api.test:8443/path?q=a%20b#ignored".into(),
+        method: HttpMethod::POST,
+        body_type: BodyType::Text,
+        body: "🦀".into(),
+        ..Default::default()
+    };
+    let code = generate_code(&request, CodeGenLanguage::Http, None);
+    assert!(code.starts_with("POST /path?q=a%20b HTTP/1.1\r\nhost: api.test:8443\r\n"));
+    assert!(code.contains("content-length: 4\r\n"));
+    assert!(code.ends_with("\r\n\r\n🦀"));
+    assert!(!code.contains("#ignored"));
+}
+#[test]
+fn unsupported_sdk_options_fail_explicitly_and_template_data_is_not_reexpanded() {
+    let mut request = ApiRequest {
+        url: "https://example.test".into(),
+        body_type: BodyType::Text,
+        body: "@@URL@@ ${literal} \u{1} Unicode 🦀".into(),
+        headers: vec![
+            KeyValue::new("X-Test", "first"),
+            KeyValue::new("X-Test", "second"),
+        ],
+        ..Default::default()
+    };
+    assert!(generate_code(&request, CodeGenLanguage::CSharp, None).contains("combine repeated"));
+    for language in [
+        CodeGenLanguage::Go,
+        CodeGenLanguage::Java,
+        CodeGenLanguage::Dart,
+    ] {
+        let code = generate_code(&request, language, None);
+        assert!(code.contains("@@URL@@"));
+        assert!(!code.starts_with("Cannot generate"));
+    }
+    request.headers.clear();
+    request.settings.verify_tls = false;
+    assert!(generate_code(&request, CodeGenLanguage::Java, None).contains("keeps TLS verification"));
+    request.settings.verify_tls = true;
+    request.settings.identity_file = "identity.pem".into();
+    assert!(generate_code(&request, CodeGenLanguage::Java, None).contains("key store"));
+    request.settings.identity_file.clear();
+    request.body_type = BodyType::Binary;
+    request.binary_file = "upload.bin".into();
+    assert!(
+        generate_code(&request, CodeGenLanguage::Http, None).contains("cannot inline upload files")
+    );
 }
