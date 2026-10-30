@@ -322,3 +322,21 @@ recorded in Git history.
 
 Next: JSON Schema assertions, broader scripts/debugging, OAuth options and additional
 code-generation targets.
+
+## Step 17 — Offline JSON Schema assertions
+
+Status: **complete for the documented bounded subset**, verified locally; delivery
+is recorded in Git history.
+
+- Tests UI edits whole-response or JSON Pointer-targeted schema assertions; shared
+  execution reports failed checks consistently in desktop and headless runs.
+- Maintained validator with external retrieval features disabled, local acyclic
+  references, format validation, linear regex and schema/instance complexity limits.
+- Error messages expose locations without response/expected values. Literal const
+  data containing a $ref key is handled as data, not a schema reference.
+- Schema checks persist through native/portable extensions.
+- Full local suite: **172 passed**; formatting and warnings-denied Clippy passed.
+  Tests cover valid/invalid schemas, formats, references, remote/file rejection,
+  composition, UI selection and real shared/CLI HTTP assertion failures.
+
+Next: broader synchronous scripting and bounded workflow control.

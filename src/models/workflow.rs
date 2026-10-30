@@ -48,6 +48,7 @@ pub enum AssertionKind {
     Json,
     BodyContains,
     MaxTime,
+    JsonSchema,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assertion {

@@ -294,3 +294,21 @@ unsupported tags, symlinks, ambiguous definitions and case-insensitive filename
 collisions are rejected. Export uses staging plus directory rename. Metadata
 resources are discovered within the selected canonical directory; includes never
 read external files or make network calls.
+
+## JSON Schema response assertions
+
+Choose JsonSchema in Tests. Expected contains a literal JSON Schema document; an
+empty Target validates the whole JSON response, otherwise Target is a JSON Pointer.
+Schema assertions use the same runner in desktop sends and CLI runs and persist in
+native storage and portable native extensions. Schema strings do not interpolate
+variables, avoiding changes to schema structure through unescaped substitution.
+
+The maintained validator detects the declared draft and validates formats. Remote
+and filesystem retrieval features are disabled; only acyclic local JSON Pointer
+references are accepted. Nested schema identifiers and anchor references are outside
+this bounded subset. Regex uses a linear engine with compilation/cache size limits;
+lookaround/backreference patterns are unsupported. Limits are 256 KiB of schema,
+32 expansion levels, 2048 visited schema/data nodes including expanded references,
+and 100000 instance nodes with 128 levels. Invalid schemas or complexity excesses
+produce a failed assertion. Up to ten mismatch locations are shown without instance
+or expected values. Schema complexity limits are separate from transport limits.

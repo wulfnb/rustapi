@@ -400,3 +400,28 @@ fn response_image_decoder_preserves_pixels_and_enforces_preview_limits() {
         .unwrap();
     assert!(decode_response_image(bytes.get_ref()).is_err());
 }
+
+#[test]
+fn schema_assertion_editor_selects_schema_and_accepts_multiline_json() {
+    let request = ApiRequest {
+        checks: vec![Assertion::default()],
+        ..Default::default()
+    };
+    let mut h = Harness::new(
+        (request, RequestTab::Tests, false),
+        |ctx: &egui::Context, s: &mut (ApiRequest, RequestTab, bool)| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_request_editor(ui, &mut s.0, &mut s.1, &mut s.2, true)
+            });
+        },
+    );
+    h.combo(0);
+    h.click("JsonSchema");
+    h.edit(
+        egui::accesskit::Role::MultilineTextInput,
+        0,
+        "{\n  \"type\": \"object\"\n}",
+    );
+    assert_eq!(h.state.0.checks[0].kind, AssertionKind::JsonSchema);
+    assert!(h.state.0.checks[0].expected.contains("object"));
+}

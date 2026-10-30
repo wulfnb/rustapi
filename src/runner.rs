@@ -96,6 +96,25 @@ pub fn execute(
             serde_json::from_slice::<serde_json::Value>(&response.raw_body).ok()
         };
         for check in &r.checks {
+            if check.kind == AssertionKind::JsonSchema {
+                let result = body_json
+                    .as_ref()
+                    .and_then(|body| body.pointer(&check.target))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Schema target is missing or response is not JSON")
+                    })
+                    .and_then(|instance| crate::schema::validate(&check.expected, instance));
+                let (passed, message) = match result {
+                    Ok(errors) => (errors.is_empty(), errors.join("; ")),
+                    Err(error) => (false, error.to_string()),
+                };
+                pre.push(TestResult {
+                    name: check.name.clone(),
+                    passed,
+                    message,
+                });
+                continue;
+            }
             let value = match check.kind {
                 AssertionKind::Status => Some(response.status.to_string()),
                 AssertionKind::Header => response
@@ -126,6 +145,7 @@ pub fn execute(
                         .to_string(),
                     )
                 }
+                AssertionKind::JsonSchema => unreachable!("Handled before ordinary assertions"),
                 AssertionKind::MaxTime => Some(
                     (response.time_ms
                         <= check

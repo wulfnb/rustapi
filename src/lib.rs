@@ -19,3 +19,5 @@ pub mod cli;
 pub mod export;
 
 pub mod v3;
+
+pub mod schema;

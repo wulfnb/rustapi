@@ -90,12 +90,13 @@ pub fn render_request_editor(
         }
         RequestTab::Auth => { render_auth_editor(ui, &mut request.auth); }
         RequestTab::Tests => {
-            ui.label("All enabled checks must pass. JSON targets use JSON Pointer, e.g. /user/id.");
+            ui.label("All checks must pass. JSON targets use JSON Pointer, e.g. /user/id. JsonSchema Expected is a schema document; an empty target validates the whole JSON response. Schema values are literal JSON, without variable substitution.");
             let mut remove=None;
             for (i,c) in request.checks.iter_mut().enumerate() { ui.push_id(i,|ui| {
                 ui.text_edit_singleline(&mut c.name);
-                egui::ComboBox::from_id_salt("kind").selected_text(format!("{:?}",c.kind)).show_ui(ui,|ui|{for k in [crate::models::AssertionKind::Status,crate::models::AssertionKind::Header,crate::models::AssertionKind::Json,crate::models::AssertionKind::BodyContains,crate::models::AssertionKind::MaxTime]{let label=format!("{k:?}");ui.selectable_value(&mut c.kind,k,label);}});
-                ui.horizontal(|ui|{ui.label("Target");ui.text_edit_singleline(&mut c.target);ui.label("Expected");ui.text_edit_singleline(&mut c.expected);if ui.small_button("Remove").clicked(){remove=Some(i);}});
+                egui::ComboBox::from_id_salt("kind").selected_text(format!("{:?}",c.kind)).show_ui(ui,|ui|{for k in [crate::models::AssertionKind::Status,crate::models::AssertionKind::Header,crate::models::AssertionKind::Json,crate::models::AssertionKind::BodyContains,crate::models::AssertionKind::MaxTime,crate::models::AssertionKind::JsonSchema]{let label=format!("{k:?}");ui.selectable_value(&mut c.kind,k,label);}});
+                ui.horizontal(|ui|{ui.label("Target");ui.text_edit_singleline(&mut c.target);ui.label("Expected");if c.kind==crate::models::AssertionKind::JsonSchema{ui.add(egui::TextEdit::multiline(&mut c.expected).code_editor().desired_rows(5));}else{ui.text_edit_singleline(&mut c.expected);}
+ if ui.small_button("Remove").clicked(){remove=Some(i);}});
             }); }
             if let Some(i)=remove {request.checks.remove(i);}
             if ui.button("Add assertion").clicked(){request.checks.push(Default::default());}
