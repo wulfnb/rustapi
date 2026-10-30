@@ -22,3 +22,5 @@ pub use description::*;
 
 mod example;
 pub use example::*;
+
+mod inspection;

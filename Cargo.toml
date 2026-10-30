@@ -11,7 +11,7 @@ license = "GPL-3.0-or-later"
 # GUI Framework
 eframe = "0.30"
 egui = "0.30"
-egui_extras = { version = "0.30", features = ["image"] }
+egui_extras = { version = "0.30", features = ["image", "syntect"] }
 
 # HTTP Client
 reqwest = { version = "0.12", features = ["json", "blocking", "multipart", "cookies", "stream", "rustls-tls"] }
@@ -27,6 +27,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5.0"
 rfd = "0.15"  # File dialogs
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 syntect = "5.2"  # Syntax highlighting
 anyhow = "1.0"
 thiserror = "1.0"

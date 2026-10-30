@@ -308,3 +308,95 @@ fn header_preset_ui_persists_and_replaces_headers() {
             .is_empty()
     );
 }
+
+#[test]
+fn variable_inspector_masks_secret_aliases_and_shows_resolution_errors() {
+    let mut vars = rustapi::variables::Variables::default();
+    vars.environment
+        .insert("credential".into(), "private-value".into());
+    vars.local
+        .insert("alias".into(), "prefix {{ credential }}".into());
+    vars.local.insert("broken".into(), "{{missing}}".into());
+    let env = crate::models::Environment {
+        variables: vec![KeyValue {
+            value_type: "secret".into(),
+            ..KeyValue::new("credential", "private-value")
+        }],
+        ..Default::default()
+    };
+    let mut h = Harness::new(false, |ctx: &egui::Context, reveal: &mut bool| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            render_variable_inspector(ui, &vars, Default::default(), Some(&env), *reveal)
+        });
+    });
+    assert!(!h.nodes().iter().any(|(_, node)| node
+        .label()
+        .or(node.value())
+        .is_some_and(|text| text.contains("private-value"))));
+    assert!(h.nodes().iter().any(|(_, node)| node
+        .label()
+        .or(node.value())
+        .is_some_and(|text| text.contains("Unresolved variable: missing"))));
+    h.state = true;
+    h.refresh();
+    assert!(h.nodes().iter().any(|(_, node)| node
+        .label()
+        .or(node.value())
+        .is_some_and(|text| text.contains("prefix private-value"))));
+}
+
+#[test]
+fn response_tree_pointer_raw_timing_and_inert_preview_controls() {
+    let response = ApiResponse {
+        status: 200,
+        body: "{\"user\":{\"name\":\"Example\"}}".into(),
+        headers: vec![("content-type".into(), "application/json".into())],
+        time_ms: 35,
+        headers_time_ms: 10,
+        ..Default::default()
+    };
+    let mut h = Harness::new(
+        (ResponseTab::Body, true, String::new()),
+        |ctx: &egui::Context, s: &mut (ResponseTab, bool, String)| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_response_viewer(ui, Some(&response), false, &mut s.0, &mut s.1, &mut s.2)
+            });
+        },
+    );
+    h.click("JSON tree");
+    h.edit(egui::accesskit::Role::TextInput, 1, "/user/name");
+    assert!(h.nodes().iter().any(|(_, node)| node
+        .label()
+        .or(node.value())
+        .is_some_and(|text| text.contains("Example"))));
+    h.click("Raw");
+    assert_eq!(h.state.0, ResponseTab::Raw);
+    h.click("Timing");
+    assert!(h
+        .nodes()
+        .iter()
+        .any(|(_, node)| node.label().or(node.value()) == Some("Body transfer: 25 ms")));
+    h.click("Preview");
+    assert_eq!(h.state.0, ResponseTab::Preview);
+    assert_eq!(response_hex(&[0, 255, 128]), "00000000  00 ff 80");
+}
+
+#[test]
+fn response_image_decoder_preserves_pixels_and_enforces_preview_limits() {
+    let source = image::RgbaImage::from_raw(1, 1, vec![255, 0, 0, 255]).unwrap();
+    let mut bytes = std::io::Cursor::new(vec![]);
+    source
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let image = decode_response_image(bytes.get_ref()).unwrap();
+    assert_eq!(image.size, [1, 1]);
+    assert_eq!(image.pixels[0], egui::Color32::RED);
+    assert!(decode_response_image(b"<html><script>bad()</script></html>").is_err());
+    assert!(decode_response_image(&vec![0; 8 * 1024 * 1024 + 1]).is_err());
+    let source = image::RgbaImage::new(4097, 1);
+    let mut bytes = std::io::Cursor::new(vec![]);
+    source
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    assert!(decode_response_image(bytes.get_ref()).is_err());
+}

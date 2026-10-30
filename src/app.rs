@@ -138,6 +138,8 @@ pub struct RustApiApp {
     vault_unlocked: bool,
     secret_name: String,
     secret_value: String,
+    show_inspector: bool,
+    reveal_inspector: bool,
     show_cookies: bool,
     cookie_url: String,
     cookie_value: String,
@@ -235,6 +237,8 @@ impl Default for RustApiApp {
             vault_unlocked: false,
             secret_name: String::new(),
             secret_value: String::new(),
+            show_inspector: false,
+            reveal_inspector: false,
             show_cookies: false,
             cookie_url: String::new(),
             cookie_value: String::new(),
@@ -952,6 +956,10 @@ impl RustApiApp {
                 if ui.button("Vault").clicked() {
                     self.show_vault = true;
                 }
+                if ui.button("Inspect variables").clicked() {
+                    self.show_inspector = true;
+                    self.reveal_inspector = false;
+                }
                 if ui.button("Cookies").clicked() {
                     self.show_cookies = true;
                 }
@@ -1126,14 +1134,16 @@ impl RustApiApp {
                     tab.is_modified = true;
                 }
                 ui.separator();
-                render_response_viewer(
-                    ui,
-                    tab.response.as_ref(),
-                    tab.pending.is_some(),
-                    &mut self.response_tab,
-                    &mut self.format_json,
-                    &mut self.response_search,
-                );
+                ui.push_id(&tab.id, |ui| {
+                    render_response_viewer(
+                        ui,
+                        tab.response.as_ref(),
+                        tab.pending.is_some(),
+                        &mut self.response_tab,
+                        &mut self.format_json,
+                        &mut self.response_search,
+                    );
+                });
             } else {
                 ui.centered_and_justified(|ui| {
                     ui.label("Create a request or import a collection to get started.");
@@ -1571,6 +1581,26 @@ impl RustApiApp {
         self.environment_window(ctx);
         self.runner_window(ctx);
         self.vault_window(ctx);
+        if self.show_inspector {
+            egui::Window::new("Variables and effective headers").default_size([900.,500.]).vscroll(true).show(ctx,|ui| {
+                ui.checkbox(&mut self.reveal_inspector,"Reveal values including credentials");
+                if let Some(tab)=self.tab_manager.active_tab() {
+                    let request=self.contextual_request(tab);
+                    let mut vars=Variables::for_request(&request,self.environment());vars.local=self.variables.clone();vars.secrets=self.secrets.clone();
+                    let origins=tab.collection_id.as_ref().and_then(|id|self.collections.iter().find(|c| &c.id==id)).map(|c|c.variable_origins(&tab.request.id)).unwrap_or_default();
+                    render_variable_inspector(ui,&vars,origins,self.environment(),self.reveal_inspector);
+                    ui.separator();ui.strong("Effective configured headers");
+                    match vars.resolve_request(&request).and_then(|r|rustapi::http::effective_headers(&r)) {
+                        Ok(headers)=>{for (key,value) in headers {
+                            // Default masking covers every header value, including custom credential names.
+                            ui.horizontal(|ui|{ui.monospace(key);ui.monospace(if self.reveal_inspector{&value}else{"[masked]"});});
+                        }},Err(error)=>{ui.colored_label(egui::Color32::LIGHT_RED,error.to_string());}
+                    }
+                    ui.small("Active scopes only. Narrower scopes override broader ones. Header view covers configured/auth/body fields; cookies, Host and Content-Length are transport managed. Multipart boundaries are generated when sending.");
+                } else {ui.label("Open a request to inspect its active context.");}
+                if ui.button("Close inspector").clicked(){self.show_inspector=false;self.reveal_inspector=false;}
+            });
+        }
         if self.show_cookies {
             egui::Window::new("Workspace cookies (session)")
                 .default_width(600.)

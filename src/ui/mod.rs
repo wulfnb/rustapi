@@ -27,3 +27,9 @@ pub use documents::*;
 
 mod bulk_rows;
 pub use bulk_rows::*;
+
+mod inspector;
+pub use inspector::*;
+
+mod response_detail;
+pub use response_detail::*;

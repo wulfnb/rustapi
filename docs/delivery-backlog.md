@@ -20,8 +20,8 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 - [x] Workspace documents with offline viewing/editing.
 - [x] Request/folder/row description editing.
 - [x] Lossless bulk row editing and persistent header presets.
-- [ ] Variable inspection with scope origins and masked secrets.
-- [ ] Rich response inspection with syntax/tree/raw/filter/preview controls.
+- [x] Variable inspection with scope origins and masked secrets.
+- [x] Rich response inspection with syntax/tree/raw/filter/preview controls.
 
 ## Compatibility
 

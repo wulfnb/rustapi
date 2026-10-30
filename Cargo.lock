@@ -165,6 +165,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aho-corasick"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1231,6 +1240,7 @@ dependencies = [
  "log",
  "mime_guess2",
  "profiling",
+ "syntect",
 ]
 
 [[package]]
@@ -1382,6 +1392,17 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fancy-regex"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "998b056554fbe42e03ae0e152895cd1a7e1002aec800fdc6635d20270260c46f"
+dependencies = [
+ "bit-set",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -2109,6 +2130,8 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3544,6 +3567,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-automata"
+version = "0.4.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
 name = "regex-syntax"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3698,6 +3732,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "image",
  "pollster 0.3.0",
  "reqwest",
  "rfd",
@@ -4207,6 +4242,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "656b45c05d95a5704399aeef6bd0ddec7b2b3531b7c9e900abbf7c4d2190c925"
 dependencies = [
  "bincode",
+ "fancy-regex",
  "flate2",
  "fnv",
  "once_cell",
@@ -5981,6 +6017,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "zune-core"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d56377fd46368984a170bc5aac5567e52ca5da874caa60bea39fcbca78fb658b"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
+dependencies = [
+ "zune-core",
 ]
 
 [[package]]

@@ -10,6 +10,10 @@ pub enum ResponseTab {
     #[default]
     Body,
     Headers,
+    Tree,
+    Raw,
+    Preview,
+    Timing,
 }
 
 /// Render the response viewer
@@ -92,6 +96,14 @@ pub fn render_response_viewer(
                     *current_tab = ResponseTab::Headers;
                 }
 
+                for (tab, label) in [
+                    (ResponseTab::Tree, "JSON tree"),
+                    (ResponseTab::Raw, "Raw"),
+                    (ResponseTab::Preview, "Preview"),
+                    (ResponseTab::Timing, "Timing"),
+                ] {
+                    ui.selectable_value(current_tab, tab, label);
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(format_json_enabled, "Format JSON");
                     if ui.button("Download").clicked() {
@@ -132,12 +144,41 @@ pub fn render_response_viewer(
                                 .collect::<Vec<_>>()
                                 .join("\n")
                         };
-                        ui.add(
-                            egui::TextEdit::multiline(&mut filtered.as_str())
-                                .code_editor()
-                                .desired_width(f32::INFINITY),
+                        super::render_response_syntax(
+                            ui,
+                            &filtered,
+                            if serde_json::from_str::<serde_json::Value>(&response.body).is_ok() {
+                                "json"
+                            } else {
+                                "txt"
+                            },
                         );
                     });
+                }
+                ResponseTab::Tree => {
+                    egui::ScrollArea::both()
+                        .show(ui, |ui| super::render_response_tree(ui, response));
+                }
+                ResponseTab::Raw => {
+                    egui::ScrollArea::both().show(ui,|ui|{
+                    ui.small("Raw text is the bounded UTF-8 preview; hex shows up to 4096 original bytes. Download saves all bytes.");
+                    ui.add(egui::TextEdit::multiline(&mut response.body.as_str()).code_editor().desired_width(f32::INFINITY));
+                    let bytes=if response.raw_body.is_empty(){response.body.as_bytes()}else{&response.raw_body};
+                    ui.monospace(super::response_hex(bytes));
+                });
+                }
+                ResponseTab::Preview => {
+                    egui::ScrollArea::both()
+                        .show(ui, |ui| super::render_response_preview(ui, response));
+                }
+                ResponseTab::Timing => {
+                    ui.label(format!("Response headers: {} ms", response.headers_time_ms));
+                    ui.label(format!(
+                        "Body transfer: {} ms",
+                        response.time_ms.saturating_sub(response.headers_time_ms)
+                    ));
+                    ui.label(format!("Total: {} ms", response.time_ms));
+                    ui.small("Header timing includes connection and server wait. DNS/connect/TLS breakdown is unavailable.");
                 }
                 ResponseTab::Headers => {
                     egui::ScrollArea::vertical().show(ui, |ui| {

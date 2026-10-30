@@ -261,3 +261,22 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
 - Full local suite: **155 passed**; formatting and warnings-denied Clippy passed.
 
 Next: contextual variable/effective-header inspection and richer response views.
+
+## Step 14 — Contextual inspection and richer responses
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Inspector shows winning variable origins and resolution errors, masking sensitive
+  names, type-hinted secrets, vault values and aliases by default. Header values are
+  all masked until explicit Reveal; preparation matches the shared send path.
+- Response syntax, JSON folding/Pointer filter, raw hex, inert source preview,
+  bounded PNG/JPEG decoding and header/body/total timing are available.
+- Image input/dimension/pixel/allocation and tree/display budgets are documented;
+  raw downloads retain full response bytes within existing transport limits.
+- Full local suite: **159 passed**; formatting and warnings-denied Clippy passed.
+  New tests cover origin precedence, secret aliases, error text, Pointer controls,
+  pixel decoding and preview rejection bounds.
+
+The requested daily-workflow group is complete within documented limits.
+Next: portable v2.1/environment export, v3 directory support and the remaining
+compatibility entries in the active backlog.

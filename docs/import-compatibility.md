@@ -224,3 +224,21 @@ Git files. Recognized credential fields require a variable reference, optionally
 prefixed by Bearer or Basic, rather than a literal credential. Custom names and
 metadata still require care when entering data. Presets validate header semantics;
 Append may create singleton conflicts that sending reports before network I/O.
+
+## Variable and response inspection
+
+Inspect variables shows active values with the winning collection, nearest folder,
+environment, iteration, local or vault origin. Recognized sensitive names, secret
+type hints, vault values and aliases of those values are masked. Unresolved/cyclic
+references display an error. Reveal is explicit and resets when the inspector opens.
+The effective-header list masks all values by default, including custom names; it
+uses the same variable/path/auth/header preparation as sending.
+
+Response Body uses cached syntax highlighting with a 64 KiB display bound. Search
+filters lines; JSON tree provides a JSON Pointer filter, folding, a 1000-visible-node
+budget and 32-level display depth. Raw shows the bounded text preview plus 4096
+original bytes as hex; Download still writes the complete bounded response. Timing
+shows headers, body transfer and total, without claiming a DNS/connect/TLS breakdown.
+Preview decodes PNG/JPEG only, with 8 MiB input, 4096-pixel dimensions, 4-megapixel
+and decoder allocation limits. JSON uses the structural view. HTML/XML and other
+text previews stay inert source: no scripts execute or remote resources load.
