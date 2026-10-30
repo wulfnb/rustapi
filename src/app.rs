@@ -65,6 +65,7 @@ pub enum AsyncMessage {
     Authorized {
         epoch: u64,
         tab_id: String,
+        binding: String,
         result: Result<String, String>,
     },
 }
@@ -425,11 +426,30 @@ impl RustApiApp {
                 AsyncMessage::Authorized {
                     epoch,
                     tab_id,
+                    binding,
                     result,
                 } if epoch == self.epoch => match result {
                     Ok(code) => {
-                        if let Some(tab) = self.tab_manager.tabs.iter_mut().find(|t| t.id == tab_id)
+                        if let Some(index) = self
+                            .tab_manager
+                            .tabs
+                            .iter()
+                            .position(|tab| tab.id == tab_id)
                         {
+                            let request = self.contextual_request(&self.tab_manager.tabs[index]);
+                            let mut vars = Variables::for_request(&request, self.environment());
+                            vars.local = self.variables.clone();
+                            vars.secrets = self.secrets.clone();
+                            let current =
+                                vars.resolve_oauth(&request.auth.oauth).and_then(|config| {
+                                    rustapi::http::oauth::authorization_binding(&config)
+                                });
+                            if current.ok().as_deref() != Some(&binding) {
+                                self.error =
+                                    Some("OAuth configuration changed; authorize again".into());
+                                continue;
+                            }
+                            let tab = &mut self.tab_manager.tabs[index];
                             tab.request.auth.oauth.code = code;
                             tab.is_modified = true;
                             self.notice =
@@ -853,32 +873,56 @@ impl RustApiApp {
         });
     }
     fn authorize(&mut self, ctx: &egui::Context) {
-        let Some(tab) = self.tab_manager.active_tab_mut() else {
+        let Some(tab) = self.tab_manager.active_tab() else {
             return;
         };
         if !tab.request.auth.oauth.authorization_requested {
             return;
         }
-        tab.request.auth.oauth.authorization_requested = false;
-        let result = rustapi::http::oauth::begin_authorization(&mut tab.request.auth.oauth);
         let id = tab.id.clone();
+        let request = self.contextual_request(tab);
+        let mut vars = Variables::for_request(&request, self.environment());
+        vars.local = self.variables.clone();
+        vars.secrets = self.secrets.clone();
+        self.tab_manager
+            .active_tab_mut()
+            .unwrap()
+            .request
+            .auth
+            .oauth
+            .authorization_requested = false;
+        let result = (|| -> anyhow::Result<_> {
+            let mut config = vars.resolve_oauth(&request.auth.oauth)?;
+            let had_redirect = !config.redirect_uri.is_empty();
+            let authorization = rustapi::http::oauth::begin_authorization(&mut config)?;
+            let binding = rustapi::http::oauth::authorization_binding(&config)?;
+            let tab = self.tab_manager.active_tab_mut().unwrap();
+            tab.request.auth.oauth.verifier = config.verifier;
+            tab.request.auth.oauth.code.clear();
+            if !had_redirect {
+                tab.request.auth.oauth.redirect_uri = config.redirect_uri;
+            }
+            tab.is_modified = true;
+            Ok((authorization, binding))
+        })();
         match result {
-            Ok(auth) => {
-                ctx.open_url(egui::OpenUrl::new_tab(auth.url.clone()));
+            Ok((authorization, binding)) => {
+                ctx.open_url(egui::OpenUrl::new_tab(authorization.url.clone()));
                 let sender = self.sender.clone();
                 let epoch = self.epoch;
                 std::thread::spawn(move || {
-                    let result = auth
+                    let result = authorization
                         .wait(&Cancellation::default())
-                        .map_err(|e| e.to_string());
+                        .map_err(|error| error.to_string());
                     let _ = sender.send(AsyncMessage::Authorized {
                         epoch,
                         tab_id: id,
+                        binding,
                         result,
                     });
                 });
             }
-            Err(e) => self.error = Some(e.to_string()),
+            Err(error) => self.error = Some(error.to_string()),
         }
     }
 }

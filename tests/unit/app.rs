@@ -464,3 +464,49 @@ fn desktop_debug_console_copies_redacted_events_and_clears_session() {
     h.click("Close console");
     assert!(!h.state.show_debug);
 }
+
+#[test]
+fn stale_oauth_authorization_result_does_not_apply_to_changed_configuration() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    let request = ApiRequest {
+        auth: AuthConfig {
+            auth_type: AuthType::OAuth2,
+            oauth: OAuthConfig {
+                client_id: "first".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let binding = rustapi::http::oauth::authorization_binding(&request.auth.oauth).unwrap();
+    app.tab_manager.open_tab(request, None);
+    let id = app.tab_manager.active_tab().unwrap().id.clone();
+    app.tab_manager
+        .active_tab_mut()
+        .unwrap()
+        .request
+        .auth
+        .oauth
+        .client_id = "changed".into();
+    app.sender
+        .send(AsyncMessage::Authorized {
+            epoch: app.epoch,
+            tab_id: id,
+            binding,
+            result: Ok("private-code".into()),
+        })
+        .unwrap();
+    app.process_messages();
+    assert!(app
+        .tab_manager
+        .active_tab()
+        .unwrap()
+        .request
+        .auth
+        .oauth
+        .code
+        .is_empty());
+    assert!(app.error.unwrap().contains("changed"));
+}

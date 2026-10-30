@@ -68,6 +68,18 @@ impl Variables {
         }
         bail!("Variable expansion is cyclic or exceeds 16 levels")
     }
+    pub fn resolve_oauth(&self, config: &OAuthConfig) -> Result<OAuthConfig> {
+        let request = ApiRequest {
+            url: "http://localhost/".into(),
+            auth: AuthConfig {
+                auth_type: AuthType::OAuth2,
+                oauth: config.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        Ok(self.resolve_request(&request)?.auth.oauth)
+    }
     pub fn resolve_request(&self, r: &ApiRequest) -> Result<ApiRequest> {
         let mut r = r.clone();
         r.url = self.resolve(&r.url)?;
@@ -94,6 +106,8 @@ impl Variables {
             &mut r.auth.api_key_name,
             &mut r.auth.api_key_value,
             &mut r.auth.oauth.authorization_url,
+            &mut r.auth.oauth.refresh_url,
+            &mut r.auth.oauth.refresh_scope,
             &mut r.auth.oauth.token_url,
             &mut r.auth.oauth.client_id,
             &mut r.auth.oauth.client_secret,
@@ -103,6 +117,18 @@ impl Variables {
             &mut r.auth.oauth.verifier,
         ] {
             *field = self.resolve(field)?;
+        }
+        for row in r
+            .auth
+            .oauth
+            .authorization_params
+            .iter_mut()
+            .chain(&mut r.auth.oauth.token_params)
+            .chain(&mut r.auth.oauth.refresh_params)
+            .filter(|row| row.enabled)
+        {
+            row.key = self.resolve(&row.key)?;
+            row.value = self.resolve(&row.value)?;
         }
         for field in [
             &mut r.settings.proxy,

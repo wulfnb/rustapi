@@ -57,6 +57,38 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
                 ui.label(label);
                 ui.text_edit_singleline(field);
             }
+            egui::ComboBox::from_id_salt("oauth_client_auth")
+                .selected_text(match c.client_auth {
+                    crate::models::OAuthClientAuth::Body => "Client credentials in body",
+                    crate::models::OAuthClientAuth::Basic => "HTTP Basic client authentication",
+                    crate::models::OAuthClientAuth::Public => "Public client (no secret)",
+                })
+                .show_ui(ui, |ui| {
+                    for (method, label) in [
+                        (
+                            crate::models::OAuthClientAuth::Body,
+                            "Client credentials in body",
+                        ),
+                        (
+                            crate::models::OAuthClientAuth::Basic,
+                            "HTTP Basic client authentication",
+                        ),
+                        (
+                            crate::models::OAuthClientAuth::Public,
+                            "Public client (no secret)",
+                        ),
+                    ] {
+                        ui.selectable_value(&mut c.client_auth, method, label);
+                    }
+                });
+            ui.label("Refresh URL (empty uses Token URL)");
+            ui.text_edit_singleline(&mut c.refresh_url);
+            ui.label("Refresh scope (empty uses original grant scope)");
+            ui.text_edit_singleline(&mut c.refresh_scope);
+            egui::CollapsingHeader::new("OAuth provider parameters").show(ui,|ui|{
+                ui.small("Managed state, PKCE and grant/client fields cannot be overridden. Duplicate resource parameters are retained.");
+                for (id,label,rows) in [("authorization","Authorization parameters",&mut c.authorization_params),("token","Token parameters",&mut c.token_params),("refresh","Refresh parameters",&mut c.refresh_params)]{ui.label(label);ui.push_id(id,|ui|super::render_key_value_editor(ui,rows));}
+            });
             ui.label("Client secret (or {{vault:name}} reference)");
             ui.add(egui::TextEdit::singleline(&mut c.client_secret).password(true));
             if c.grant == "authorization_code" {

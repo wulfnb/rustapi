@@ -381,3 +381,26 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
   before failures, VM/queue caps, CLI opt-in and desktop copy/clear.
 
 Next: OAuth provider/client-auth options, then additional code-generation targets.
+
+## Step 20 — OAuth client authentication and provider options
+
+Status: **complete for the documented grant/callback subset**, verified locally;
+delivery is recorded in Git history.
+
+- Body/Basic/public client choices, separate refresh URL/scope and scoped provider
+  parameter lists persist and round-trip through portable credentials. Default body
+  mode preserves old native files. Basic encoding and single-method submission follow
+  RFC 6749; managed state/PKCE/grant/client fields cannot be overridden.
+- Token exchanges reject redirects and invalid Bearer tokens. Browser callbacks
+  validate path/state/duplicates and bounded fragmented headers; authorization results
+  bind to the resolved configuration and verifier.
+- Desktop resolves OAuth variables before browser launch, with editor controls and
+  stale-result rejection. Request/provider/endpoint redaction includes assertion
+  credentials, preserves unrelated raw query/template text and omits persistent
+  history error details that could otherwise expose endpoint credentials.
+- Full local suite: **190 passed**; final targeted redaction/model/workspace checks:
+  **30 passed**. Formatting and warnings-denied Clippy passed. Real HTTP tests
+  cover Basic encoding, public PKCE, refresh routing/scope, provider fields, redirect
+  rejection and callback fragmentation/validation.
+
+Next and final requested capability: raw HTTP, Go, C#, Java and Dart code targets.

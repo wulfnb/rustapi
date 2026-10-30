@@ -30,7 +30,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 - [x] Broader documented script support, including request mutation and workflow control.
 - [x] JSON Schema response assertions using a maintained validator.
 - [x] Bounded script/network debugging console with redaction.
-- [ ] OAuth provider/client-auth options.
+- [x] OAuth provider/client-auth options.
 - [ ] Additional snippet targets: raw HTTP, Go, C#, Java and Dart.
 
 Completed checkpoints must record exact tests and limitations. Checking an item

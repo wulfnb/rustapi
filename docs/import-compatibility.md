@@ -362,3 +362,34 @@ guaranteed recognizable; review copied/exported diagnostics before sharing.
 Logs preceding ordinary script errors survive, while failed script mutations are
 not applied. Resource-limit/async failures record generic execution errors; they
 may not retain intermediate VM logs. Error events avoid arbitrary exception text.
+
+## OAuth provider options
+
+Auth settings select client credentials in the body, HTTP Basic client authentication
+or a public client without a secret (authorization-code + PKCE). The original body
+mode remains the default for old files. Basic authentication form-encodes client ID
+and secret separately before header encoding, and does not also send them in the
+body, following [RFC 6749 client authentication](https://www.rfc-editor.org/rfc/rfc6749#section-2.3.1).
+Public clients cannot use the client-credentials grant. Other grant types fail
+explicitly. Access/refresh tokens remain session-local.
+
+Refresh URL defaults to Token URL. Refresh scope is omitted by default so the original
+grant scope applies. Separate authorization/token/refresh key/value parameter lists
+resolve scoped variables, retain disabled rows and repeated resource parameters,
+and have count/name/value limits. Managed client/grant/scope/state/PKCE/redirect
+fields cannot be overridden by provider parameters or endpoint query parameters.
+Endpoint userinfo/fragments are rejected. Token exchanges never follow redirects,
+regardless of the API request redirect preference, and reject invalid Bearer tokens.
+
+Browser authorization resolves the active request's variables before opening its
+URL. It uses IPv4 loopback HTTP GET callbacks, a generated state and S256 PKCE.
+Callbacks validate the configured path, reject duplicate fields, accept fragmented
+headers under byte/time limits and bind results to the current resolved configuration
+and verifier. Editing that context requires authorization again. Interactive browser
+authorization is request-level; headless runs require an already configured code and
+verifier or a noninteractive client-credentials flow. Other OAuth grant/callback modes
+and a persistent token manager remain outside this subset.
+
+Portable v2.1/v3 credentials retain these provider options; default export/history
+redaction covers their credential fields, assertion values and endpoint query secrets.
+URL redaction preserves unrelated encoded pairs and template references.

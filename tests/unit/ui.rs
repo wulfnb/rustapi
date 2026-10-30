@@ -425,3 +425,20 @@ fn schema_assertion_editor_selects_schema_and_accepts_multiline_json() {
     assert_eq!(h.state.0.checks[0].kind, AssertionKind::JsonSchema);
     assert!(h.state.0.checks[0].expected.contains("object"));
 }
+
+#[test]
+fn oauth_editor_selects_client_auth_and_edits_refresh_options() {
+    let auth = AuthConfig {
+        auth_type: AuthType::OAuth2,
+        ..Default::default()
+    };
+    let mut h = Harness::new(auth, |ctx: &egui::Context, auth: &mut AuthConfig| {
+        egui::CentralPanel::default().show(ctx, |ui| render_auth_editor(ui, auth));
+    });
+    h.combo(2);
+    h.click("HTTP Basic client authentication");
+    assert_eq!(h.state.oauth.client_auth, OAuthClientAuth::Basic);
+    h.combo(2);
+    h.click("Public client (no secret)");
+    assert_eq!(h.state.oauth.client_auth, OAuthClientAuth::Public);
+}

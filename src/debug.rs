@@ -80,6 +80,9 @@ impl LogRedactor {
                 .chain(&request.query_params)
                 .chain(&request.path_params)
                 .chain(&request.form_data)
+                .chain(&request.auth.oauth.authorization_params)
+                .chain(&request.auth.oauth.token_params)
+                .chain(&request.auth.oauth.refresh_params)
             {
                 redactor.add(&row.value);
             }

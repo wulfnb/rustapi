@@ -72,6 +72,7 @@ pub fn sensitive(name: &str) -> bool {
         "api_key",
         "api-key",
         "apikey",
+        "assertion",
     ]
     .iter()
     .any(|k| n.contains(k))
@@ -131,12 +132,61 @@ fn redact_scope(
     }
     redact_rows(rows);
 }
+/// Preserve unrelated raw query text and template references while masking credentials.
+pub fn redact_url(input: &str) -> String {
+    let mut input = input.to_owned();
+    if let Ok(mut url) = reqwest::Url::parse(&input) {
+        if !url.username().is_empty() || url.password().is_some() {
+            let _ = url.set_password(None);
+            let _ = url.set_username("");
+            input = url.to_string();
+        }
+    }
+    let (without_fragment, fragment) = input
+        .split_once('#')
+        .map(|(url, fragment)| (url, Some(fragment)))
+        .unwrap_or((&input, None));
+    let Some((base, query)) = without_fragment.split_once('?') else {
+        return input;
+    };
+    let query = query
+        .split('&')
+        .map(|pair| {
+            let (key, _) = pair.split_once('=').unwrap_or((pair, ""));
+            let decoded = urlencoding::decode(key).unwrap_or_else(|_| key.into());
+            if sensitive(&decoded) {
+                format!("{key}=%5Bredacted%5D")
+            } else {
+                pair.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+    format!(
+        "{base}?{query}{}",
+        fragment
+            .map(|fragment| format!("#{fragment}"))
+            .unwrap_or_default()
+    )
+}
 pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiRequest {
     let mut r = r.clone();
     r.auth.bearer_token = "[redacted]".into();
     r.auth.basic_password = "[redacted]".into();
     r.auth.api_key_value = "[redacted]".into();
     r.auth.oauth.client_secret = "[redacted]".into();
+    for rows in [
+        &mut r.auth.oauth.authorization_params,
+        &mut r.auth.oauth.token_params,
+        &mut r.auth.oauth.refresh_params,
+    ] {
+        redact_rows(rows);
+        for row in rows {
+            if row.key.to_ascii_lowercase().contains("assertion") {
+                row.value = "[redacted]".into();
+            }
+        }
+    }
     r.auth.oauth.code.clear();
     r.auth.oauth.verifier.clear();
     for v in r
@@ -158,26 +208,13 @@ pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiReques
     if let Some(metadata) = &mut r.description_metadata {
         redact_metadata(metadata);
     }
-    if let Ok(mut url) = reqwest::Url::parse(&r.url) {
-        let pairs: Vec<_> = url
-            .query_pairs()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    if sensitive(&k) {
-                        "[redacted]".into()
-                    } else {
-                        v.to_string()
-                    },
-                )
-            })
-            .collect();
-        if !pairs.is_empty() {
-            url.query_pairs_mut().clear().extend_pairs(&pairs);
-        }
-        let _ = url.set_password(None);
-        let _ = url.set_username("");
-        r.url = url.to_string();
+    r.url = redact_url(&r.url);
+    for endpoint in [
+        &mut r.auth.oauth.authorization_url,
+        &mut r.auth.oauth.token_url,
+        &mut r.auth.oauth.refresh_url,
+    ] {
+        *endpoint = redact_url(endpoint);
     }
     if r.body_type == crate::models::BodyType::Json {
         fn scrub(v: &mut serde_json::Value) {

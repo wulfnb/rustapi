@@ -26,11 +26,24 @@ impl Default for HttpSettings {
         }
     }
 }
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum OAuthClientAuth {
+    #[default]
+    Body,
+    Basic,
+    Public,
+}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OAuthConfig {
     pub authorization_url: String,
     pub token_url: String,
+    pub refresh_url: String,
+    pub refresh_scope: String,
+    pub client_auth: OAuthClientAuth,
+    pub authorization_params: Vec<super::KeyValue>,
+    pub token_params: Vec<super::KeyValue>,
+    pub refresh_params: Vec<super::KeyValue>,
     pub client_id: String,
     pub client_secret: String,
     pub scope: String,

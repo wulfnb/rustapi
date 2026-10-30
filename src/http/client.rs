@@ -176,7 +176,11 @@ impl HttpService {
         let client = self.client(&r.settings)?;
         let mut r = r.clone();
         if r.auth.auth_type == AuthType::OAuth2 {
-            r.auth.bearer_token = super::oauth::access_token(self, &client, &r.auth.oauth).await?;
+            let mut token_settings = r.settings.clone();
+            token_settings.follow_redirects = false;
+            let token_client = self.client(&token_settings)?;
+            r.auth.bearer_token =
+                super::oauth::access_token(self, &token_client, &r.auth.oauth).await?;
             r.auth.auth_type = AuthType::BearerToken;
         }
         if matches!(r.auth.auth_type, AuthType::Inherit | AuthType::Unsupported) {

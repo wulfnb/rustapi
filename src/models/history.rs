@@ -71,6 +71,9 @@ impl RequestHistory {
         request.post_script.clear();
         let response = response.map(|mut r| {
             r.body = "[response omitted from history]".into();
+            if r.error.is_some() {
+                r.error = Some("Request failed (details omitted from history)".into());
+            }
             r.raw_body.clear();
             r.error = r
                 .error

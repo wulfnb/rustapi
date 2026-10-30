@@ -75,7 +75,7 @@ fn values(v: &Value) -> Vec<KeyValue> {
         })
         .unwrap_or_default()
 }
-fn auth(v: &Value, warnings: &mut Vec<String>) -> AuthConfig {
+fn auth(v: &Value, warnings: &mut Vec<String>) -> Result<AuthConfig> {
     let kind = v["type"].as_str().unwrap_or("inherit");
     let fields = values(&v[kind]);
     let get = |name: &str| {
@@ -117,6 +117,34 @@ fn auth(v: &Value, warnings: &mut Vec<String>) -> AuthConfig {
             a.oauth.scope = get("scope");
             a.oauth.redirect_uri = get("redirect_uri");
             a.oauth.grant = get("grant_type");
+            a.oauth.refresh_url = get("refreshTokenUrl");
+            a.oauth.refresh_scope = get("refreshTokenScope");
+            a.oauth.client_auth = match get("client_authentication").as_str() {
+                "" | "body" | "client_secret_post" => OAuthClientAuth::Body,
+                "header" | "client_secret_basic" => OAuthClientAuth::Basic,
+                "none" => OAuthClientAuth::Public,
+                _ => bail!("Unsupported OAuth client authentication option"),
+            };
+            let parameters = |name: &str| -> Result<Vec<KeyValue>> {
+                let value = v[kind]
+                    .as_array()
+                    .and_then(|fields| fields.iter().find(|field| field["key"] == name))
+                    .map(|field| field["value"].clone())
+                    .unwrap_or(Value::Null);
+                let value = if let Some(text) = value.as_str() {
+                    serde_json::from_str(text).context("Invalid OAuth parameter array")?
+                } else {
+                    value
+                };
+                anyhow::ensure!(
+                    value.is_null() || value.is_array(),
+                    "OAuth provider parameters must be an array"
+                );
+                Ok(values(&value))
+            };
+            a.oauth.authorization_params = parameters("authRequestParams")?;
+            a.oauth.token_params = parameters("tokenRequestParams")?;
+            a.oauth.refresh_params = parameters("refreshRequestParams")?;
             warnings.push("OAuth configuration imported; authorize locally before sending".into());
         }
         other => {
@@ -126,7 +154,7 @@ fn auth(v: &Value, warnings: &mut Vec<String>) -> AuthConfig {
             a.auth_type = AuthType::Unsupported;
         }
     }
-    a
+    Ok(a)
 }
 fn scripts(v: &Value) -> (String, String) {
     let mut pre = vec![];
@@ -268,7 +296,7 @@ fn request(
     );
     r.path_params = values(&v["url"]["variable"]);
     r.headers = values(&v["header"]);
-    r.auth = auth(&v["auth"], warnings);
+    r.auth = auth(&v["auth"], warnings)?;
     let body = &v["body"];
     match body["mode"].as_str().unwrap_or("") {
         "raw" => {
@@ -450,7 +478,7 @@ fn items(
                 imported_profile(&item["protocolProfileBehavior"], inherited)?;
             f.imported_settings = profile;
             (f.description, f.description_metadata) = decode_description(&item["description"]);
-            f.auth = auth(&item["auth"], warnings);
+            f.auth = auth(&item["auth"], warnings)?;
             f.variable_metadata = values(&item["variable"]);
             f.variables = f
                 .variable_metadata
@@ -502,7 +530,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             imported_profile(&v["protocolProfileBehavior"], &HttpSettings::default())?;
         c.imported_settings = profile;
         (c.description, c.description_metadata) = decode_description(&v["info"]["description"]);
-        c.auth = auth(&v["auth"], &mut warnings);
+        c.auth = auth(&v["auth"], &mut warnings)?;
         if c.auth.auth_type == AuthType::Inherit {
             c.auth.auth_type = AuthType::None;
         }

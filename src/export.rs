@@ -67,6 +67,26 @@ fn auth(auth: &AuthConfig) -> Result<Value> {
             .map(|(key, value)| json!({"key":key,"value":value,"type":"string"}))
             .collect(),
     );
+    if auth.auth_type == AuthType::OAuth2 {
+        let credentials = object[kind].as_array_mut().unwrap();
+        for (key, value) in [
+            ("refreshTokenUrl", json!(auth.oauth.refresh_url)),
+            ("refreshTokenScope", json!(auth.oauth.refresh_scope)),
+            (
+                "client_authentication",
+                json!(match auth.oauth.client_auth {
+                    OAuthClientAuth::Body => "body",
+                    OAuthClientAuth::Basic => "header",
+                    OAuthClientAuth::Public => "none",
+                }),
+            ),
+            ("authRequestParams", rows(&auth.oauth.authorization_params)),
+            ("tokenRequestParams", rows(&auth.oauth.token_params)),
+            ("refreshRequestParams", rows(&auth.oauth.refresh_params)),
+        ] {
+            credentials.push(json!({"key":key,"value":value}));
+        }
+    }
     Ok(object)
 }
 fn events(pre: &str, post: &str) -> Value {
