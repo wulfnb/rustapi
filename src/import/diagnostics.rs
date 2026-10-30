@@ -162,12 +162,28 @@ impl Scanner {
                     continue;
                 }
                 self.settings_and_auth(item, &base);
-                self.omitted(
-                    &item["response"],
-                    format!("{base}/response"),
-                    "saved_examples",
-                    "Saved response examples are not retained.",
-                );
+                if let Some(examples) = item["response"].as_array() {
+                    for (index, example) in examples.iter().enumerate() {
+                        if example["originalRequest"].is_object() {
+                            let temporary =
+                                serde_json::json!([{"request": example["originalRequest"]}]);
+                            let mut nested = Scanner::default();
+                            nested.items(&temporary, "/item");
+                            for diagnostic in nested.diagnostics {
+                                self.add(
+                                    diagnostic.path.replacen(
+                                        "/item/0/request",
+                                        &format!("{base}/response/{index}/originalRequest"),
+                                        1,
+                                    ),
+                                    &diagnostic.feature,
+                                    diagnostic.disposition,
+                                    &diagnostic.message,
+                                );
+                            }
+                        }
+                    }
+                }
                 let request = &item["request"];
                 let base = format!("{base}/request");
                 self.settings_and_auth(request, &base);

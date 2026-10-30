@@ -71,6 +71,7 @@ pub enum AsyncMessage {
 #[derive(Clone)]
 enum Action {
     Open(String, Box<ApiRequest>),
+    TryExample(Box<RequestExample>, Option<(String, String)>),
     Add(String, Option<String>),
     Delete(String, String),
     Duplicate(String, String),
@@ -517,6 +518,34 @@ impl RustApiApp {
     fn action(&mut self, action: Action) {
         match action {
             Action::Open(c, r) => self.tab_manager.open_tab(*r, Some(c)),
+            Action::TryExample(example, source) => {
+                let response = example.response();
+                let mut request = *example.request;
+                if let Some((cid, rid)) = source {
+                    if let Some(mut collection) =
+                        self.collections.iter().find(|c| c.id == cid).cloned()
+                    {
+                        request.id = rid.clone();
+                        if let Some(parent) = collection.request_mut(&rid) {
+                            *parent = request.clone();
+                        }
+                        if let Some(context) = collection
+                            .ordered_requests(None)
+                            .into_iter()
+                            .find(|r| r.id == rid)
+                        {
+                            request = context;
+                        }
+                    }
+                }
+                request.id = uuid::Uuid::new_v4().to_string();
+                request.name = example.name;
+                self.tab_manager.open_tab(request, None);
+                if let Some(tab) = self.tab_manager.active_tab_mut() {
+                    tab.is_modified = true;
+                    tab.response = response.ok();
+                }
+            }
             Action::Add(id, folder) => {
                 if let Some(mut c) = self.collections.iter().find(|c| c.id == id).cloned() {
                     let mut r = ApiRequest::new("New Request");
@@ -1041,6 +1070,8 @@ impl RustApiApp {
             let mut send = false;
             let mut code = false;
             let mut save = None;
+            let mut tried = None;
+            let mut example_source = None;
             if let Some(tab) = self.tab_manager.active_tab_mut() {
                 let before = serde_json::to_vec(&tab.request).unwrap_or_default();
                 ui.horizontal(|ui| {
@@ -1081,6 +1112,11 @@ impl RustApiApp {
                             save = Some(tab.id.clone());
                         }
                     });
+                example_source = tab
+                    .collection_id
+                    .as_ref()
+                    .map(|cid| (cid.clone(), tab.request.id.clone()));
+                tried = render_examples(ui, &mut tab.request, tab.response.as_ref());
                 if serde_json::to_vec(&tab.request).unwrap_or_default() != before {
                     tab.is_modified = true;
                 }
@@ -1097,6 +1133,9 @@ impl RustApiApp {
                 ui.centered_and_justified(|ui| {
                     ui.label("Create a request or import a collection to get started.");
                 });
+            }
+            if let Some(example) = tried {
+                self.action(Action::TryExample(Box::new(example), example_source));
             }
             if send {
                 self.send_request();
@@ -1135,6 +1174,19 @@ fn render_tree(
             let response = ui.selectable_label(false, format!("{}  {}", r.method.as_str(), r.name));
             if response.clicked() {
                 *action = Some(Action::Open(cid.into(), Box::new(r.clone())));
+            }
+            for example in &r.examples {
+                ui.indent(&example.id, |ui| {
+                    if ui
+                        .selectable_label(false, format!("Example: {}", example.name))
+                        .clicked()
+                    {
+                        *action = Some(Action::TryExample(
+                            Box::new(example.clone()),
+                            Some((cid.into(), r.id.clone())),
+                        ));
+                    }
+                });
             }
             response.context_menu(|ui| {
                 for (label, a) in [

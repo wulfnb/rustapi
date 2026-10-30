@@ -155,6 +155,8 @@ pub struct ApiRequest {
     pub description_metadata: Option<super::DescriptionMetadata>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub imported_settings: std::collections::BTreeMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub examples: Vec<super::RequestExample>,
     pub method: HttpMethod,
     pub url: String,
     pub headers: Vec<KeyValue>,
@@ -193,6 +195,7 @@ impl Default for ApiRequest {
             description: String::new(),
             description_metadata: None,
             imported_settings: Default::default(),
+            examples: vec![],
             method: HttpMethod::GET,
             url: String::new(),
             headers: vec![],
@@ -226,12 +229,17 @@ impl ApiRequest {
 
     /// Create a duplicate of this request with a new ID
     pub fn duplicate(&self) -> Self {
+        let mut copy = self.clone();
+        for example in &mut copy.examples {
+            example.id = Uuid::new_v4().to_string();
+            example.request.id = Uuid::new_v4().to_string();
+        }
         Self {
             id: Uuid::new_v4().to_string(),
             name: format!("{} (copy)", self.name),
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            ..self.clone()
+            ..copy
         }
     }
 }

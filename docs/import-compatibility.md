@@ -43,7 +43,7 @@ recoverable duplicate instead of losing the request.
 ## Known import omissions
 
 Collection v2.1 and environment JSON imports now produce a structured report for
-known data they cannot retain or apply: saved response examples, unsupported behavior settings,
+known data they cannot retain or apply: unsupported behavior settings,
 malformed description/type representations and unsupported authentication configurations.
 
 The desktop presents **Review import omissions** before saving. Cancel or close
@@ -187,3 +187,15 @@ fields (authorization, proxy-authorization, host, content-length, content-type)
 are rejected. Sending and snippets share this preparation. Python/JavaScript
 map-based snippets reject repeated header fields explicitly; cURL/Rust preserve
 them. Transport-generated cookies, host and content length remain runtime managed.
+
+## Saved examples
+
+v2.1 saved responses retain ordered headers, status, body, original request and
+extension metadata. Examples are local request snapshots with exact saved bytes,
+limited to 100 examples per request and 1 MiB per response. Nested examples are
+rejected. The desktop can capture a response, edit/rename/duplicate/delete examples
+and Try a snapshot in a separate tab without replacing its parent. Save the parent
+request to persist example changes. Editing a response body replaces its bytes with
+UTF-8 text. Capturing/default exporting redacts recognized sensitive fields; history
+omits examples entirely. Imported examples keep source values until explicitly
+redacted for export. The tree exposes saved examples as separate Try actions.

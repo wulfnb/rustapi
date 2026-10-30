@@ -241,6 +241,11 @@ fn request(
     inherited: &HttpSettings,
 ) -> Result<ApiRequest> {
     let v = &item["request"];
+    if let Some(url) = v.as_str() {
+        let mut normalized = item.clone();
+        normalized["request"] = serde_json::json!({"url": url});
+        return request(&normalized, warnings, inherited);
+    }
     let mut r = ApiRequest::new(text(&item["name"]));
     let (settings, mut profile) = imported_profile(&item["protocolProfileBehavior"], inherited)?;
     let (settings, request_profile) = imported_profile(&v["protocolProfileBehavior"], &settings)?;
@@ -248,10 +253,6 @@ fn request(
     r.settings = settings;
     r.imported_settings = profile;
     (r.description, r.description_metadata) = decode_description(&v["description"]);
-    if let Some(url) = v.as_str() {
-        r.url = url.into();
-        return Ok(r);
-    }
     r.method = serde_json::from_value(Value::String(v["method"].as_str().unwrap_or("GET").into()))
         .context("Unsupported HTTP method")?;
     r.url = if v["url"].is_object() {
@@ -337,6 +338,60 @@ fn request(
         ),
     }
     (r.pre_script, r.post_script) = scripts(item);
+    if let Some(examples) = item["response"].as_array() {
+        anyhow::ensure!(examples.len() <= 100, "At most 100 examples per request");
+        for source in examples {
+            let snapshot = if source["originalRequest"].is_object() {
+                request(
+                    &serde_json::json!({"name": r.name, "request": source["originalRequest"]}),
+                    warnings,
+                    &r.settings,
+                )?
+            } else {
+                r.clone()
+            };
+            let body = text(&source["body"]);
+            let response = ApiResponse {
+                status: source["code"]
+                    .as_u64()
+                    .filter(|code| (100..=599).contains(code))
+                    .context("Example status must be 100..599")? as u16,
+                status_text: text(&source["status"]),
+                headers: values(&source["header"])
+                    .into_iter()
+                    .map(|row| (row.key, row.value))
+                    .collect(),
+                size: body.len(),
+                body,
+                ..Default::default()
+            };
+            let mut example = RequestExample::capture(text(&source["name"]), &snapshot, &response)?;
+            if let Some(object) = source.as_object() {
+                example.metadata = object
+                    .iter()
+                    .filter(|(key, _)| {
+                        ![
+                            "name",
+                            "originalRequest",
+                            "code",
+                            "status",
+                            "header",
+                            "body",
+                            "id",
+                        ]
+                        .contains(&key.as_str())
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect();
+            }
+            r.examples.push(example);
+        }
+    } else {
+        anyhow::ensure!(
+            item["response"].is_null(),
+            "Response examples must be an array"
+        );
+    }
     if !r.pre_script.is_empty() || !r.post_script.is_empty() {
         warnings.push(format!(
             "{}: scripts preserved; only the documented synchronous pm.* subset is supported",

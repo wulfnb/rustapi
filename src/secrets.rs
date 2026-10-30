@@ -204,6 +204,19 @@ pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiReques
             r.body = body.to_string();
         }
     }
+    for example in &mut r.examples {
+        *example.request = redact_request(&example.request);
+        for (key, value) in &mut example.response.headers {
+            if sensitive(key) {
+                *value = "[redacted]".into();
+            }
+        }
+        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&example.response.body) {
+            redact_json(&mut value);
+            example.set_text(value.to_string());
+        }
+        redact_metadata(&mut example.metadata);
+    }
     r
 }
 pub fn redact_collection(c: &crate::models::Collection) -> crate::models::Collection {

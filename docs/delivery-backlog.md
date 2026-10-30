@@ -16,7 +16,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 
 ## Daily workflow
 
-- [ ] Saved request/response examples with import, persistence, editing and Try.
+- [x] Saved request/response examples with import, persistence, editing and Try.
 - [ ] Workspace documents with offline viewing/editing.
 - [ ] Request/folder/row description editing.
 - [ ] Lossless bulk row editing and persistent header presets.

@@ -214,3 +214,21 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
 The import-correctness group is complete within the documented supported subset.
 Next: saved request/response examples, followed by the remaining daily workflow
 features and compatibility group in the active delivery backlog.
+
+## Step 11 — Saved request/response examples
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Import saved v2.1 responses and original request snapshots with ordered headers,
+  status, extension metadata and bounded exact response bytes (including binary).
+- Capture, rename, edit, duplicate and delete examples from the request editor.
+  Save the parent to persist edits. Tree/example Try actions open an independent
+  request tab and response without replacing the original request.
+- Default capture/export redacts recognized sensitive fields; history drops examples.
+  Duplication regenerates example IDs. Nested and oversized examples are rejected.
+- Full local suite: **147 passed**; formatting and warnings-denied Clippy passed.
+- The final suite exposed a macOS OAuth callback socket inheriting nonblocking mode;
+  accepted sockets now explicitly use blocking reads with the existing timeout.
+
+Next: workspace documents and description editing, then bulk rows/presets,
+variable inspection and richer response views.

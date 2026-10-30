@@ -337,6 +337,11 @@ pub fn validate_collection(c: &Collection) -> anyhow::Result<()> {
         seen: &mut std::collections::HashSet<String>,
     ) -> anyhow::Result<()> {
         for r in requests {
+            anyhow::ensure!(r.examples.len() <= 100, "At most 100 examples per request");
+            for example in &r.examples {
+                example.validate()?;
+                anyhow::ensure!(seen.insert(example.id.clone()), "Duplicate example ID");
+            }
             anyhow::ensure!(
                 !r.id.is_empty() && seen.insert(r.id.clone()),
                 "Empty or duplicate request ID"

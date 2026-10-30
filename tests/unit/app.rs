@@ -320,3 +320,45 @@ fn desktop_windows_persist_environment_and_collection_edits() {
     h.click("Clear all cookies");
     h.click("Close");
 }
+
+#[test]
+fn saved_example_ui_capture_try_and_restart() {
+    let _profile = Profile::new();
+    let mut app = app_with_collection();
+    let cid = app.collections[0].id.clone();
+    app.action(Action::Add(cid.clone(), None));
+    let rid = app.tab_manager.active_tab().unwrap().request.id.clone();
+    app.tab_manager.active_tab_mut().unwrap().response = Some(ApiResponse {
+        status: 201,
+        body: "{\"id\":9}".into(),
+        ..Default::default()
+    });
+    let mut h = Harness::new(app, |ctx: &egui::Context, app: &mut RustApiApp| {
+        app.render(ctx)
+    });
+    h.click("Saved examples (0)");
+    h.click("Save response as example");
+    assert_eq!(
+        h.state
+            .tab_manager
+            .active_tab()
+            .unwrap()
+            .request
+            .examples
+            .len(),
+        1
+    );
+    let tab = h.state.tab_manager.active_tab().unwrap().id.clone();
+    assert!(h.state.save_tab(&tab, None));
+    let saved = storage::load_all_collections();
+    let example = saved[0].request(&rid).unwrap().examples[0].clone();
+    h.state.action(Action::TryExample(
+        Box::new(example),
+        Some((cid, rid.clone())),
+    ));
+    let tried = h.state.tab_manager.active_tab().unwrap();
+    assert_ne!(tried.request.id, rid);
+    assert_eq!(tried.response.as_ref().unwrap().status, 201);
+    assert!(tried.collection_id.is_none());
+    assert_eq!(saved[0].request(&rid).unwrap().examples.len(), 1);
+}

@@ -167,7 +167,12 @@ fn known_omissions_report_exact_source_locations_without_values() {
         .iter()
         .map(|d| d.path.as_str())
         .collect();
-    assert_eq!(paths, ["/item/0/item/0/response",].into_iter().collect());
+    assert_eq!(
+        paths,
+        ["/item/0/item/0/protocolProfileBehavior",]
+            .into_iter()
+            .collect()
+    );
     for path in paths {
         assert!(source.pointer(path).is_some(), "{path}");
     }

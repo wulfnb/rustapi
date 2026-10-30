@@ -172,6 +172,7 @@ impl Authorization {
         while start.elapsed() < Duration::from_secs(120) && !cancel.is_cancelled() {
             match self.listener.accept() {
                 Ok((mut stream, _)) => {
+                    stream.set_nonblocking(false)?;
                     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
                     let mut buf = [0; 16384];
                     let n = stream.read(&mut buf)?;
