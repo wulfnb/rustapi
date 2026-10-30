@@ -363,3 +363,21 @@ delivery is recorded in Git history.
   unsupported boundaries.
 
 Next: bounded, redacted script/network debugging console.
+
+## Step 19 — Bounded redacted debugging console
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Shared session log records network metadata, script log/warn/error and generic
+  execution failures. Desktop filter/copy/clear and explicit CLI --debug-report
+  expose the same redacted events; normal reports remain separate.
+- Bound queue/events/script arguments, handle circular values and preserve logs
+  before ordinary errors without applying failed mutations. Paths/query/body/header
+  values and raw transport exceptions are not stored in network traces.
+- Context redaction covers values, sensitive JSON keys, nested JSON strings and
+  computed keys. Limits and encoded/custom-data caveats are documented.
+- Full local suite: **181 passed**; formatting and warnings-denied Clippy passed.
+  Tests prove ordering, redaction of request/response/variable/object values, logs
+  before failures, VM/queue caps, CLI opt-in and desktop copy/clear.
+
+Next: OAuth provider/client-auth options, then additional code-generation targets.

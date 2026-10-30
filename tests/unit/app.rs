@@ -445,3 +445,22 @@ fn desktop_v3_import_uses_directory_adapter_and_preserves_source() {
         yaml
     );
 }
+
+#[test]
+fn desktop_debug_console_copies_redacted_events_and_clears_session() {
+    let _profile = Profile::new();
+    let app = RustApiApp::default();
+    app.service
+        .debug
+        .push("network", "info", serde_json::json!({"status":200}));
+    let mut h = Harness::new(app, |ctx: &egui::Context, app: &mut RustApiApp| {
+        app.render(ctx)
+    });
+    h.click("Debug console");
+    h.click("Copy redacted events");
+    assert!(h.output.platform_output.copied_text.contains("200"));
+    h.click("Clear console");
+    assert!(h.state.service.debug.snapshot().is_empty());
+    h.click("Close console");
+    assert!(!h.state.show_debug);
+}

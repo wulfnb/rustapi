@@ -12,6 +12,7 @@ pub struct Workflow {
 }
 #[derive(Default)]
 pub struct ScriptResult {
+    pub logs: Vec<crate::debug::ScriptLog>,
     pub tests: Vec<TestResult>,
     pub workflow: Workflow,
 }
@@ -66,7 +67,7 @@ pub fn execute_request(
     });
     let input = json!({"collection":vars.collection,"environment":vars.environment,"data":vars.data,"local":vars.local,"response":response.cloned().unwrap_or_default(),"request":request_view,"readonly":response.is_some()});
     let input = serde_json::to_string(&input.to_string())?;
-    let program=format!("const __input=JSON.parse({input});\n{BOOTSTRAP}\ntry{{const result=(function(){{\n{script}\n}})();if(result instanceof __Promise)throw new Error('Asynchronous scripts unsupported');}}catch(error){{if(error!==__skip)throw error;}}\nJSON.stringify({{collection:__input.collection,environment:__input.environment,local:__input.local,tests:__tests,request:__input.request,workflow:__flow}})");
+    let program=format!("let __fatal=null;const __input=JSON.parse({input});\n{BOOTSTRAP}\ntry{{const result=(function(){{\n{script}\n}})();if(result instanceof __Promise)throw new Error('Asynchronous scripts unsupported');}}catch(error){{if(error!==__skip)__fatal=String(error).startsWith('Error: Unsupported API:')?String(error):'Script failed';}}\nJSON.stringify({{collection:__input.collection,environment:__input.environment,local:__input.local,tests:__tests,request:__input.request,workflow:__flow,logs:__logs,fatal:__fatal}})");
     let schema_instance = response
         .and_then(|response| serde_json::from_str::<serde_json::Value>(&response.body).ok());
     let output = context.with(|ctx| {
@@ -93,6 +94,21 @@ pub fn execute_request(
         bail!("Asynchronous scripts are unsupported; use synchronous pm.* APIs");
     }
     let output: serde_json::Value = serde_json::from_str(&output)?;
+    let mut redactor = crate::debug::LogRedactor::new(vars, request.as_deref(), response);
+    for field in ["collection", "environment", "local"] {
+        redactor.add_json(&output[field]);
+    }
+    if !output["request"].is_null() {
+        redactor.add_json(&output["request"]);
+    }
+    let logs = redactor.logs(&output["logs"]);
+    if !output["fatal"].is_null() {
+        return Err(crate::debug::ScriptFailure {
+            message: "Script failed or used an unsupported API".into(),
+            logs,
+        }
+        .into());
+    }
     let collection = serde_json::from_value(output["collection"].clone())?;
     let environment = serde_json::from_value(output["environment"].clone())?;
     let local = serde_json::from_value(output["local"].clone())?;
@@ -114,5 +130,9 @@ pub fn execute_request(
         request.body_type = view.body_type;
         request.body = view.body;
     }
-    Ok(ScriptResult { tests, workflow })
+    Ok(ScriptResult {
+        tests,
+        workflow,
+        logs,
+    })
 }

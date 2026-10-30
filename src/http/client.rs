@@ -80,6 +80,7 @@ impl CookieJar {
 }
 #[derive(Default)]
 pub struct HttpService {
+    pub debug: crate::debug::DebugLog,
     clients: Mutex<HashMap<String, Client>>,
     runtime: std::sync::OnceLock<std::result::Result<tokio::runtime::Runtime, String>>,
     pub cookies: Arc<CookieJar>,
@@ -136,6 +137,7 @@ impl HttpService {
     }
     pub fn execute(&self, request: &ApiRequest, cancel: &Cancellation) -> ApiResponse {
         let start = Instant::now();
+        self.debug.push("network","info",serde_json::json!({"event":"request","method":request.method.as_str(),"url":crate::debug::safe_url(&request.url),"configured_headers":request.headers.iter().filter(|header|header.enabled).count()}));
         let run = || -> Result<ApiResponse> {
             if cancel.is_cancelled() {
                 bail!("Request cancelled");
@@ -159,14 +161,16 @@ impl HttpService {
                 }
             })
         };
-        match run() {
+        let response = match run() {
             Ok(r) => r,
             Err(e) => ApiResponse {
                 time_ms: start.elapsed().as_millis(),
                 error: Some(format!("Request failed: {e:#}")),
                 ..Default::default()
             },
-        }
+        };
+        self.debug.push("network",if response.error.is_some(){"error"}else{"info"},serde_json::json!({"event":"response","status":response.status,"headers_ms":response.headers_time_ms,"total_ms":response.time_ms,"bytes":response.size,"error":response.error.is_some(),"cancelled":cancel.is_cancelled()}));
+        response
     }
     async fn execute_async(&self, r: &ApiRequest, start: Instant) -> Result<ApiResponse> {
         let client = self.client(&r.settings)?;

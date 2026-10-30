@@ -101,9 +101,19 @@ fn execute_with_flow(
         let mut draft = r.clone();
         let result =
             crate::scripts::execute_request(&r.pre_script, vars, Some(&mut draft), None, cancel)?;
+        for log in result.logs {
+            service.debug.push(
+                "script",
+                &log.level,
+                serde_json::json!({"phase":"beforeRequest","args":log.args}),
+            );
+        }
         workflow = result.workflow;
         let mut pre = result.tests;
         if workflow.skip_request {
+            service
+                .debug
+                .push("execution", "info", serde_json::json!({"event":"skipped"}));
             return Ok(ApiResponse {
                 skipped: true,
                 status_text: "Skipped".into(),
@@ -220,6 +230,13 @@ fn execute_with_flow(
             Some(&response),
             cancel,
         )?;
+        for log in result.logs {
+            service.debug.push(
+                "script",
+                &log.level,
+                serde_json::json!({"phase":"afterResponse","args":log.args}),
+            );
+        }
         if result.workflow.next_set {
             workflow.next_set = true;
             workflow.next_request = result.workflow.next_request;
@@ -231,7 +248,21 @@ fn execute_with_flow(
     let mut work = work;
     match work() {
         Ok(response) => (response, workflow),
-        Err(e) => (ApiResponse::error(e.to_string()), Default::default()),
+        Err(e) => {
+            if let Some(failure) = e.downcast_ref::<crate::debug::ScriptFailure>() {
+                for log in &failure.logs {
+                    service
+                        .debug
+                        .push("script", &log.level, serde_json::json!({"args":log.args}));
+                }
+            }
+            service.debug.push(
+                "execution",
+                "error",
+                serde_json::json!({"event":"request/script/extraction failed"}),
+            );
+            (ApiResponse::error(e.to_string()), Default::default())
+        }
     }
 }
 pub fn run(

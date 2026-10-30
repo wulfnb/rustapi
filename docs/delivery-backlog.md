@@ -29,7 +29,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 - [x] v3 YAML collection-directory import/export with bounded resource resolution.
 - [x] Broader documented script support, including request mutation and workflow control.
 - [x] JSON Schema response assertions using a maintained validator.
-- [ ] Bounded script/network debugging console with redaction.
+- [x] Bounded script/network debugging console with redaction.
 - [ ] OAuth provider/client-auth options.
 - [ ] Additional snippet targets: raw HTTP, Go, C#, Java and Dart.
 

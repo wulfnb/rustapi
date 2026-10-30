@@ -104,7 +104,7 @@ Supported APIs:
 - `pm.test(name, fn)` and `pm.expect(value)` with chain words `to`, `be`, `have`, `and`,
   `that`, `is`; assertions `equal`, `eql`, `equals`, `include`, `contain`, `property`,
   `status`, `true`, `false`. equal/equals use strict equality; eql and deep.equal compare JSON structures independent of object-key order.
-- `console.log/warn/error` are no-ops so secrets are not written into run reports.
+- `console.log/warn/error` feed the bounded, redacted session debugging console. Logs are separate from ordinary run reports.
 
 Unsupported `pm.*` APIs throw explicit errors, including `pm.sendRequest`,
 `pm.globals`, `pm.vault`, external packages, unlisted Chai syntax and asynchronous
@@ -321,7 +321,7 @@ containment, property chaining and common empty/exist/null/undefined/ok attribut
 Response headers provide all/toObject and to.have.header; to.have.jsonSchema uses
 the same bounded offline validator as native assertions. Full Chai compatibility,
 auxiliary network calls, packages, promises/timers and unlisted helpers remain
-unsupported. console remains quiet until the separate debugging-console slice.
+unsupported. console.log/warn/error use the separate bounded debugging log.
 
 Pre-request scripts can update method, URL, structured query rows, headers and raw
 bodies through pm.request. Row APIs include get/has/all/toObject/add/upsert/remove;
@@ -340,3 +340,25 @@ starts at the first selected request. Standalone sends do not follow next-reques
 selectors. Limits are 1000 executed steps per iteration and 100000 per run; excess
 is a failed run. JSON reports mark skipped steps; JUnit emits skipped test cases.
 The original source/heap/stack/time limits still apply to each script execution.
+
+## Debug console
+
+Desktop Debug console shows script/network/execution events with filtering, Clear
+and Copy redacted events. The same session log is available to CLI run only when
+--debug-report FILE is explicit. Ordinary JSON/JUnit run reports do not embed logs;
+nothing writes debug events to disk automatically. Switching workspaces creates
+a fresh service/log. The queue retains the latest 256 events with 4096-byte details.
+
+Network events contain method, origin with path omitted, header count, status,
+headers/total timing, size and generic error/cancellation flags. They never retain
+bodies, query strings, URL userinfo, transport header values or raw error messages.
+Script log capture limits entries to 100 per execution, ten arguments, bounded
+object/array depth/items/scalars, and handles circular values. Context redaction
+uses variable/auth/header/query/body/response values, sensitive JSON field names
+and dynamic keys; it deliberately masks conservatively. JSON contained in log
+strings is inspected too. Encoded or otherwise transformed/custom data is not
+guaranteed recognizable; review copied/exported diagnostics before sharing.
+
+Logs preceding ordinary script errors survive, while failed script mutations are
+not applied. Resource-limit/async failures record generic execution errors; they
+may not retain intermediate VM logs. Error events avoid arbitrary exception text.

@@ -140,6 +140,8 @@ pub struct RustApiApp {
     vault_unlocked: bool,
     secret_name: String,
     secret_value: String,
+    show_debug: bool,
+    debug_filter: String,
     show_inspector: bool,
     reveal_inspector: bool,
     show_cookies: bool,
@@ -239,6 +241,8 @@ impl Default for RustApiApp {
             vault_unlocked: false,
             secret_name: String::new(),
             secret_value: String::new(),
+            show_debug: false,
+            debug_filter: String::new(),
             show_inspector: false,
             reveal_inspector: false,
             show_cookies: false,
@@ -989,6 +993,9 @@ impl RustApiApp {
                 if ui.button("Vault").clicked() {
                     self.show_vault = true;
                 }
+                if ui.button("Debug console").clicked() {
+                    self.show_debug = true;
+                }
                 if ui.button("Inspect variables").clicked() {
                     self.show_inspector = true;
                     self.reveal_inspector = false;
@@ -1627,6 +1634,22 @@ impl RustApiApp {
         self.environment_window(ctx);
         self.runner_window(ctx);
         self.vault_window(ctx);
+        if self.show_debug {
+            egui::Window::new("Debug console").default_size([900.,550.]).vscroll(true).show(ctx,|ui| {
+                let events=self.service.debug.snapshot();
+                ui.horizontal(|ui|{
+                    ui.label(format!("{} / 256 session events",events.len()));
+                    if ui.button("Clear console").clicked(){self.service.debug.clear();}
+                    if ui.button("Copy redacted events").clicked(){ui.output_mut(|output|output.copied_text=serde_json::to_string_pretty(&serde_json::json!({"schema_version":1,"events":events})).unwrap_or_default());}
+                });
+                ui.label("Filter console");ui.text_edit_singleline(&mut self.debug_filter);
+                ui.small("Session memory only. Network paths, query values, bodies and header values are omitted. Script values use conservative context redaction; encoded/custom data may need review before sharing.");
+                for (index,event) in events.iter().enumerate(){let text=serde_json::to_string(&event).unwrap_or_default();if !self.debug_filter.is_empty() && !text.to_lowercase().contains(&self.debug_filter.to_lowercase()){continue;}
+                    egui::CollapsingHeader::new(format!("{} {} {}",event.time,event.kind,event.level)).id_salt(("debug_event",index,&event.time)).show(ui,|ui|{ui.monospace(serde_json::to_string_pretty(&event.details).unwrap_or_default());});
+                }
+                if ui.button("Close console").clicked(){self.show_debug=false;}
+            });
+        }
         if self.show_inspector {
             egui::Window::new("Variables and effective headers").default_size([900.,500.]).vscroll(true).show(ctx,|ui| {
                 ui.checkbox(&mut self.reveal_inspector,"Reveal values including credentials");

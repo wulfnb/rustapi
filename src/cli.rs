@@ -10,7 +10,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi export INPUT.json OUTPUT.json [--format v2.1|environment|native|v3] [--include-credentials] [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
+const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE] [--debug-report FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi export INPUT.json OUTPUT.json [--format v2.1|environment|native|v3] [--include-credentials] [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
 pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     if args == ["--version"] {
         println!("RustAPI {}", env!("CARGO_PKG_VERSION"));
@@ -61,6 +61,7 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
                     "--delay",
                     "--report-json",
                     "--report-junit",
+                    "--debug-report",
                     "--curl",
                     "--format"
                 ]
@@ -92,6 +93,10 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
             || (!options.contains_key("--format")
                 && !options.contains_key("--include-credentials")),
         "Export options are only available for export"
+    );
+    anyhow::ensure!(
+        command == "run" || !options.contains_key("--debug-report"),
+        "--debug-report is only available for run"
     );
     let allow_lossy = options.contains_key("--allow-lossy-import");
     let root = if let Some(path) = options.get("--workspace") {
@@ -226,20 +231,22 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
             let cancel = Cancellation::default();
             let signal = cancel.clone();
             ctrlc::set_handler(move || signal.cancel()).context("Install interrupt handler")?;
-            let report = runner::run(
-                &HttpService::default(),
-                &c,
-                env.as_ref(),
-                &settings,
-                secrets,
-                &cancel,
-            )?;
+            let service = HttpService::default();
+            let report = runner::run(&service, &c, env.as_ref(), &settings, secrets, &cancel)?;
             let json = serde_json::to_vec_pretty(&report)?;
             if let Some(p) = options.get("--report-json") {
                 workspace::atomic_write(&absolute(p)?, &json)?;
             }
             if let Some(p) = options.get("--report-junit") {
                 workspace::atomic_write(&absolute(p)?, report.junit().as_bytes())?;
+            }
+            if let Some(path) = options.get("--debug-report") {
+                workspace::atomic_write(
+                    &absolute(path)?,
+                    &serde_json::to_vec_pretty(
+                        &serde_json::json!({"schema_version":1,"events":service.debug.snapshot()}),
+                    )?,
+                )?;
             }
             println!("{}", String::from_utf8(json)?);
             Ok(Some(if report.passed() { 0 } else { 1 }))
