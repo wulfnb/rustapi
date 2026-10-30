@@ -34,6 +34,36 @@ and their load errors are shown. Writes use temporary files and atomic replaceme
 Cross-collection moves save the destination first; a failed source save retains a
 recoverable duplicate instead of losing the request.
 
+## Known import omissions
+
+Collection v2.1 and environment JSON imports now produce a structured report for
+known data they cannot retain: request/folder/row descriptions, saved response
+examples, structured path variables, request behavior settings, multipart part MIME
+types and additional files, variable type metadata, disabled collection/folder
+variables and unsupported authentication configurations.
+
+The desktop presents **Review import omissions** before saving. Cancel or close
+the review to discard the pending import; choose **Import with omissions** to save
+the supported subset. Changing workspaces discards a pending review.
+
+CLI `import` and `run` reject known omissions with exit **2** unless
+`--allow-lossy-import` is supplied. This also applies to an imported environment used
+by `run`. Rejection does not save collection/environment data or send requests;
+workspace initialization may create its manifest and empty directories first.
+
+For `import`, `--import-report` writes a version-1 JSON report on stdout instead of
+saved paths. It contains `requires_confirmation` and diagnostics with a JSON Pointer
+`path`, stable `feature` code, `severity`, `disposition` and `message`. Reports do not
+copy source field values, request names or response bodies. Output is limited to 256
+details plus an overflow notice; overflow still requires confirmation. Check the exit
+code to distinguish a saved import from rejection or a subsequent storage failure.
+
+This flag is not a dry run: safe imports are saved normally. Malformed/unsupported
+documents still fail parsing and do not produce an omission report. The report covers
+the known fields listed above, not every possible extension or scripting API. Empty
+reports are not a full-fidelity guarantee. Native JSON and cURL imports retain their
+existing validation paths. Preserving the omitted fields remains future work.
+
 ## Variables
 
 Precedence, from broad to narrow:

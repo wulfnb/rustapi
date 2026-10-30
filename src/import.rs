@@ -2,11 +2,26 @@
 use crate::models::*;
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
+mod diagnostics;
+pub use diagnostics::{ImportDiagnostic, ImportDisposition, ImportReport, ImportSeverity};
 #[derive(Debug)]
 pub struct ImportResult {
     pub collection: Option<Collection>,
     pub environment: Option<Environment>,
     pub warnings: Vec<String>,
+    pub diagnostics: Vec<ImportDiagnostic>,
+}
+impl ImportResult {
+    pub fn requires_confirmation(&self) -> bool {
+        !self.diagnostics.is_empty()
+    }
+    pub fn report(&self) -> ImportReport<'_> {
+        ImportReport {
+            schema_version: 1,
+            requires_confirmation: self.requires_confirmation(),
+            diagnostics: &self.diagnostics,
+        }
+    }
 }
 fn text(v: &Value) -> String {
     v.as_str().map(String::from).unwrap_or_else(|| {
@@ -260,6 +275,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             collection: Some(c),
             environment: None,
             warnings,
+            diagnostics: diagnostics::collection(&v),
         })
     } else if v["values"].is_array() {
         let mut e = Environment::new(text(&v["name"]));
@@ -268,6 +284,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             collection: None,
             environment: Some(e),
             warnings,
+            diagnostics: diagnostics::environment(&v),
         })
     } else {
         let mut c: Collection = serde_json::from_value(v)?;
@@ -280,6 +297,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             collection: Some(c),
             environment: None,
             warnings,
+            diagnostics: vec![],
         })
     }
 }
@@ -395,5 +413,6 @@ pub fn curl(command: &str) -> Result<ImportResult> {
         collection: Some(c),
         environment: None,
         warnings: vec![],
+        diagnostics: vec![],
     })
 }

@@ -8,7 +8,7 @@ This checkpoint adds fixtures and baseline tests without changing import behavio
 | [Nested collection](../tests/fixtures/collection-v2.1.json) | Supported subset | Retain nested ordering, inherited auth/variables, scripts and enabled flags. Existing workflow tests cover this. |
 | [Body modes](../tests/fixtures/import/body-modes.json) | Supported subset | JSON, raw text, URL-encoded, single-file multipart, binary file references and no body; retain disabled rows. Files are references only, not opened during import. |
 | [Environment](../tests/fixtures/import/environment.json) | Supported subset | Preserve variable values and disabled flags; scalar values become strings. |
-| [Metadata gaps](../tests/fixtures/import/metadata-gaps.json) | Known omissions, not a fidelity pass | Request/folder/row descriptions, URL path variables, saved examples, request settings, additional multipart files and part MIME types need exact diagnostics before persistence. This fixture is input for step 3, not an assertion that data loss is correct. |
+| [Metadata gaps](../tests/fixtures/import/metadata-gaps.json) | Known omissions, not a fidelity pass | Request/folder/row descriptions, URL path variables, saved examples, request settings, additional multipart files and part MIME types need exact diagnostics before persistence. Step 3 reports these omissions before saving; field preservation is still pending. |
 | [Unsupported YAML](../tests/fixtures/import/unsupported-v3.yaml) | Rejected boundary | Synthetic YAML input, not a complete external v3 export. Must fail without saving collection/environment data. A real v3 adapter/conformance corpus remains E04 work. |
 | Variants generated from body fixture | Rejected boundary | v1/v2.0/v3 schema markers and unknown/GraphQL body modes fail with exit 2. Existing JSON parser cannot ingest YAML. |
 
@@ -32,7 +32,7 @@ native GUI interaction and current coverage percentages are separate release gat
 
 ## First implementation slice
 
-Step 3 adds structured, value-free diagnostics for the known omitted fields, presents
+Step 3 implements structured, value-free diagnostics for the known omitted fields, presents
 them before saving, and requires explicit continuation for lossy imports. CLI output
 must be machine-readable when requested. Keep field preservation, path substitution
 and multipart execution changes in later commits; diagnostics must not imply those

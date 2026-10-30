@@ -1,6 +1,6 @@
 # RustAPI implementation progress
 
-Updated: **2026-10-29**. Source baseline for the current step: `cb8c870`.
+Updated: **2026-10-29**. Source baseline for the current step: `688edcd`.
 
 ## Working agreement
 
@@ -14,7 +14,7 @@ Updated: **2026-10-29**. Source baseline for the current step: `cb8c870`.
 
 ## Step 1 — Independent product wording
 
-Status: **complete**, verified locally. Delivery is recorded in Git history.
+Status: **complete**, verified locally and pushed to `origin/main` as `966ecd0`.
 
 - Renamed the gap analysis, implementation plan, import compatibility and historical
   audit documents; updated their links and converted comparison copy to product requirements.
@@ -41,7 +41,7 @@ packaged GUI validation. No new feature package is complete.
 
 ## Step 2 — E00 baseline and import fixture inventory
 
-Status: **complete**, verified locally. Step 1 was pushed to `origin/main` as `966ecd0`.
+Status: **complete**, verified locally and pushed to `origin/main` as `688edcd`.
 
 - Added sanitized fixtures for six HTTP body modes, environment values/disabled flags,
   known metadata omissions, and a synthetic unsupported YAML boundary.
@@ -59,12 +59,41 @@ Validation on macOS ARM64, Rust 1.98.0, against `966ecd0` plus this fixture-only
 - `cargo fmt --all --check` and `git diff --check`: passed.
 - Full platform packaging and coverage measurements remain separate release gates.
 
-## Next step — Step 3: E01.1 structured import diagnostics
+## Step 3 — E01.1 structured import diagnostics
 
-Add a report for known omitted fields with JSON-pointer locations and no field values.
-Show it before GUI persistence and require explicit continuation for lossy imports.
-Expose the same report and rejection policy in the CLI. Reuse the metadata fixture
-and prove cancellation/rejection leave imported project data unwritten.
+Status: **complete**, verified locally. Delivery is recorded in Git history.
 
-Preserving descriptions, path-variable behavior and multipart semantics remains later
-E01 work. E02–E12 are pending; do not begin the whole roadmap in one change.
+- Added versioned, bounded JSON reports with structural source locations, stable
+  feature codes, warning severity and omission/partial/unsupported dispositions.
+  Reports do not copy imported names, values, file paths or response bodies.
+- Report known missing descriptions, examples, path variables, behavior settings,
+  multipart content types/extra files, variable metadata and unsupported auth.
+- Desktop imports wait for explicit acceptance; cancellation and workspace changes
+  discard pending imports without saving project data.
+- CLI imports/runs reject known omissions with exit 2. `--allow-lossy-import` opts in;
+  `--import-report` emits JSON on stdout for imports. This is not a dry-run option.
+- Added six import-policy tests and two GUI interaction tests, including exact field
+  locations, redaction, bounded reports, cancellation, acceptance and run environments.
+
+Validation on macOS ARM64, Rust 1.98.0, against `688edcd` plus this implementation:
+
+- `cargo test --locked --offline --all-targets`: **129 passed, 0 failed**.
+- `cargo clippy --locked --offline --all-targets -- -D warnings`: passed.
+- `cargo fmt --all --check` and `git diff --check`: passed.
+- Naming scan over 119 maintained files and documentation-link checks: passed.
+- Native UI harness tests cover the review actions; fresh packaged desktop interaction,
+  cross-platform release checks and current coverage percentages are not claimed.
+
+The report covers the documented known fields; an empty report is not a guarantee of
+complete import fidelity. This checkpoint does not implement preservation of omitted
+fields or the remainder of E01.
+
+## Next step — Step 4: E01.2 preserve row descriptions
+
+Preserve descriptions already supported by the `KeyValue` model across headers,
+query/form rows and environments. Add save/reload regression tests, remove the
+corresponding omission diagnostic only after preservation is proved, and retain
+warnings for request/folder descriptions until their models support them.
+
+Path-variable behavior, multi-file multipart semantics and the remaining E01 work
+stay in later slices. E02–E12 remain pending.

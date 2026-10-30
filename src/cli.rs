@@ -10,7 +10,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE]\n       rustapi import FILE.json [--workspace DIR]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
+const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
 pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     if args == ["--version"] {
         println!("RustAPI {}", env!("CARGO_PKG_VERSION"));
@@ -38,8 +38,17 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     let mut i = 1;
     while i < args.len() {
         let a = &args[i];
-        if a == "--stop-on-failure" {
-            options.insert(a.clone(), String::new());
+        if [
+            "--stop-on-failure",
+            "--allow-lossy-import",
+            "--import-report",
+        ]
+        .contains(&a.as_str())
+        {
+            anyhow::ensure!(
+                options.insert(a.clone(), String::new()).is_none(),
+                "Duplicate option {a}"
+            );
         } else if a.starts_with("--") {
             anyhow::ensure!(
                 [
@@ -68,6 +77,15 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
         }
         i += 1;
     }
+    anyhow::ensure!(
+        command == "import" || !options.contains_key("--import-report"),
+        "--import-report is only available for import"
+    );
+    anyhow::ensure!(
+        command != "vault" || !options.contains_key("--allow-lossy-import"),
+        "--allow-lossy-import is only available for import or run"
+    );
+    let allow_lossy = options.contains_key("--allow-lossy-import");
     let root = if let Some(path) = options.get("--workspace") {
         workspace::open_workspace(Path::new(path))?
     } else {
@@ -91,6 +109,7 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
             );
             let path = absolute(&positional[0])?;
             let imported = crate::import::json(&std::fs::read(&path)?)?;
+            review_import(&imported, allow_lossy, false)?;
             let mut c = imported.collection.context("Expected a collection")?;
             c.file_path = Some(path.to_string_lossy().into());
             for w in imported.warnings {
@@ -102,9 +121,9 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
                     let bytes = std::fs::read(absolute(p)?)?;
                     let v: serde_json::Value = serde_json::from_slice(&bytes)?;
                     if v["values"].is_array() {
-                        crate::import::json(&bytes)?
-                            .environment
-                            .context("Expected an environment")
+                        let imported = crate::import::json(&bytes)?;
+                        review_import(&imported, allow_lossy, false)?;
+                        imported.environment.context("Expected an environment")
                     } else {
                         Ok(serde_json::from_value(v)?)
                     }
@@ -160,15 +179,23 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
                 anyhow::ensure!(positional.len() == 1, "import needs one JSON file\n{HELP}");
                 crate::import::json(&std::fs::read(absolute(&positional[0])?)?)?
             };
-            // Parsing and validation finish before any collection/environment file is written.
+            let machine_report = options.contains_key("--import-report");
+            review_import(&imported, allow_lossy, machine_report)?;
+            // Parsing, validation and omission review finish before project data is written.
             for warning in imported.warnings {
                 eprintln!("Import warning: {warning}");
             }
             if let Some(c) = imported.collection {
-                println!("{}", storage::save_collection(&c, None)?.display());
+                let saved = storage::save_collection(&c, None)?;
+                if !machine_report {
+                    println!("{}", saved.display());
+                }
             }
             if let Some(e) = imported.environment {
-                println!("{}", storage::save_environment(&e)?.display());
+                let saved = storage::save_environment(&e)?;
+                if !machine_report {
+                    println!("{}", saved.display());
+                }
             }
             Ok(Some(0))
         }
@@ -210,4 +237,23 @@ fn load_secrets(root: &Path) -> Result<BTreeMap<String, String>> {
         Ok(password) => crate::secrets::load(&path, &password),
         Err(_) => Ok(BTreeMap::new()),
     }
+}
+
+fn review_import(
+    imported: &crate::import::ImportResult,
+    allow_lossy: bool,
+    machine_report: bool,
+) -> Result<()> {
+    if machine_report {
+        println!("{}", serde_json::to_string_pretty(&imported.report())?);
+    }
+    for diagnostic in &imported.diagnostics {
+        eprintln!(
+            "Import warning [{}] at {}: {}",
+            diagnostic.feature, diagnostic.path, diagnostic.message
+        );
+    }
+    anyhow::ensure!(!imported.requires_confirmation() || allow_lossy,
+        "Import contains known omissions; review the diagnostics and use --allow-lossy-import to continue");
+    Ok(())
 }

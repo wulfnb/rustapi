@@ -107,6 +107,7 @@ pub struct RustApiApp {
     show_environments: bool,
     show_import: bool,
     import_text: String,
+    pending_import: Option<rustapi::import::ImportResult>,
     show_new_collection: bool,
     new_name: String,
     save_as: Option<String>,
@@ -202,6 +203,7 @@ impl Default for RustApiApp {
             show_environments: false,
             show_import: false,
             import_text: String::new(),
+            pending_import: None,
             show_new_collection: false,
             new_name: String::new(),
             save_as: None,
@@ -652,16 +654,57 @@ impl RustApiApp {
         self.persist_drafts();
     }
     fn import(&mut self, result: anyhow::Result<rustapi::import::ImportResult>) {
+        self.pending_import = None;
         if let Some(import) = self.result(result) {
-            if let Some(c) = import.collection {
-                self.commit_collection(c);
+            if import.requires_confirmation() {
+                self.pending_import = Some(import);
+            } else {
+                self.finish_import(import);
             }
-            if let Some(e) = import.environment {
-                if self.result(storage::save_environment(&e)).is_some() {
-                    self.environments.push(e);
-                }
+        }
+    }
+    fn finish_import(&mut self, import: rustapi::import::ImportResult) {
+        if let Some(c) = import.collection {
+            self.commit_collection(c);
+        }
+        if let Some(e) = import.environment {
+            if self.result(storage::save_environment(&e)).is_some() {
+                self.environments.push(e);
             }
-            self.notice = import.warnings.join("\n");
+        }
+        self.notice = import.warnings.join("\n");
+    }
+    fn import_review_window(&mut self, ctx: &egui::Context) {
+        let Some(import) = &self.pending_import else {
+            return;
+        };
+        let mut open = true;
+        let mut accept = false;
+        let mut cancel = false;
+        egui::Window::new("Review import omissions")
+            .open(&mut open)
+            .collapsible(false)
+            .default_width(640.)
+            .show(ctx, |ui| {
+                ui.label("Some source data cannot be retained. Nothing has been imported yet.");
+                egui::ScrollArea::vertical()
+                    .max_height(320.)
+                    .show(ui, |ui| {
+                        for diagnostic in &import.diagnostics {
+                            ui.monospace(&diagnostic.path);
+                            ui.label(&diagnostic.message);
+                            ui.separator();
+                        }
+                    });
+                accept = ui.button("Import with omissions").clicked();
+                cancel = ui.button("Cancel import").clicked();
+            });
+        if !open || cancel {
+            self.pending_import = None;
+        } else if accept {
+            if let Some(import) = self.pending_import.take() {
+                self.finish_import(import);
+            }
         }
     }
     fn open_workspace(&mut self, path: &std::path::Path) {
@@ -1240,6 +1283,7 @@ impl RustApiApp {
                     }
                 });
         }
+        self.import_review_window(ctx);
         if let Some(id) = self.save_as.clone() {
             egui::Window::new("Save request into collection")
                 .collapsible(false)

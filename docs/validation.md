@@ -71,3 +71,16 @@ validates the command path; hosted Windows runtime confirmation is still require
   - GitHub Actions: `actions/checkout` v7.0.1, `actions/setup-python` v7.1.0, `actions/upload-artifact` v7.0.2, `docker/setup-buildx-action` v4.4.1, `docker/build-push-action` v7.4.0, `docker/login-action` v4.7.0, `actions/download-artifact` v8.0.2, `taiki-e/install-action` v2.87.32 (PR #8)
   - Cargo dependencies: `anyhow` 1.0.104 (PR #7), `chrono` 0.4.45 (PR #5), `tempfile` 3.27.0 (PR #4), `egui`/`eframe`/`egui_extras` 0.30.0 (PR #3), `wgpu` 23.0.1 (PR #6)
   - AccessKit compatibility: updated GUI test harness and node checks to AccessKit 0.17 API (`label()` and `value()`).
+
+## Incremental import review checkpoint — 2026-10-29
+
+The local baseline on `966ecd0` plus import fixtures passed 121 Rust tests. The next
+implementation on `688edcd` plus structured import review passed 129 all-target Rust
+tests on macOS ARM64, including the native UI harness and loopback suites. Final
+formatting and warnings-denied all-target Clippy passed. Reports, CLI rejection,
+explicit acceptance, cancellation and unchanged source files are covered.
+
+These are local validation results, not new cross-platform package or coverage claims.
+See [implementation progress](implementation-progress.md) for per-step delivery and
+[import compatibility](import-compatibility.md#known-import-omissions) for the exact
+known-omission boundary. Field preservation remains separate work.

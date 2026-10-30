@@ -84,6 +84,9 @@ is derived from a fixture count.
 
 ## E01 — Preserve imported data and request semantics
 
+E01.1 known-omission reporting and GUI/CLI review are implemented. Field preservation
+and broader format/transport correctness remain pending; see the [progress record](implementation-progress.md).
+
 **Priority:** P0. **Gaps:** G01–G03, G06. **Depends on:** E00.
 
 - Preserve parameter/header/form descriptions, request/folder descriptions, structured

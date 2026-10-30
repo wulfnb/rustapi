@@ -15,6 +15,74 @@ fn app_with_collection() -> RustApiApp {
     assert!(app.commit_collection(Collection::new("Managed")));
     app
 }
+
+#[test]
+fn lossy_import_review_cancel_and_accept_control_persistence() {
+    let profile = Profile::new();
+    let source = profile.directory.path().join("source.json");
+    let bytes = include_bytes!("../fixtures/import/metadata-gaps.json");
+    std::fs::write(&source, bytes).unwrap();
+    let app = RustApiApp {
+        dialogs: Box::new(ChosenFile(Some(source.clone()))),
+        ..Default::default()
+    };
+    let mut harness = Harness::new(app, |ctx: &egui::Context, app: &mut RustApiApp| {
+        app.render(ctx)
+    });
+    harness.state.choose_import();
+    harness.refresh();
+    assert!(harness.state.pending_import.is_some());
+    assert!(harness.state.collections.is_empty());
+    assert_eq!(
+        std::fs::read_dir(storage::get_collections_dir())
+            .unwrap()
+            .count(),
+        0
+    );
+    harness.click("Cancel import");
+    assert!(harness.state.pending_import.is_none());
+    assert!(harness.state.collections.is_empty());
+    assert_eq!(
+        std::fs::read_dir(storage::get_collections_dir())
+            .unwrap()
+            .count(),
+        0
+    );
+    harness.state.choose_import();
+    harness.refresh();
+    harness.click("Import with omissions");
+    assert!(harness.state.pending_import.is_none());
+    assert_eq!(harness.state.collections.len(), 1);
+    assert_eq!(
+        std::fs::read_dir(storage::get_collections_dir())
+            .unwrap()
+            .count(),
+        1
+    );
+    harness.refresh();
+    assert_eq!(harness.state.collections.len(), 1);
+    assert_eq!(std::fs::read(source).unwrap(), bytes);
+}
+
+#[test]
+fn switching_workspaces_discards_pending_import_review() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    app.import(rustapi::import::json(include_bytes!(
+        "../fixtures/import/metadata-gaps.json"
+    )));
+    assert!(app.pending_import.is_some());
+    let other = tempfile::tempdir().unwrap();
+    app.open_workspace(other.path());
+    assert!(app.pending_import.is_none());
+    assert!(app.collections.is_empty());
+    assert_eq!(
+        std::fs::read_dir(other.path().join("collections"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
 #[test]
 fn file_dialog_commands_handle_chosen_files_and_cancellation() {
     let profile = Profile::new();
