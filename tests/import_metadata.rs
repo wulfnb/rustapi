@@ -87,3 +87,35 @@ fn disabled_scope_rows_do_not_resolve_or_mask_enabled_ancestor_values() {
         .inherited_variables
         .contains_key("host"));
 }
+
+#[test]
+fn new_metadata_and_path_values_obey_default_export_and_history_redaction() {
+    let mut collection = Collection::new("Redaction");
+    collection
+        .variables
+        .insert("credential".into(), "private-typed".into());
+    collection.variable_metadata.push(KeyValue {
+        value_type: "secret".into(),
+        ..KeyValue::new("credential", "private-typed")
+    });
+    let mut request = ApiRequest {
+        path_params: vec![KeyValue::new("access_token", "private-path")],
+        ..Default::default()
+    };
+    request
+        .imported_settings
+        .insert("custom-secret".into(), "private-setting".into());
+    collection.requests.push(request.clone());
+    let redacted =
+        serde_json::to_string(&rustapi::secrets::redact_collection(&collection)).unwrap();
+    for value in ["private-typed", "private-path", "private-setting"] {
+        assert!(!redacted.contains(value));
+    }
+    assert_eq!(collection.variable_metadata[0].value, "private-typed");
+    let mut history = RequestHistory::new(10);
+    request.name = "History".into();
+    history.add(request, None);
+    let history = serde_json::to_string(&history).unwrap();
+    assert!(!history.contains("private-path"));
+    assert!(!history.contains("private-setting"));
+}

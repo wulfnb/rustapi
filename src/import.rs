@@ -146,6 +146,55 @@ fn scripts(v: &Value) -> (String, String) {
     }
     (pre.join("\n"), post.join("\n"))
 }
+fn structured_url(value: &Value) -> Result<String> {
+    if let Some(raw) = value["raw"].as_str().filter(|raw| !raw.is_empty()) {
+        return Ok(raw.into());
+    }
+    fn component(value: &Value, separator: &str) -> Result<String> {
+        if let Some(text) = value.as_str() {
+            return Ok(text.into());
+        }
+        if let Some(values) = value.as_array() {
+            anyhow::ensure!(
+                values.iter().all(Value::is_string),
+                "URL components must be strings"
+            );
+            return Ok(values
+                .iter()
+                .map(|v| v.as_str().unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join(separator));
+        }
+        anyhow::ensure!(value.is_null(), "Invalid URL component");
+        Ok(String::new())
+    }
+    let protocol = value["protocol"].as_str().unwrap_or("https");
+    anyhow::ensure!(
+        ["http", "https"].contains(&protocol),
+        "Only HTTP URL protocols are supported"
+    );
+    let host = component(&value["host"], ".")?;
+    anyhow::ensure!(!host.is_empty(), "Structured URL requires host or raw URL");
+    let port = component(&value["port"], "")?;
+    let path = component(&value["path"], "/")?;
+    let fragment = component(&value["hash"], "")?;
+    let url = format!(
+        "{protocol}://{host}{}/{}{}",
+        if port.is_empty() {
+            String::new()
+        } else {
+            format!(":{port}")
+        },
+        path.trim_start_matches('/'),
+        if fragment.is_empty() {
+            String::new()
+        } else {
+            format!("#{fragment}")
+        }
+    );
+    reqwest::Url::parse(&url).context("Invalid structured URL")?;
+    Ok(url)
+}
 fn imported_profile(
     value: &Value,
     inherited: &HttpSettings,
@@ -206,7 +255,7 @@ fn request(
     r.method = serde_json::from_value(Value::String(v["method"].as_str().unwrap_or("GET").into()))
         .context("Unsupported HTTP method")?;
     r.url = if v["url"].is_object() {
-        text(&v["url"]["raw"])
+        structured_url(&v["url"])?
     } else {
         text(&v["url"])
     };
@@ -217,15 +266,6 @@ fn request(
         "Path variables must be an array"
     );
     r.path_params = values(&v["url"]["variable"]);
-    if !r.query_params.is_empty() {
-        let (before, fragment) = r.url.split_once('#').unwrap_or((&r.url, ""));
-        let base = before.split('?').next().unwrap_or(before);
-        r.url = if fragment.is_empty() {
-            base.into()
-        } else {
-            format!("{base}#{fragment}")
-        };
-    }
     r.headers = values(&v["header"]);
     r.auth = auth(&v["auth"], warnings);
     let body = &v["body"];

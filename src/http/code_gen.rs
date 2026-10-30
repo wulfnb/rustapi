@@ -84,26 +84,21 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
         params.push(KeyValue::new(k, v));
     }
     let url = super::client::build_url_with_params(&r.url, &params, None);
-    let mut headers = BTreeMap::new();
-    if let Some((k, v)) = r.auth.get_auth_header() {
-        headers.insert(k.to_ascii_lowercase(), v);
+    let configured = match super::effective_headers(r) {
+        Ok(headers) => headers,
+        Err(error) => return format!("Cannot generate code: {error}"),
+    };
+    let mut seen = std::collections::HashSet::new();
+    let repeated = configured.iter().any(|(key, _)| !seen.insert(key));
+    if repeated
+        && matches!(
+            language,
+            CodeGenLanguage::Python | CodeGenLanguage::JavaScript
+        )
+    {
+        return "Cannot generate code: this target cannot preserve repeated header fields; choose cURL or Rust.".into();
     }
-    for h in &r.headers {
-        if h.enabled && !h.key.is_empty() {
-            headers.insert(h.key.to_ascii_lowercase(), h.value.clone());
-        }
-    }
-    if matches!(
-        r.body_type,
-        BodyType::Json | BodyType::Text | BodyType::Binary
-    ) {
-        headers
-            .entry("content-type".into())
-            .or_insert_with(|| r.body_type.content_type().unwrap_or_default().into());
-    }
-    if r.body_type == BodyType::FormData {
-        headers.remove("content-type");
-    }
+    let headers: BTreeMap<_, _> = configured.iter().cloned().collect();
     let form: Vec<_> = r
         .form_data
         .iter()
@@ -123,7 +118,7 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
         CodeGenLanguage::Curl => {
             let mut prelude = String::new();
             let mut p = vec![format!("curl -X {}", r.method.as_str())];
-            for (k, v) in &headers {
+            for (k, v) in &configured {
                 p.push(format!("-H {}", shell(&format!("{k}: {v}"))));
             }
             match r.body_type {
@@ -332,7 +327,7 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                 p.push_str(&format!("    config = config.identity(reqwest::Identity::from_pem(&std::fs::read({})?)?);\n",quoted(&r.settings.identity_file)));
             }
             p.push_str(&format!("    let client = config.build()?;\n    let mut request = client.request(reqwest::Method::{}, {});\n",r.method.as_str(),quoted(&url)));
-            for (k, v) in headers {
+            for (k, v) in configured {
                 p.push_str(&format!(
                     "    request = request.header({}, {});\n",
                     quoted(&k),

@@ -185,19 +185,11 @@ impl HttpService {
         let path_url = crate::variables::resolve_path_variables(&r.url, &r.path_params)?;
         let url = build_url_with_params(&path_url, &params, None);
         let mut headers = HeaderMap::new();
-        if let Some((k, v)) = r.auth.get_auth_header() {
-            headers.insert(
-                HeaderName::try_from(k.as_str()).context("Invalid auth header name")?,
-                HeaderValue::try_from(v).context("Invalid auth header value")?,
+        for (name, value) in super::effective_headers(&r)? {
+            headers.append(
+                HeaderName::try_from(name.as_str())?,
+                HeaderValue::try_from(value)?,
             );
-        }
-        for h in &r.headers {
-            if h.enabled && !h.key.is_empty() {
-                headers.insert(
-                    HeaderName::try_from(h.key.as_str()).context("Invalid header name")?,
-                    HeaderValue::try_from(h.value.as_str()).context("Invalid header value")?,
-                );
-            }
         }
         let mut b = client.request(
             reqwest::Method::from_bytes(r.method.as_str().as_bytes())?,
@@ -317,7 +309,7 @@ pub fn execute_request(request: &ApiRequest, environment: Option<&Environment>) 
     }
 }
 /// Build URL with query parameters
-pub(crate) fn build_url_with_params(
+pub fn build_url_with_params(
     base_url: &str,
     params: &[KeyValue],
     environment: Option<&Environment>,
@@ -327,8 +319,36 @@ pub(crate) fn build_url_with_params(
         .filter(|p| p.enabled && !p.key.is_empty())
         .collect();
 
+    let (original, fragment) = base_url.split_once('#').unwrap_or((base_url, ""));
+    let controlled: std::collections::HashSet<_> = params
+        .iter()
+        .filter(|row| !row.key.is_empty())
+        .map(|row| row.key.as_str())
+        .collect();
+    let base = if let Some((path, query)) = original.split_once('?') {
+        let retained: Vec<_> = query
+            .split('&')
+            .filter(|pair| {
+                let key = pair.split_once('=').map(|(key, _)| key).unwrap_or(pair);
+                let key = key.replace('+', " ");
+                !urlencoding::decode(&key).is_ok_and(|key| controlled.contains(key.as_ref()))
+            })
+            .collect();
+        if retained.is_empty() {
+            path.into()
+        } else {
+            format!("{path}?{}", retained.join("&"))
+        }
+    } else {
+        original.to_string()
+    };
+    let suffix = if base_url.contains('#') {
+        format!("#{fragment}")
+    } else {
+        String::new()
+    };
     if enabled_params.is_empty() {
-        return base_url.to_string();
+        return base + &suffix;
     }
 
     let query_string: String = enabled_params
@@ -348,18 +368,12 @@ pub(crate) fn build_url_with_params(
         .collect::<Vec<_>>()
         .join("&");
 
-    let (base, fragment) = base_url.split_once('#').unwrap_or((base_url, ""));
     let separator = if base.ends_with('?') || (base.contains('?') && base.ends_with('&')) {
         ""
     } else if base.contains('?') {
         "&"
     } else {
         "?"
-    };
-    let suffix = if base_url.contains('#') {
-        format!("#{fragment}")
-    } else {
-        String::new()
     };
     format!("{base}{separator}{query_string}{suffix}")
 }

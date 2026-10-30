@@ -12,7 +12,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 - [x] Path-variable substitution and encoding.
 - [x] Multiple multipart files and per-part MIME types, including generated samples.
 - [x] Imported request settings and explicit unsupported-setting diagnostics.
-- [ ] URL/query and header repetition/override semantics shared with snippets.
+- [x] URL/query and header repetition/override semantics shared with snippets.
 
 ## Daily workflow
 

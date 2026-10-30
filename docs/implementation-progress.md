@@ -194,3 +194,23 @@ Status: **complete**, verified locally; delivery is recorded in Git history.
   Local HTTP fixtures verify redirect and cookie behavior, not just serialization.
 
 Next: shared URL/query and header repetition/override semantics.
+
+## Step 10 — Shared URL and header semantics
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Structured query rows replace matching raw URL keys, including disabled rows,
+  while unrelated encoded pairs and fragments remain intact. Structured URLs
+  without a raw string are reconstructed with validated components.
+- Sending and snippets share header validation, auth precedence and body MIME
+  defaults. Repeated ordinary headers remain ordered; duplicate singleton headers
+  fail early. Python/JavaScript snippets explicitly reject repeated fields that
+  their map APIs cannot preserve. cURL/Rust retain them.
+- Default export/history redaction includes path variables, typed-secret scope
+  metadata and sensitive extension/settings fields.
+- Full local suite: **144 passed**; formatting and warnings-denied Clippy passed.
+  All **24 generated HTTP requests passed**.
+
+The import-correctness group is complete within the documented supported subset.
+Next: saved request/response examples, followed by the remaining daily workflow
+features and compatibility group in the active delivery backlog.

@@ -76,6 +76,61 @@ pub fn sensitive(name: &str) -> bool {
     .iter()
     .any(|k| n.contains(k))
 }
+pub fn redact_json(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                if sensitive(key) {
+                    *value = "[redacted]".into();
+                } else {
+                    redact_json(value);
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                redact_json(value);
+            }
+        }
+        _ => {}
+    }
+}
+fn redact_metadata(map: &mut BTreeMap<String, serde_json::Value>) {
+    for (key, value) in map {
+        if sensitive(key) {
+            *value = "[redacted]".into();
+        } else {
+            redact_json(value);
+        }
+    }
+}
+fn redact_rows(rows: &mut [crate::models::KeyValue]) {
+    for row in rows {
+        if sensitive(&row.key) || row.value_type.eq_ignore_ascii_case("secret") {
+            row.value = "[redacted]".into();
+        }
+        redact_metadata(&mut row.extensions);
+        if let Some(metadata) = &mut row.description_metadata {
+            redact_metadata(metadata);
+        }
+    }
+}
+fn redact_scope(
+    values: &mut std::collections::HashMap<String, String>,
+    rows: &mut [crate::models::KeyValue],
+) {
+    let typed: std::collections::HashSet<_> = rows
+        .iter()
+        .filter(|row| row.value_type.eq_ignore_ascii_case("secret"))
+        .map(|row| row.key.clone())
+        .collect();
+    for (key, value) in values {
+        if sensitive(key) || typed.contains(key) {
+            *value = "[redacted]".into();
+        }
+    }
+    redact_rows(rows);
+}
 pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiRequest {
     let mut r = r.clone();
     r.auth.bearer_token = "[redacted]".into();
@@ -88,11 +143,20 @@ pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiReques
         .headers
         .iter_mut()
         .chain(&mut r.query_params)
+        .chain(&mut r.path_params)
         .chain(&mut r.form_data)
     {
-        if sensitive(&v.key) {
+        if sensitive(&v.key) || v.value_type.eq_ignore_ascii_case("secret") {
             v.value = "[redacted]".into();
         }
+        redact_metadata(&mut v.extensions);
+        if let Some(metadata) = &mut v.description_metadata {
+            redact_metadata(metadata);
+        }
+    }
+    redact_metadata(&mut r.imported_settings);
+    if let Some(metadata) = &mut r.description_metadata {
+        redact_metadata(metadata);
     }
     if let Ok(mut url) = reqwest::Url::parse(&r.url) {
         let pairs: Vec<_> = url
@@ -159,6 +223,11 @@ pub fn redact_collection(c: &crate::models::Collection) -> crate::models::Collec
                     *v = "[redacted]".into();
                 }
             }
+            redact_scope(&mut f.variables, &mut f.variable_metadata);
+            redact_metadata(&mut f.imported_settings);
+            if let Some(metadata) = &mut f.description_metadata {
+                redact_metadata(metadata);
+            }
             walk(&mut f.requests, &mut f.folders);
         }
     }
@@ -172,6 +241,11 @@ pub fn redact_collection(c: &crate::models::Collection) -> crate::models::Collec
         if sensitive(k) {
             *v = "[redacted]".into();
         }
+    }
+    redact_scope(&mut c.variables, &mut c.variable_metadata);
+    redact_metadata(&mut c.imported_settings);
+    if let Some(metadata) = &mut c.description_metadata {
+        redact_metadata(metadata);
     }
     c
 }

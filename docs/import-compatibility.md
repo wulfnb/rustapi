@@ -43,7 +43,7 @@ recoverable duplicate instead of losing the request.
 ## Known import omissions
 
 Collection v2.1 and environment JSON imports now produce a structured report for
-known data they cannot retain or apply: saved response examples, request behavior settings,
+known data they cannot retain or apply: saved response examples, unsupported behavior settings,
 malformed description/type representations and unsupported authentication configurations.
 
 The desktop presents **Review import omissions** before saving. Cancel or close
@@ -173,3 +173,17 @@ runtime's existing behavior. Other options remain stored as metadata and require
 review because they are not applied. Known options with invalid types are rejected.
 After import, the Settings tab edits the canonical request settings; reloading a
 native workspace does not reapply old source metadata over those edits.
+
+## URL and header semantics
+
+Structured query rows control matching decoded raw query keys: disabled rows remove
+those keys, enabled rows replace them in row order. Unrelated raw encoded pairs
+and URL fragments remain intact. URLs can also be reconstructed from validated
+protocol/host/port/path components when no raw string is supplied.
+
+Configured header names are case insensitive. Explicit fields override generated
+auth fields. Repeated ordinary headers retain order, while duplicate singleton
+fields (authorization, proxy-authorization, host, content-length, content-type)
+are rejected. Sending and snippets share this preparation. Python/JavaScript
+map-based snippets reject repeated header fields explicitly; cURL/Rust preserve
+them. Transport-generated cookies, host and content length remain runtime managed.
