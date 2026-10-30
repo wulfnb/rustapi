@@ -1988,7 +1988,11 @@ impl RustApiApp {
                                         e.time_ms
                                     ),
                                     |ui| {
-                                        ui.label(format!("HTTP {}", e.status));
+                                        ui.label(if e.skipped {
+                                            "Skipped".into()
+                                        } else {
+                                            format!("HTTP {}", e.status)
+                                        });
                                         if let Some(error) = &e.error {
                                             ui.label(error);
                                         }

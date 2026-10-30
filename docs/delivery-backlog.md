@@ -27,7 +27,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 
 - [x] Collection v2.1/environment export and semantic round trips.
 - [x] v3 YAML collection-directory import/export with bounded resource resolution.
-- [ ] Broader documented script support, including request mutation and workflow control.
+- [x] Broader documented script support, including request mutation and workflow control.
 - [x] JSON Schema response assertions using a maintained validator.
 - [ ] Bounded script/network debugging console with redaction.
 - [ ] OAuth provider/client-auth options.

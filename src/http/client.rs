@@ -287,6 +287,7 @@ impl HttpService {
         let preview = &raw_body[..raw_body.len().min(1024 * 1024)];
         let body = String::from_utf8_lossy(preview).into_owned();
         Ok(ApiResponse {
+            skipped: false,
             status: status.as_u16(),
             status_text: status.canonical_reason().unwrap_or("Unknown").into(),
             headers,

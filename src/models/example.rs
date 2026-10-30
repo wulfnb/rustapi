@@ -17,6 +17,10 @@ pub struct RequestExample {
 }
 impl RequestExample {
     pub fn capture(name: String, request: &ApiRequest, response: &ApiResponse) -> Result<Self> {
+        ensure!(
+            (100..=599).contains(&response.status) && response.error.is_none() && !response.skipped,
+            "Only completed HTTP responses can be saved as examples"
+        );
         let bytes = if response.raw_body.is_empty() {
             response.body.as_bytes()
         } else {
@@ -52,6 +56,16 @@ impl RequestExample {
     }
     pub fn validate(&self) -> Result<()> {
         ensure!(!self.id.is_empty(), "Example ID is empty");
+        ensure!(
+            (100..=599).contains(&self.response.status)
+                && !self.response.skipped
+                && self.response.error.is_none(),
+            "Example must contain a completed HTTP response"
+        );
+        ensure!(
+            self.response.body.len() <= 1024 * 1024,
+            "Example text exceeds 1 MiB"
+        );
         ensure!(
             self.request.examples.is_empty(),
             "Nested examples are unsupported"

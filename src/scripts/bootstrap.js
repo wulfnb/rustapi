@@ -1,0 +1,51 @@
+const __tests=[], __Promise=Promise, __skip={};
+const __flow={skip_request:false,next_set:false,next_request:null};
+globalThis.Atomics=undefined;globalThis.SharedArrayBuffer=undefined;globalThis.Promise=undefined;
+const __own=(object,key)=>Object.prototype.hasOwnProperty.call(object,key);
+function __strict(object,label){return new Proxy(object,{get(target,key){if(key in target)return target[key];throw new Error('Unsupported API: '+label+'.'+String(key));}});}
+function __merged(){return {...__input.collection,...__input.environment,...__input.data,...__input.local};}
+function __replace(text){let current=String(text);for(let depth=0;depth<16;depth++){let found=false;const next=current.replace(/\{\{([^}]+)\}\}/g,(_,key)=>{found=true;key=key.trim();const values=__merged();if(!__own(values,key))throw new Error('Unresolved variable');return values[key];});if(!found)return next;current=next;}throw new Error('Cyclic variable expansion');}
+function __scope(name){const values=__input[name];return __strict({get:key=>__own(values,key)?values[key]:undefined,set:(key,value)=>Object.defineProperty(values,String(key),{value:String(value),enumerable:true,writable:true,configurable:true}),unset:key=>delete values[key],has:key=>__own(values,key),toObject:()=>({...values}),replaceIn:__replace},'pm.'+name);}
+function __deepEqual(a,b){if(a===b)return true;if(a===null||b===null||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;const left=Object.keys(a).sort(),right=Object.keys(b).sort();return left.length===right.length&&left.every((key,index)=>key===right[index]&&__deepEqual(a[key],b[key]));}
+function __expect(value,negative=false,deep=false,any=false){
+ const x={};const check=condition=>{if(Boolean(condition)===negative)throw new Error('Script assertion failed');return x;};
+ const equal=(a,b)=>deep?__deepEqual(a,b):a===b;
+ for(const key of ['to','be','have','and','that','is','which','all','been'])x[key]=x;
+ Object.defineProperty(x,'not',{get:()=>__expect(value,!negative,deep,any)});
+ Object.defineProperty(x,'deep',{get:()=>__expect(value,negative,true,any)});
+ Object.defineProperty(x,'any',{get:()=>__expect(value,negative,deep,true)});
+ x.equal=x.equals=other=>check(equal(value,other));x.eql=other=>check(__deepEqual(value,other));
+ x.a=x.an=type=>check(type==='array'?Array.isArray(value):type==='null'?value===null:typeof value===String(type).toLowerCase());
+ x.above=x.greaterThan=other=>check(value>other);x.below=x.lessThan=other=>check(value<other);
+ x.least=other=>check(value>=other);x.most=other=>check(value<=other);x.within=(low,high)=>check(value>=low&&value<=high);
+ x.lengthOf=length=>check(value!=null&&value.length===length);
+ x.match=pattern=>{if(!(pattern instanceof RegExp))throw new Error('match requires RegExp');return check(pattern.test(value));};
+ x.property=function(key,other){const exists=value!=null&&__own(Object(value),key);check(exists&&(arguments.length<2||equal(value[key],other)));return __expect(exists?value[key]:undefined,negative,deep,any);};
+ const keys=(subset,...expected)=>{if(expected.length===1&&Array.isArray(expected[0]))expected=expected[0];const actual=Object.keys(value||{});return check((any?expected.some(key=>actual.includes(key)):expected.every(key=>actual.includes(key)))&&(subset||any||actual.length===expected.length));};
+ x.keys=(...expected)=>keys(false,...expected);
+ const members=(subset,expected)=>{if(!Array.isArray(value)||!Array.isArray(expected))throw new Error('members requires arrays');const remaining=[...value];const includes=expected.every(item=>{const index=remaining.findIndex(candidate=>equal(candidate,item));if(index<0)return false;remaining.splice(index,1);return true;});return check(includes&&(subset||remaining.length===0));};
+ x.members=expected=>members(false,expected);
+ x.include=x.contain=other=>check(typeof value==='string'?value.includes(other):Array.isArray(value)?value.some(item=>equal(item,other)):value!=null&&typeof other==='object'&&Object.keys(other).every(key=>__own(value,key)&&equal(value[key],other[key])));
+ x.include.members=expected=>members(true,expected);x.include.keys=(...expected)=>keys(true,...expected);
+ x.status=code=>check(value.code===code);
+ for(const [key,predicate] of Object.entries({true:()=>value===true,false:()=>value===false,null:()=>value===null,undefined:()=>value===undefined,exist:()=>value!==null&&value!==undefined,exists:()=>value!==null&&value!==undefined,ok:()=>Boolean(value),empty:()=>value!=null&&(typeof value==='string'||Array.isArray(value)?value.length===0:typeof value==='object'&&Object.keys(value).length===0)})){Object.defineProperty(x,key,{get:()=>check(predicate())});}
+ return __strict(x,'pm.expect');
+}
+const __response=__strict({code:__input.response.status,status:__input.response.status_text,responseTime:__input.response.time_ms,json:()=>JSON.parse(__input.response.body),text:()=>__input.response.body,
+ headers:__strict({get:key=>{const found=__input.response.headers.find(header=>header[0].toLowerCase()===String(key).toLowerCase());return found&&found[1];},has:key=>__input.response.headers.some(header=>header[0].toLowerCase()===String(key).toLowerCase()),all:()=>__input.response.headers.map(([key,value])=>({key,value})),toObject:()=>Object.fromEntries(__input.response.headers)},'pm.response.headers')},'pm.response');
+__response.to=__strict({have:__strict({status:code=>__expect(__response).status(code),jsonSchema:schema=>{const errors=JSON.parse(__validateSchema(JSON.stringify(schema)));if(errors.length)throw new Error('JSON Schema assertion failed');return true;},header:function(key,value){const actual=__response.headers.get(key);if(actual===undefined||(arguments.length>1&&actual!==value))throw new Error('Response header assertion failed');}},'pm.response.to.have')},'pm.response.to');
+function __editable(){if(!__input.request)throw new Error('No request context');if(__input.readonly)throw new Error('Request is read-only after sending');}
+function __rows(field,insensitive){const name=key=>insensitive?String(key).toLowerCase():String(key);const rows=()=>{if(!__input.request)throw new Error('No request context');return __input.request[field];};
+ const convert=row=>{if(!row||typeof row.key!=='string'||typeof row.value!=='string')throw new Error('Rows require string key/value');return {key:row.key,value:row.value,enabled:!row.disabled,description:row.description||'',file:false};};
+ return __strict({get:key=>{const row=rows().find(row=>row.enabled&&name(row.key)===name(key));return row&&row.value;},has:key=>rows().some(row=>row.enabled&&name(row.key)===name(key)),all:()=>rows().map(row=>({key:row.key,value:row.value,disabled:!row.enabled,description:row.description})),toObject:()=>Object.fromEntries(rows().filter(row=>row.enabled).map(row=>[row.key,row.value])),add:row=>{__editable();rows().push(convert(row));},upsert:row=>{__editable();const found=rows().find(item=>name(item.key)===name(row.key));if(found){const converted=convert(row);if(!__own(row,"description"))converted.description=found.description;Object.assign(found,converted);}else rows().push(convert(row));},remove:key=>{__editable();__input.request[field]=rows().filter(row=>name(row.key)!==name(key));}},'pm.request.'+field);
+}
+const __headers=__rows('headers',true),__query=__rows('query_params',false);
+const __url=__strict({toString:()=>__input.request?.url||'',update:value=>{__editable();__input.request.url=String(value);},query:__query},'pm.request.url');
+const __body=__strict({get raw(){return __input.request?.body||'';},set raw(value){__body.update(String(value));},get mode(){return {Json:'raw',Text:'raw',FormData:'formdata',UrlEncoded:'urlencoded',Binary:'file',None:'none'}[__input.request?.body_type]||'none';},update:value=>{__editable();if(typeof value==='string'){__input.request.body=value;if(!['Json','Text'].includes(__input.request.body_type))__input.request.body_type='Text';}else if(value&&value.mode==='raw'&&typeof value.raw==='string'){__input.request.body=value.raw;__input.request.body_type=value.options?.raw?.language==='json'?'Json':'Text';}else throw new Error('Only raw request body updates are supported');}},'pm.request.body');
+const __request=__strict({get method(){return __input.request?.method;},set method(value){__editable();__input.request.method=String(value).toUpperCase();},get url(){return __url;},set url(value){__url.update(value);},headers:__headers,body:__body},'pm.request');
+const pm=__strict({environment:__scope('environment'),collectionVariables:__scope('collection'),iterationData:__scope('data'),variables:__strict({get:key=>{const values=__merged();return __own(values,key)?values[key]:undefined;},set:(key,value)=>__scope('local').set(key,value),unset:key=>__scope('local').unset(key),has:key=>__own(__merged(),key),toObject:__merged,replaceIn:__replace},'pm.variables'),
+ request:__request,response:__response,expect:__expect,
+ execution:__strict({skipRequest:()=>{__editable();__flow.skip_request=true;throw __skip;},setNextRequest:value=>{if(value!==null&&typeof value!=='string')throw new Error('Next request must be a name, ID or null');__flow.next_set=true;__flow.next_request=value;}},'pm.execution'),
+ test:(name,fn)=>{try{const result=fn();if(result instanceof __Promise)throw new Error('Async tests unsupported');__tests.push({name:String(name),passed:true,message:''});}catch(error){if(error===__skip)throw error;__tests.push({name:String(name),passed:false,message:String(error).startsWith('Error: Unsupported API:')?String(error):'Script assertion failed'});}}},'pm');
+const console={log:()=>{},warn:()=>{},error:()=>{}};
+function require(){throw new Error('Module imports unsupported');}

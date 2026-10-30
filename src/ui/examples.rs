@@ -8,7 +8,7 @@ pub fn render_examples(
 ) -> Option<RequestExample> {
     let mut tried = None;
     egui::CollapsingHeader::new(format!("Saved examples ({})", request.examples.len())).id_salt("saved_examples").show(ui, |ui| {
-        if ui.add_enabled(response.is_some() && request.examples.len() < 100, egui::Button::new("Save response as example")).clicked() {
+        if ui.add_enabled(response.is_some_and(|response|response.error.is_none() && !response.skipped && (100..=599).contains(&response.status)) && request.examples.len() < 100, egui::Button::new("Save response as example")).clicked() {
             if let Some(response) = response {
                 match RequestExample::capture(format!("{} {}", request.name, response.status), request, response) {
                     Ok(example) => {

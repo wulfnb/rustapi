@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 /// HTTP Response from a request
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApiResponse {
+    #[serde(default)]
+    pub skipped: bool,
     pub status: u16,
     pub status_text: String,
     pub headers: Vec<(String, String)>,

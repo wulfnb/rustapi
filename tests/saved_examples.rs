@@ -49,6 +49,7 @@ fn saved_examples_import_edit_restart_and_redact() {
 fn binary_examples_keep_exact_bytes_and_reject_oversized_or_nested_data() {
     let request = ApiRequest::default();
     let response = ApiResponse {
+        status: 200,
         raw_body: vec![0, 255, 10, 128],
         body: "binary preview".into(),
         ..Default::default()
@@ -58,6 +59,7 @@ fn binary_examples_keep_exact_bytes_and_reject_oversized_or_nested_data() {
     example.request.examples.push(example.clone());
     assert!(example.validate().is_err());
     let response = ApiResponse {
+        status: 200,
         raw_body: vec![0; 1024 * 1024 + 1],
         ..Default::default()
     };

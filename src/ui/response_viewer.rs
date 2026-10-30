@@ -50,6 +50,9 @@ pub fn render_response_viewer(
     ui.separator();
 
     if let Some(response) = response {
+        if response.skipped {
+            ui.label("Skipped by pre-request script; no HTTP request sent.");
+        }
         if let Some(ref error) = response.error {
             ui.colored_label(egui::Color32::RED, error);
         } else {

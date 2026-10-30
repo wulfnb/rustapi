@@ -103,12 +103,12 @@ Supported APIs:
   `headers.get(name)`, `headers.has(name)`, `to.have.status(code)`.
 - `pm.test(name, fn)` and `pm.expect(value)` with chain words `to`, `be`, `have`, `and`,
   `that`, `is`; assertions `equal`, `eql`, `equals`, `include`, `contain`, `property`,
-  `status`, `true`, `false`. Equality compares JSON representations.
+  `status`, `true`, `false`. equal/equals use strict equality; eql and deep.equal compare JSON structures independent of object-key order.
 - `console.log/warn/error` are no-ops so secrets are not written into run reports.
 
 Unsupported `pm.*` APIs throw explicit errors, including `pm.sendRequest`,
-`pm.request` mutation, `pm.globals`, `pm.vault`, `pm.execution`, external packages,
-full Chai syntax, asynchronous callbacks and workflow branching. An unsupported API
+`pm.globals`, `pm.vault`, external packages, unlisted Chai syntax and asynchronous
+callbacks. The expanded synchronous request/workflow APIs are listed below. An unsupported API
 inside a test produces a failed test. It is never treated as a successful no-op.
 Scripts can change scoped variables to construct dynamic requests. Use serializable
 assertions/extractors where possible for portable, inspectable test behavior.
@@ -312,3 +312,31 @@ lookaround/backreference patterns are unsupported. Limits are 256 KiB of schema,
 and 100000 instance nodes with 128 levels. Invalid schemas or complexity excesses
 produce a failed assertion. Up to ten mismatch locations are shown without instance
 or expected values. Schema complexity limits are separate from transport limits.
+
+## Expanded synchronous scripting
+
+Assertions add not/deep/any chains, a/an types, numeric comparisons/ranges, regex
+match, lengthOf, keys, members and subset include.keys/include.members, object
+containment, property chaining and common empty/exist/null/undefined/ok attributes.
+Response headers provide all/toObject and to.have.header; to.have.jsonSchema uses
+the same bounded offline validator as native assertions. Full Chai compatibility,
+auxiliary network calls, packages, promises/timers and unlisted helpers remain
+unsupported. console remains quiet until the separate debugging-console slice.
+
+Pre-request scripts can update method, URL, structured query rows, headers and raw
+bodies through pm.request. Row APIs include get/has/all/toObject/add/upsert/remove;
+headers match case-insensitively, and explicit remove removes all matching rows.
+URL supports toString/update and query; body supports raw/mode/update with raw text
+or a raw-body object. Variable resolution and shared header/URL preparation happen
+after mutation. Scripts edit an execution copy; saved requests remain unchanged.
+Post-response request state is read-only. Variable keys are parsed as JSON data,
+including prototype-like names; output is validated before applying mutations.
+
+pm.execution.skipRequest ends the pre-request script and skips network/assertion/
+post-response work, while retaining earlier variable/test changes. Collection runs
+apply setNextRequest(nameOrId), with IDs winning and names requiring a unique match
+inside the selected requests. null stops the current iteration. Each iteration
+starts at the first selected request. Standalone sends do not follow next-request
+selectors. Limits are 1000 executed steps per iteration and 100000 per run; excess
+is a failed run. JSON reports mark skipped steps; JUnit emits skipped test cases.
+The original source/heap/stack/time limits still apply to each script execution.

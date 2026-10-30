@@ -20,6 +20,8 @@ pub struct RunEntry {
     pub iteration: usize,
     pub request_id: String,
     pub name: String,
+    #[serde(default)]
+    pub skipped: bool,
     pub status: u16,
     pub time_ms: u128,
     pub tests: Vec<TestResult>,
@@ -56,6 +58,9 @@ impl RunReport {
                 e.iteration,
                 e.time_ms as f64 / 1000.
             ));
+            if e.skipped && e.passed() {
+                out.push_str("<skipped/>");
+            }
             if !e.passed() {
                 out.push_str(&format!(
                     "<failure>{}</failure>",
@@ -83,9 +88,30 @@ pub fn execute(
     vars: &mut Variables,
     cancel: &Cancellation,
 ) -> ApiResponse {
+    execute_with_flow(service, r, vars, cancel).0
+}
+fn execute_with_flow(
+    service: &HttpService,
+    r: &ApiRequest,
+    vars: &mut Variables,
+    cancel: &Cancellation,
+) -> (ApiResponse, crate::scripts::Workflow) {
+    let mut workflow = crate::scripts::Workflow::default();
     let work = || -> Result<ApiResponse> {
-        let mut pre = crate::scripts::execute(&r.pre_script, vars, None, cancel)?;
-        let request = vars.resolve_request(r)?;
+        let mut draft = r.clone();
+        let result =
+            crate::scripts::execute_request(&r.pre_script, vars, Some(&mut draft), None, cancel)?;
+        workflow = result.workflow;
+        let mut pre = result.tests;
+        if workflow.skip_request {
+            return Ok(ApiResponse {
+                skipped: true,
+                status_text: "Skipped".into(),
+                tests: pre,
+                ..Default::default()
+            });
+        }
+        let mut request = vars.resolve_request(&draft)?;
         let mut response = service.execute(&request, cancel);
         if response.error.is_some() {
             return Ok(response);
@@ -187,19 +213,25 @@ pub fn execute(
                     .unwrap_or_else(|| value.to_string()),
             );
         }
-        pre.extend(crate::scripts::execute(
+        let result = crate::scripts::execute_request(
             &r.post_script,
             vars,
+            Some(&mut request),
             Some(&response),
             cancel,
-        )?);
+        )?;
+        if result.workflow.next_set {
+            workflow.next_set = true;
+            workflow.next_request = result.workflow.next_request;
+        }
+        pre.extend(result.tests);
         response.tests = pre;
         Ok(response)
     };
     let mut work = work;
     match work() {
-        Ok(r) => r,
-        Err(e) => ApiResponse::error(e.to_string()),
+        Ok(response) => (response, workflow),
+        Err(e) => (ApiResponse::error(e.to_string()), Default::default()),
     }
 }
 pub fn run(
@@ -251,7 +283,11 @@ pub fn run_with_progress(
         };
         let mut collection_changes = BTreeMap::new();
         let mut collection_removed = std::collections::BTreeSet::new();
-        for r in &requests {
+        let mut index = 0;
+        let mut steps = 0;
+        while index < requests.len() {
+            let r = &requests[index];
+            steps += 1;
             if cancel.is_cancelled() {
                 report.cancelled = true;
                 return Ok(report);
@@ -262,7 +298,7 @@ pub fn run_with_progress(
                 vars.collection.remove(key);
             }
             let before = vars.collection.clone();
-            let response = execute(service, r, &mut vars, cancel);
+            let (response, flow) = execute_with_flow(service, r, &mut vars, cancel);
             for key in before.keys() {
                 if !vars.collection.contains_key(key) {
                     collection_removed.insert(key.clone());
@@ -275,10 +311,47 @@ pub fn run_with_progress(
                     collection_changes.insert(k.clone(), v.clone());
                 }
             }
-            let entry=RunEntry{iteration:i+1,request_id:r.id.clone(),name:r.name.clone(),status:response.status,time_ms:response.time_ms,tests:response.tests,error:response.error.map(|_|"Request, script, or extraction failed (details available on interactive send)".into())};
+            let mut entry=RunEntry{iteration:i+1,request_id:r.id.clone(),name:r.name.clone(),status:response.status,skipped:response.skipped,time_ms:response.time_ms,tests:response.tests,error:response.error.map(|_|"Request, script, or extraction failed (details available on interactive send)".into())};
+            let mut next = Some(index + 1);
+            if flow.next_set {
+                next = if let Some(target) = &flow.next_request {
+                    let by_id = requests.iter().position(|request| request.id == *target);
+                    let by_name: Vec<_> = requests
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, request)| request.name == *target)
+                        .map(|(index, _)| index)
+                        .collect();
+                    if let Some(index) = by_id {
+                        Some(index)
+                    } else if by_name.len() == 1 {
+                        Some(by_name[0])
+                    } else {
+                        entry.error = Some(
+                            "Unknown or ambiguous workflow target in selected requests".into(),
+                        );
+                        None
+                    }
+                } else {
+                    None
+                };
+            }
+            let more = next.is_some_and(|index| index < requests.len());
+            let limit_reached = (steps >= 1000 && more)
+                || (report.entries.len() >= 99_999 && (more || i + 1 < iterations));
+            if limit_reached {
+                entry.error = Some(
+                    "Workflow step limit exceeded (1000 per iteration, 100000 per run)".into(),
+                );
+                next = None;
+            }
+            index = next.unwrap_or(requests.len());
             let failed = !entry.passed();
             progress(&entry);
             report.entries.push(entry);
+            if limit_reached {
+                return Ok(report);
+            }
             if cancel.is_cancelled() {
                 report.cancelled = true;
                 return Ok(report);

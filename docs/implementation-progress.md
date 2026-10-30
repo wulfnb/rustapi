@@ -340,3 +340,26 @@ is recorded in Git history.
   composition, UI selection and real shared/CLI HTTP assertion failures.
 
 Next: broader synchronous scripting and bounded workflow control.
+
+## Step 18 — Expanded synchronous scripts and workflow control
+
+Status: **complete for the documented synchronous subset**, verified locally;
+delivery is recorded in Git history.
+
+- Common assertion chains, comparisons, types, object/array assertions, schema
+  calls and response-header helpers perform real checks with bounded execution.
+- Pre-request method/URL/query/header/raw-body mutation runs through the same
+  resolution/HTTP path; post-response state is read-only and saved requests stay
+  unchanged. Validate output before applying mutations, including prototype-like
+  variable names as JSON data.
+- Skip, stable-ID/unique-name next-request selection, null stop and step limits
+  work in collection runs. JSON/JUnit/desktop views mark skipped requests.
+  Skipped/error responses cannot become invalid saved HTTP examples.
+- Full local suite: **176 passed**; final desktop suite **35 passed**, final example
+  tests **2 passed**, formatting and warnings-denied Clippy passed.
+- Actual HTTP tests cover method/query/header/body mutations; workflow tests cover
+  branching, stops, ambiguity and terminating a 1000-step loop. Existing 14 workflow
+  regressions remain passing. Async/package/auxiliary-request APIs remain explicit
+  unsupported boundaries.
+
+Next: bounded, redacted script/network debugging console.
