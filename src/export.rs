@@ -97,6 +97,8 @@ fn request(r: &ApiRequest) -> Result<Value> {
         BodyType::None => Value::Null,
         BodyType::Json => json!({"mode":"raw","raw":r.body,"options":{"raw":{"language":"json"}}}),
         BodyType::Text => json!({"mode":"raw","raw":r.body,"options":{"raw":{"language":"text"}}}),
+        BodyType::Xml => json!({"mode":"raw","raw":r.body,"options":{"raw":{"language":"xml"}}}),
+        BodyType::Html => json!({"mode":"raw","raw":r.body,"options":{"raw":{"language":"html"}}}),
         BodyType::UrlEncoded => json!({"mode":"urlencoded","urlencoded":rows(&r.form_data)}),
         BodyType::FormData => json!({"mode":"formdata","formdata":rows(&r.form_data)}),
         BodyType::Binary => json!({"mode":"file","file":{"src":r.binary_file}}),

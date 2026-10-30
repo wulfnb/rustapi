@@ -33,3 +33,5 @@ pub use inspector::*;
 
 mod response_detail;
 pub use response_detail::*;
+
+pub mod autocomplete;

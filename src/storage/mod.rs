@@ -9,3 +9,6 @@ pub use documents::*;
 
 mod presets;
 pub use presets::*;
+
+mod local_vars;
+pub use local_vars::*;

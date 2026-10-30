@@ -7,6 +7,11 @@ pub fn render_variable_inspector(
     environment: Option<&Environment>,
     reveal: bool,
 ) {
+    for key in variables.global.keys() {
+        origins
+            .entry(key.clone())
+            .or_insert(("Global".into(), false));
+    }
     if let Some(environment) = environment {
         for row in environment.variables.iter().filter(|row| row.enabled) {
             origins.insert(
@@ -17,6 +22,9 @@ pub fn render_variable_inspector(
                 ),
             );
         }
+    }
+    for key in variables.local_overrides.keys() {
+        origins.insert(key.clone(), ("Environment (local override)".into(), false));
     }
     for (scope, values) in [("Iteration", &variables.data), ("Local", &variables.local)] {
         for key in values.keys() {

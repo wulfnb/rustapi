@@ -76,7 +76,17 @@ pub fn render_request_editor(
     egui::ScrollArea::vertical().show(ui, |ui| match current_tab {
         RequestTab::Params => {
             ui.label("Query parameters");
+            let before_query = serde_json::to_vec(&request.query_params).unwrap_or_default();
             ui.push_id("query_parameters", |ui| render_key_value_editor(ui, &mut request.query_params));
+            if serde_json::to_vec(&request.query_params).unwrap_or_default() != before_query {
+                crate::http::sync_query_params_to_url(&mut request.url, &request.query_params);
+            }
+            ui.separator();
+            let vars = rustapi::variables::Variables {
+                collection: request.inherited_variables.clone().into_iter().collect(),
+                ..Default::default()
+            };
+            super::autocomplete::render_variable_palette(ui, &vars, &mut request.url);
             ui.separator();
             ui.label("Path variables (:name segments)");
             ui.push_id("path_parameters", |ui| render_key_value_editor(ui, &mut request.path_params));
@@ -148,12 +158,37 @@ pub fn render_key_value_editor(ui: &mut Ui, items: &mut Vec<KeyValue>) {
                 let key_edit = egui::TextEdit::singleline(&mut item.key)
                     .hint_text("Key")
                     .desired_width(180.0);
-                ui.add(key_edit);
+                let key_response = ui.add(key_edit);
+                let suggestions = crate::ui::autocomplete::suggest_headers(&item.key);
+                if !suggestions.is_empty()
+                    && !item.key.is_empty()
+                    && !suggestions.contains(&item.key.as_str())
+                {
+                    key_response.on_hover_ui(|ui| {
+                        ui.label(egui::RichText::new("Header suggestions:").small().strong());
+                        for s in suggestions.iter().take(5) {
+                            ui.monospace(*s);
+                        }
+                    });
+                }
 
                 let value_edit = egui::TextEdit::singleline(&mut item.value)
                     .hint_text("Value")
                     .desired_width(ui.available_width() - 40.0);
-                ui.add(value_edit);
+                let value_response = ui.add(value_edit);
+                let detected = crate::ui::autocomplete::extract_variables(&item.value);
+                if !detected.is_empty() {
+                    value_response.on_hover_ui(|ui| {
+                        ui.label(
+                            egui::RichText::new("Variables referenced:")
+                                .small()
+                                .strong(),
+                        );
+                        for var_name in &detected {
+                            ui.monospace(format!("{{{{{var_name}}}}}"));
+                        }
+                    });
+                }
 
                 if ui.small_button("🗑").clicked() {
                     to_delete = Some(idx);
@@ -201,7 +236,15 @@ fn render_body_editor(ui: &mut Ui, request: &mut ApiRequest) {
         BodyType::None => {
             ui.label("This request does not have a body.");
         }
-        BodyType::Json | BodyType::Text => {
+        BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => {
+            ui.horizontal(|ui| {
+                if request.body_type == BodyType::Json && ui.button("✨ Format JSON").clicked() {
+                    request.body = crate::http::format_json(&request.body);
+                } else if request.body_type == BodyType::Xml && ui.button("✨ Format XML").clicked()
+                {
+                    request.body = crate::http::format_xml(&request.body);
+                }
+            });
             let text_edit = egui::TextEdit::multiline(&mut request.body)
                 .code_editor()
                 .desired_width(f32::INFINITY)
@@ -276,19 +319,41 @@ pub fn render_url_bar(
                 for method in HttpMethod::all() {
                     ui.selectable_value(
                         &mut request.method,
-                        *method,
+                        method.clone(),
                         egui::RichText::new(method.as_str()).color(method.color()),
                     );
                 }
+                ui.separator();
+                let is_custom = matches!(request.method, HttpMethod::Custom(_));
+                if ui.selectable_label(is_custom, "Custom...").clicked() && !is_custom {
+                    request.method = HttpMethod::Custom("CUSTOM".into());
+                }
             });
 
+        if let HttpMethod::Custom(ref mut custom_name) = request.method {
+            ui.add(
+                egui::TextEdit::singleline(custom_name)
+                    .hint_text("METHOD")
+                    .desired_width(70.0)
+                    .font(egui::TextStyle::Monospace),
+            );
+        }
+
         // URL input
+        let url_width = if matches!(request.method, HttpMethod::Custom(_)) {
+            ui.available_width() - 300.0
+        } else {
+            ui.available_width() - 220.0
+        };
         let url_edit = egui::TextEdit::singleline(&mut request.url)
             .hint_text("Enter URL...")
             .font(egui::TextStyle::Monospace)
-            .desired_width(ui.available_width() - 220.0);
+            .desired_width(url_width);
 
         let url_response = ui.add(url_edit);
+        if url_response.changed() {
+            crate::http::sync_url_to_query_params(&request.url, &mut request.query_params);
+        }
 
         // Send on Enter
         if !is_loading && url_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))

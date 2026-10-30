@@ -58,16 +58,16 @@ pub fn execute_request(
     })));
     let context = rquickjs::Context::full(&rt)?;
     let request_view = request.as_ref().map(|request| RequestView {
-        method: request.method,
+        method: request.method.clone(),
         url: request.url.clone(),
         headers: request.headers.clone(),
         query_params: request.query_params.clone(),
         body_type: request.body_type.clone(),
         body: request.body.clone(),
     });
-    let input = json!({"collection":vars.collection,"environment":vars.environment,"data":vars.data,"local":vars.local,"response":response.cloned().unwrap_or_default(),"request":request_view,"readonly":response.is_some()});
+    let input = json!({"global":vars.global,"collection":vars.collection,"environment":vars.environment,"local_overrides":vars.local_overrides,"data":vars.data,"local":vars.local,"response":response.cloned().unwrap_or_default(),"request":request_view,"readonly":response.is_some()});
     let input = serde_json::to_string(&input.to_string())?;
-    let program=format!("let __fatal=null;const __input=JSON.parse({input});\n{BOOTSTRAP}\ntry{{const result=(function(){{\n{script}\n}})();if(result instanceof __Promise)throw new Error('Asynchronous scripts unsupported');}}catch(error){{if(error!==__skip)__fatal=String(error).startsWith('Error: Unsupported API:')?String(error):'Script failed';}}\nJSON.stringify({{collection:__input.collection,environment:__input.environment,local:__input.local,tests:__tests,request:__input.request,workflow:__flow,logs:__logs,fatal:__fatal}})");
+    let program=format!("let __fatal=null;const __input=JSON.parse({input});\n{BOOTSTRAP}\ntry{{const result=(function(){{\n{script}\n}})();if(result instanceof __Promise)throw new Error('Asynchronous scripts unsupported');}}catch(error){{if(error!==__skip)__fatal=String(error).startsWith('Error: Unsupported API:')?String(error):'Script failed';}}\nJSON.stringify({{global:__input.global,collection:__input.collection,environment:__input.environment,local:__input.local,tests:__tests,request:__input.request,workflow:__flow,logs:__logs,fatal:__fatal}})");
     let schema_instance = response
         .and_then(|response| serde_json::from_str::<serde_json::Value>(&response.body).ok());
     let output = context.with(|ctx| {
@@ -95,7 +95,7 @@ pub fn execute_request(
     }
     let output: serde_json::Value = serde_json::from_str(&output)?;
     let mut redactor = crate::debug::LogRedactor::new(vars, request.as_deref(), response);
-    for field in ["collection", "environment", "local"] {
+    for field in ["global", "collection", "environment", "local"] {
         redactor.add_json(&output[field]);
     }
     if !output["request"].is_null() {
@@ -109,9 +109,11 @@ pub fn execute_request(
         }
         .into());
     }
+    let global = serde_json::from_value(output["global"].clone()).unwrap_or_default();
     let collection = serde_json::from_value(output["collection"].clone())?;
     let environment = serde_json::from_value(output["environment"].clone())?;
     let local = serde_json::from_value(output["local"].clone())?;
+    vars.global = global;
     let tests = serde_json::from_value(output["tests"].clone())?;
     let workflow = serde_json::from_value(output["workflow"].clone())?;
     let view: Option<RequestView> = if response.is_none() && request.is_some() {

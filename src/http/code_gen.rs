@@ -157,7 +157,9 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                 p.push(format!("-H {}", shell(&format!("{k}: {v}"))));
             }
             match r.body_type {
-                BodyType::Json | BodyType::Text => p.push(format!("--data-raw {}", shell(&r.body))),
+                BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => {
+                    p.push(format!("--data-raw {}", shell(&r.body)))
+                }
                 BodyType::Binary => p.push(format!(
                     "--data-binary {}",
                     shell(&if r.binary_file.is_empty() {
@@ -227,7 +229,7 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
             let mut p=format!("import json\nimport requests\nfrom contextlib import ExitStack\n\nurl = {}\nheaders = json.loads({})\nwith ExitStack() as stack:\n",quoted(&url),quoted(&serde_json::to_string(&headers).unwrap()));
             let mut args = String::new();
             match r.body_type {
-                BodyType::Json | BodyType::Text => {
+                BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => {
                     args = format!(", data={}.encode('utf-8')", quoted(&r.body))
                 }
                 BodyType::Binary => {
@@ -296,7 +298,7 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
         CodeGenLanguage::JavaScript => {
             let mut p=format!("// Fetch API. Browser CORS and forbidden-header rules apply.\n// Use Node 20+ for file imports. Custom TLS/proxy options require a runtime-specific dispatcher.\nconst url = {};\nconst headers = {};\n",quoted(&url),serde_json::to_string_pretty(&headers).unwrap());
             let body = match r.body_type {
-                BodyType::Json | BodyType::Text => quoted(&r.body),
+                BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => quoted(&r.body),
                 BodyType::Binary => {
                     if r.binary_file.is_empty() {
                         quoted(&r.body)
@@ -361,7 +363,17 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
             if !r.settings.identity_file.is_empty() {
                 p.push_str(&format!("    config = config.identity(reqwest::Identity::from_pem(&std::fs::read({})?)?);\n",quoted(&r.settings.identity_file)));
             }
-            p.push_str(&format!("    let client = config.build()?;\n    let mut request = client.request(reqwest::Method::{}, {});\n",r.method.as_str(),quoted(&url)));
+            let method_call = match &r.method {
+                HttpMethod::GET => "reqwest::Method::GET".to_string(),
+                HttpMethod::POST => "reqwest::Method::POST".to_string(),
+                HttpMethod::PUT => "reqwest::Method::PUT".to_string(),
+                HttpMethod::DELETE => "reqwest::Method::DELETE".to_string(),
+                HttpMethod::PATCH => "reqwest::Method::PATCH".to_string(),
+                HttpMethod::HEAD => "reqwest::Method::HEAD".to_string(),
+                HttpMethod::OPTIONS => "reqwest::Method::OPTIONS".to_string(),
+                HttpMethod::Custom(name) => format!("reqwest::Method::from_bytes(b{:?})?", name),
+            };
+            p.push_str(&format!("    let client = config.build()?;\n    let mut request = client.request({}, {});\n",method_call,quoted(&url)));
             for (k, v) in configured {
                 p.push_str(&format!(
                     "    request = request.header({}, {});\n",
@@ -370,10 +382,9 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
                 ));
             }
             match r.body_type {
-                BodyType::Json | BodyType::Text => p.push_str(&format!(
-                    "    request = request.body({});\n",
-                    quoted(&r.body)
-                )),
+                BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => p.push_str(
+                    &format!("    request = request.body({});\n", quoted(&r.body)),
+                ),
                 BodyType::Binary => p.push_str(&format!(
                     "    request = request.body({});\n",
                     if r.binary_file.is_empty() {

@@ -33,7 +33,7 @@ pub fn effective_headers(request: &ApiRequest) -> Result<Vec<(String, String)>> 
     }
     if matches!(
         request.body_type,
-        BodyType::Json | BodyType::Text | BodyType::Binary
+        BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html | BodyType::Binary
     ) && !explicit.contains("content-type")
     {
         headers.push((

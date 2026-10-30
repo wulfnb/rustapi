@@ -1,12 +1,14 @@
-//! Scope precedence: collection/folder < environment < iteration < local < vault references.
+//! Scope precedence: global < collection/folder < environment (with local overrides) < iteration < local < vault references.
 use crate::models::*;
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct Variables {
+    pub global: BTreeMap<String, String>,
     pub collection: BTreeMap<String, String>,
     pub environment: BTreeMap<String, String>,
+    pub local_overrides: BTreeMap<String, String>,
     pub data: BTreeMap<String, String>,
     pub local: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
@@ -28,8 +30,10 @@ impl Variables {
         }
     }
     pub fn merged(&self) -> BTreeMap<String, String> {
-        let mut out = self.collection.clone();
+        let mut out = self.global.clone();
+        out.extend(self.collection.clone());
         out.extend(self.environment.clone());
+        out.extend(self.local_overrides.clone());
         out.extend(self.data.clone());
         out.extend(self.local.clone());
         out.extend(
@@ -53,10 +57,14 @@ impl Variables {
                     bail!("Unclosed variable reference");
                 };
                 let key = after[..end].trim();
-                let Some(value) = vars.get(key) else {
+                let value = if let Some(val) = vars.get(key) {
+                    val.clone()
+                } else if let Some(dynamic) = resolve_dynamic_variable(key) {
+                    dynamic
+                } else {
                     bail!("Unresolved variable: {key}");
                 };
-                out.push_str(value);
+                out.push_str(&value);
                 rest = &after[end + 2..];
                 found = true;
             }
@@ -197,4 +205,66 @@ pub fn resolve_path_variables(url: &str, params: &[KeyValue]) -> Result<String> 
         .join("/");
     parsed.set_path(&path);
     Ok(parsed.into())
+}
+
+pub fn resolve_dynamic_variable(key: &str) -> Option<String> {
+    match key {
+        "$guid" | "$uuid" => Some(uuid::Uuid::new_v4().to_string()),
+        "$timestamp" => Some(chrono::Utc::now().timestamp().to_string()),
+        "$isoTimestamp" => Some(chrono::Utc::now().to_rfc3339()),
+        "$randomInt" => {
+            let n = (uuid::Uuid::new_v4().as_u128() % 1000) + 1;
+            Some(n.to_string())
+        }
+        "$randomEmail" => {
+            let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+            Some(format!("user-{id}@example.com"))
+        }
+        "$randomAlphaNumeric" => {
+            let id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+            Some(id.to_string())
+        }
+        "$randomUserName" => {
+            let id = &uuid::Uuid::new_v4().simple().to_string()[..6];
+            Some(format!("user_{id}"))
+        }
+        "$randomBoolean" => {
+            let b = uuid::Uuid::new_v4().as_u128().is_multiple_of(2);
+            Some(b.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Describe variable origins and resolved value for UI inspection and tooltips
+pub fn describe_variable(
+    key: &str,
+    vars: &Variables,
+    _environment_name: Option<&str>,
+) -> Option<(&'static str, String, bool)> {
+    if let Some(v) = vars.secrets.get(key.strip_prefix("vault:").unwrap_or(key)) {
+        return Some(("Vault", v.clone(), true));
+    }
+    if let Some(v) = vars.local.get(key) {
+        return Some(("Local", v.clone(), false));
+    }
+    if let Some(v) = vars.data.get(key) {
+        return Some(("Iteration", v.clone(), false));
+    }
+    if let Some(v) = vars.local_overrides.get(key) {
+        return Some(("Environment (local override)", v.clone(), false));
+    }
+    if let Some(v) = vars.environment.get(key) {
+        return Some(("Environment", v.clone(), false));
+    }
+    if let Some(v) = vars.collection.get(key) {
+        return Some(("Collection/Folder", v.clone(), false));
+    }
+    if let Some(v) = vars.global.get(key) {
+        return Some(("Global", v.clone(), false));
+    }
+    if let Some(dynamic) = resolve_dynamic_variable(key) {
+        return Some(("Dynamic", dynamic, false));
+    }
+    None
 }

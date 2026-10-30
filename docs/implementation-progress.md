@@ -434,3 +434,32 @@ are implemented; broader platform roadmap features remain separate scope.
 - Added Linux CI execution of the extra SDK driver, pinning patched Dart 3.13.7.
   Hosted CI, other-platform SDK execution and packaged GUI/release validation were
   not observed in this step and are not implied by the local results.
+
+## Step 22 — Editor and variable improvements
+
+Status: **complete for the documented REST client workflow**, verified locally.
+
+- **Custom HTTP methods:** Added `HttpMethod::Custom(String)` with bidirectional string
+  serialization/deserialization, custom method entry in the URL bar, wire execution,
+  and snippet generation across cURL, JavaScript, Python, Rust, Go, C#, Java and Dart.
+- **URL/query synchronization:** Added bidirectional real-time synchronization between
+  the URL bar query string and the structured query parameters table, preserving disabled
+  parameters and unescaped variable templates.
+- **XML/HTML editing tools:** Added `BodyType::Xml` and `BodyType::Html` with automatic
+  `application/xml` and `text/html` Content-Type headers, format-preserving code generation,
+  and offline XML formatting (`format_xml`) with tag/attribute indentation.
+- **Global scope & dynamic values:** Expanded `Variables` with `global` scope (precedence:
+  `global < collection < environment < local overrides < iteration < local < vault`),
+  support for Postman-compatible dynamic generators (`$guid`, `$timestamp`, `$isoTimestamp`,
+  `$randomInt`, `$randomEmail`, etc.), and script runtime integration with `pm.globals`.
+- **Persistent local overrides:** Created `.local/globals.json` and
+  `.local/environment-overrides.json` storage with schema validation, 1 MiB bounds, and
+  atomic writes, allowing environment values to be overridden locally without modifying
+  or checking in tracked environment files.
+- **Autocomplete & hover inspection:** Added standard HTTP header suggestions, variable
+  hover tooltips with scope identification and secret masking, and variable completion palette.
+
+Validation:
+- Local Rust test suite: **204 passed, 0 failed** (including new `tests/editor_improvements.rs` and `tests/variable_improvements.rs`).
+- Warnings-denied Clippy: passed.
+- `cargo fmt --all --check` and `git diff --check`: passed.

@@ -205,15 +205,17 @@ impl HttpService {
         );
         match r.body_type {
             BodyType::None => {}
-            BodyType::Json | BodyType::Text => {
+            BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => {
                 if !headers.contains_key("content-type") {
+                    let content_type = match r.body_type {
+                        BodyType::Json => "application/json",
+                        BodyType::Xml => "application/xml",
+                        BodyType::Html => "text/html",
+                        _ => "text/plain",
+                    };
                     headers.insert(
                         reqwest::header::CONTENT_TYPE,
-                        HeaderValue::from_static(if r.body_type == BodyType::Json {
-                            "application/json"
-                        } else {
-                            "text/plain"
-                        }),
+                        HeaderValue::from_static(content_type),
                     );
                 }
                 b = b.body(r.body);
@@ -393,6 +395,209 @@ pub fn format_json(json_str: &str) -> String {
         Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| json_str.to_string()),
         Err(_) => json_str.to_string(),
     }
+}
+
+/// Format XML body for display (pretty print)
+pub fn format_xml(xml_str: &str) -> String {
+    let trimmed = xml_str.trim();
+    if trimmed.is_empty() {
+        return xml_str.to_string();
+    }
+    let mut out = String::new();
+    let mut indent: usize = 0;
+    let mut in_cdata = false;
+    let mut i = 0;
+    let bytes = trimmed.as_bytes();
+
+    while i < bytes.len() {
+        if in_cdata {
+            out.push(bytes[i] as char);
+            if trimmed[..=i].ends_with("]]>") {
+                in_cdata = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if bytes[i] == b'<' {
+            let rest = &trimmed[i..];
+            if rest.starts_with("<![CDATA[") {
+                in_cdata = true;
+                out.push('<');
+                i += 1;
+                continue;
+            }
+            if rest.starts_with("<!--") {
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+                if let Some(end) = rest.find("-->") {
+                    out.push_str(&rest[..end + 3]);
+                    i += end + 3;
+                    continue;
+                }
+            }
+            if rest.starts_with("</") {
+                indent = indent.saturating_sub(1);
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+                if let Some(end) = rest.find('>') {
+                    out.push_str(&rest[..=end]);
+                    i += end + 1;
+                    continue;
+                }
+            } else if rest.starts_with("<?") || rest.starts_with("<!") {
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+                if let Some(end) = rest.find('>') {
+                    out.push_str(&rest[..=end]);
+                    i += end + 1;
+                    continue;
+                }
+            } else {
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+                if let Some(end) = rest.find('>') {
+                    let tag = &rest[..=end];
+                    out.push_str(tag);
+                    if !tag.ends_with("/>") {
+                        indent = indent.saturating_add(1);
+                    }
+                    i += end + 1;
+                    continue;
+                }
+            }
+        } else {
+            let next_tag = trimmed[i..]
+                .find('<')
+                .map(|idx| i + idx)
+                .unwrap_or(trimmed.len());
+            let text = trimmed[i..next_tag].trim();
+            if !text.is_empty() {
+                out.push_str(text);
+            }
+            i = next_tag;
+            continue;
+        }
+        i += 1;
+    }
+    if out.is_empty() {
+        xml_str.to_string()
+    } else {
+        out
+    }
+}
+
+/// Synchronize URL query string into the query_params table
+pub fn sync_url_to_query_params(url: &str, query_params: &mut Vec<KeyValue>) {
+    let (url_without_hash, _) = url.split_once('#').unwrap_or((url, ""));
+    let query_str = match url_without_hash.split_once('?') {
+        Some((_, q)) => q,
+        None => {
+            query_params.retain(|p| !p.enabled);
+            return;
+        }
+    };
+
+    let pairs: Vec<(String, String)> = query_str
+        .split('&')
+        .filter(|s| !s.is_empty())
+        .map(|pair| {
+            let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+            let decoded_k = urlencoding::decode(k)
+                .map(|c| c.into_owned())
+                .unwrap_or_else(|_| k.to_string());
+            let decoded_v = urlencoding::decode(v)
+                .map(|c| c.into_owned())
+                .unwrap_or_else(|_| v.to_string());
+            (decoded_k, decoded_v)
+        })
+        .collect();
+
+    let mut updated_enabled = Vec::new();
+    let mut disabled_rows = Vec::new();
+    for row in query_params.drain(..) {
+        if row.enabled {
+            updated_enabled.push(row);
+        } else {
+            disabled_rows.push(row);
+        }
+    }
+
+    let mut result = Vec::new();
+    for (key, value) in pairs {
+        if let Some(pos) = updated_enabled.iter().position(|r| r.key == key) {
+            let mut row = updated_enabled.remove(pos);
+            row.value = value;
+            result.push(row);
+        } else {
+            result.push(KeyValue::new(key, value));
+        }
+    }
+    result.extend(disabled_rows);
+    *query_params = result;
+}
+
+/// Synchronize query_params table back into URL query string
+pub fn sync_query_params_to_url(url: &mut String, query_params: &[KeyValue]) {
+    let (without_hash, fragment) = url.split_once('#').unwrap_or((url.as_str(), ""));
+    let base = without_hash
+        .split_once('?')
+        .map(|(b, _)| b)
+        .unwrap_or(without_hash);
+
+    let enabled: Vec<_> = query_params
+        .iter()
+        .filter(|p| p.enabled && (!p.key.is_empty() || !p.value.is_empty()))
+        .collect();
+
+    let query_string = if enabled.is_empty() {
+        String::new()
+    } else {
+        let pairs: Vec<String> = enabled
+            .iter()
+            .map(|p| {
+                let k = if p.key.contains("{{") {
+                    p.key.clone()
+                } else {
+                    urlencoding::encode(&p.key).to_string()
+                };
+                let v = if p.value.contains("{{") {
+                    p.value.clone()
+                } else {
+                    urlencoding::encode(&p.value).to_string()
+                };
+                if v.is_empty() {
+                    k
+                } else {
+                    format!("{k}={v}")
+                }
+            })
+            .collect();
+        format!("?{}", pairs.join("&"))
+    };
+
+    let suffix = if url.contains('#') {
+        format!("#{fragment}")
+    } else {
+        String::new()
+    };
+    *url = format!("{base}{query_string}{suffix}");
 }
 
 #[cfg(test)]

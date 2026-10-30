@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// HTTP Methods supported by the client
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(from = "String", into = "String")]
 pub enum HttpMethod {
     #[default]
     GET,
@@ -16,22 +17,52 @@ pub enum HttpMethod {
     PATCH,
     HEAD,
     OPTIONS,
+    Custom(String),
+}
+
+static STANDARD_METHODS: &[HttpMethod] = &[
+    HttpMethod::GET,
+    HttpMethod::POST,
+    HttpMethod::PUT,
+    HttpMethod::DELETE,
+    HttpMethod::PATCH,
+    HttpMethod::HEAD,
+    HttpMethod::OPTIONS,
+];
+
+impl From<String> for HttpMethod {
+    fn from(s: String) -> Self {
+        match s.to_ascii_uppercase().as_str() {
+            "GET" => HttpMethod::GET,
+            "POST" => HttpMethod::POST,
+            "PUT" => HttpMethod::PUT,
+            "DELETE" => HttpMethod::DELETE,
+            "PATCH" => HttpMethod::PATCH,
+            "HEAD" => HttpMethod::HEAD,
+            "OPTIONS" => HttpMethod::OPTIONS,
+            _ => HttpMethod::Custom(s),
+        }
+    }
+}
+
+impl From<&str> for HttpMethod {
+    fn from(s: &str) -> Self {
+        s.to_string().into()
+    }
+}
+
+impl From<HttpMethod> for String {
+    fn from(m: HttpMethod) -> Self {
+        m.as_str().to_string()
+    }
 }
 
 impl HttpMethod {
     pub fn all() -> &'static [HttpMethod] {
-        &[
-            HttpMethod::GET,
-            HttpMethod::POST,
-            HttpMethod::PUT,
-            HttpMethod::DELETE,
-            HttpMethod::PATCH,
-            HttpMethod::HEAD,
-            HttpMethod::OPTIONS,
-        ]
+        STANDARD_METHODS
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             HttpMethod::GET => "GET",
             HttpMethod::POST => "POST",
@@ -40,6 +71,7 @@ impl HttpMethod {
             HttpMethod::PATCH => "PATCH",
             HttpMethod::HEAD => "HEAD",
             HttpMethod::OPTIONS => "OPTIONS",
+            HttpMethod::Custom(name) => name.as_str(),
         }
     }
 
@@ -52,6 +84,7 @@ impl HttpMethod {
             HttpMethod::PATCH => egui::Color32::from_rgb(198, 120, 221), // Purple
             HttpMethod::HEAD => egui::Color32::from_rgb(86, 182, 194), // Cyan
             HttpMethod::OPTIONS => egui::Color32::from_rgb(190, 190, 190), // Gray
+            HttpMethod::Custom(_) => egui::Color32::from_rgb(209, 154, 102), // Orange/Bronze
         }
     }
 }
@@ -69,6 +102,8 @@ pub enum BodyType {
     None,
     Json,
     Text,
+    Xml,
+    Html,
     FormData,
     UrlEncoded,
     Binary,
@@ -80,6 +115,8 @@ impl BodyType {
             BodyType::None,
             BodyType::Json,
             BodyType::Text,
+            BodyType::Xml,
+            BodyType::Html,
             BodyType::FormData,
             BodyType::UrlEncoded,
             BodyType::Binary,
@@ -91,6 +128,8 @@ impl BodyType {
             BodyType::None => "None",
             BodyType::Json => "JSON",
             BodyType::Text => "Text",
+            BodyType::Xml => "XML",
+            BodyType::Html => "HTML",
             BodyType::FormData => "Form Data",
             BodyType::UrlEncoded => "URL Encoded",
             BodyType::Binary => "Binary",
@@ -102,6 +141,8 @@ impl BodyType {
             BodyType::None => None,
             BodyType::Json => Some("application/json"),
             BodyType::Text => Some("text/plain"),
+            BodyType::Xml => Some("application/xml"),
+            BodyType::Html => Some("text/html"),
             BodyType::FormData => Some("multipart/form-data"),
             BodyType::UrlEncoded => Some("application/x-www-form-urlencoded"),
             BodyType::Binary => Some("application/octet-stream"),

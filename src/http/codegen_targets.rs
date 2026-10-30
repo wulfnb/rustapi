@@ -121,7 +121,9 @@ pub(super) fn generate(
     let mut chunks = vec![];
     match r.body_type {
         BodyType::None => (),
-        BodyType::Json | BodyType::Text => chunks.push(Chunk::Text(r.body.clone())),
+        BodyType::Json | BodyType::Text | BodyType::Xml | BodyType::Html => {
+            chunks.push(Chunk::Text(r.body.clone()))
+        }
         BodyType::Binary => chunks.push(if r.binary_file.is_empty() {
             Chunk::Text(r.body.clone())
         } else {

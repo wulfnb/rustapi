@@ -152,6 +152,14 @@ pub struct RustApiApp {
     code_language: CodeGenLanguage,
     include_secrets: bool,
     last_draft: Instant,
+    pub global_variables: storage::GlobalVariables,
+    pub environment_overrides: storage::LocalEnvironmentOverrides,
+    show_globals: bool,
+    global_key: String,
+    global_value: String,
+    show_overrides: bool,
+    override_key: String,
+    override_value: String,
 }
 impl Default for RustApiApp {
     fn default() -> Self {
@@ -253,12 +261,34 @@ impl Default for RustApiApp {
             code_language: Default::default(),
             include_secrets: false,
             last_draft: Instant::now(),
+            global_variables: storage::GlobalVariables::load(&storage::get_app_data_dir())
+                .unwrap_or_default(),
+            environment_overrides: storage::LocalEnvironmentOverrides::load(
+                &storage::get_app_data_dir(),
+            )
+            .unwrap_or_default(),
+            show_globals: false,
+            global_key: String::new(),
+            global_value: String::new(),
+            show_overrides: false,
+            override_key: String::new(),
+            override_value: String::new(),
         }
     }
 }
 impl RustApiApp {
     pub fn new(_: &eframe::CreationContext<'_>) -> Self {
         Self::default()
+    }
+    pub fn variables_for_request(&self, request: &ApiRequest) -> Variables {
+        let mut vars = Variables::for_request(request, self.environment());
+        vars.global = self.global_variables.variables.clone();
+        if let Some(env) = self.environment() {
+            vars.local_overrides = self.environment_overrides.get_overrides(&env.id, &env.name);
+        }
+        vars.local = self.variables.clone();
+        vars.secrets = self.secrets.clone();
+        vars
     }
     fn result<T>(&mut self, result: anyhow::Result<T>) -> Option<T> {
         match result {
@@ -323,12 +353,12 @@ impl RustApiApp {
         let collection_id = tab.collection_id.clone();
         let environment_id = self.active_environment_id.clone();
         let request = self.contextual_request(tab);
-        let mut variables = Variables::for_request(&request, self.environment());
-        variables.local = self.variables.clone();
-        variables.secrets = self.secrets.clone();
+        let mut variables = self.variables_for_request(&request);
         let before = Box::new(Variables {
+            global: variables.global.clone(),
             collection: variables.collection.clone(),
             environment: variables.environment.clone(),
+            local_overrides: variables.local_overrides.clone(),
             local: variables.local.clone(),
             ..Default::default()
         });
@@ -408,6 +438,12 @@ impl RustApiApp {
                             merge_changes(&before.collection, &variables.collection, &mut current);
                             c.variables = current.into_iter().collect();
                         }
+                        merge_changes(
+                            &before.global,
+                            &variables.global,
+                            &mut self.global_variables.variables,
+                        );
+                        let _ = self.global_variables.save(&storage::get_app_data_dir());
                     }
                 }
                 AsyncMessage::RunProgress { epoch, entry } if epoch == self.epoch => {
@@ -437,9 +473,7 @@ impl RustApiApp {
                             .position(|tab| tab.id == tab_id)
                         {
                             let request = self.contextual_request(&self.tab_manager.tabs[index]);
-                            let mut vars = Variables::for_request(&request, self.environment());
-                            vars.local = self.variables.clone();
-                            vars.secrets = self.secrets.clone();
+                            let vars = self.variables_for_request(&request);
                             let current =
                                 vars.resolve_oauth(&request.auth.oauth).and_then(|config| {
                                     rustapi::http::oauth::authorization_binding(&config)
@@ -1043,6 +1077,12 @@ impl RustApiApp {
                 if ui.button("Inspect variables").clicked() {
                     self.show_inspector = true;
                     self.reveal_inspector = false;
+                }
+                if ui.button("Globals").clicked() {
+                    self.show_globals = true;
+                }
+                if ui.button("Local overrides").clicked() {
+                    self.show_overrides = true;
                 }
                 if ui.button("Cookies").clicked() {
                     self.show_cookies = true;
@@ -1699,7 +1739,7 @@ impl RustApiApp {
                 ui.checkbox(&mut self.reveal_inspector,"Reveal values including credentials");
                 if let Some(tab)=self.tab_manager.active_tab() {
                     let request=self.contextual_request(tab);
-                    let mut vars=Variables::for_request(&request,self.environment());vars.local=self.variables.clone();vars.secrets=self.secrets.clone();
+                    let vars = self.variables_for_request(&request);
                     let origins=tab.collection_id.as_ref().and_then(|id|self.collections.iter().find(|c| &c.id==id)).map(|c|c.variable_origins(&tab.request.id)).unwrap_or_default();
                     render_variable_inspector(ui,&vars,origins,self.environment(),self.reveal_inspector);
                     ui.separator();ui.strong("Effective configured headers");
@@ -1713,6 +1753,92 @@ impl RustApiApp {
                 } else {ui.label("Open a request to inspect its active context.");}
                 if ui.button("Close inspector").clicked(){self.show_inspector=false;self.reveal_inspector=false;}
             });
+        }
+        if self.show_globals {
+            egui::Window::new("Global variables (.local/globals.json)")
+                .default_size([600., 400.])
+                .vscroll(true)
+                .show(ctx, |ui| {
+                    ui.small("Global variables have the lowest scope precedence (global < collection < env < overrides < iteration < local < vault). They persist across app launches and are stored in .local/.");
+                    let mut remove_key = None;
+                    for (k, v) in &mut self.global_variables.variables {
+                        ui.horizontal(|ui| {
+                            ui.monospace(k);
+                            ui.text_edit_singleline(v);
+                            if ui.small_button("🗑").clicked() {
+                                remove_key = Some(k.clone());
+                            }
+                        });
+                    }
+                    if let Some(k) = remove_key {
+                        self.global_variables.variables.remove(&k);
+                        let _ = self.global_variables.save(&storage::get_app_data_dir());
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut self.global_key).on_hover_text("New variable name");
+                        ui.text_edit_singleline(&mut self.global_value).on_hover_text("Value");
+                        if ui.button("Add global variable").clicked() && !self.global_key.trim().is_empty() {
+                            self.global_variables.variables.insert(self.global_key.trim().to_string(), self.global_value.clone());
+                            self.global_key.clear();
+                            self.global_value.clear();
+                            let _ = self.global_variables.save(&storage::get_app_data_dir());
+                        }
+                    });
+                    if ui.button("Save & Close").clicked() {
+                        let _ = self.global_variables.save(&storage::get_app_data_dir());
+                        self.show_globals = false;
+                    }
+                });
+        }
+        if self.show_overrides {
+            egui::Window::new("Local environment overrides (.local/environment-overrides.json)")
+                .default_size([700., 450.])
+                .vscroll(true)
+                .show(ctx, |ui| {
+                    let active_env = self.environment().map(|e| (e.id.clone(), e.name.clone()));
+                    if let Some((env_id, env_name)) = active_env {
+                        ui.strong(format!("Active environment: {}", env_name));
+                        ui.small("Local overrides take precedence over the tracked environment file, but are kept in .local/ and never committed or exported.");
+                        let mut env_map = self.environment_overrides.get_overrides(&env_id, &env_name);
+                        let mut changed = false;
+                        let mut remove_key = None;
+                        for (k, v) in &mut env_map {
+                            ui.horizontal(|ui| {
+                                ui.monospace(k);
+                                ui.text_edit_singleline(v);
+                                if ui.small_button("🗑").clicked() {
+                                    remove_key = Some(k.clone());
+                                }
+                            });
+                        }
+                        if let Some(k) = remove_key {
+                            env_map.remove(&k);
+                            changed = true;
+                        }
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut self.override_key).on_hover_text("Variable name");
+                            ui.text_edit_singleline(&mut self.override_value).on_hover_text("Local override value");
+                            if ui.button("Add override").clicked() && !self.override_key.trim().is_empty() {
+                                env_map.insert(self.override_key.trim().to_string(), self.override_value.clone());
+                                self.override_key.clear();
+                                self.override_value.clear();
+                                changed = true;
+                            }
+                        });
+                        if changed {
+                            self.environment_overrides.overrides.insert(env_id, env_map);
+                            let _ = self.environment_overrides.save(&storage::get_app_data_dir());
+                        }
+                    } else {
+                        ui.label("Select an active environment to manage its local overrides.");
+                    }
+                    if ui.button("Close").clicked() {
+                        let _ = self.environment_overrides.save(&storage::get_app_data_dir());
+                        self.show_overrides = false;
+                    }
+                });
         }
         if self.show_cookies {
             egui::Window::new("Workspace cookies (session)")
@@ -1765,9 +1891,7 @@ impl RustApiApp {
                     ui.checkbox(&mut self.include_secrets, "Include credentials in code");
                     if let Some(tab) = self.tab_manager.active_tab() {
                         let request = self.contextual_request(tab);
-                        let mut vars = Variables::for_request(&request, self.environment());
-                        vars.local = self.variables.clone();
-                        vars.secrets = self.secrets.clone();
+                        let vars = self.variables_for_request(&request);
                         let code = match vars.resolve_request(&request) {
                             Ok(r) => crate::http::generate_code(
                                 &if self.include_secrets {
