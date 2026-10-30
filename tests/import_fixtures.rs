@@ -127,33 +127,30 @@ fn row_descriptions_survive_cli_import_storage_and_native_collection_reimport() 
 }
 
 #[test]
-fn scope_variable_and_structured_row_descriptions_still_require_review() {
+fn scope_variable_and_structured_row_descriptions_are_preserved() {
     let mut source: serde_json::Value = serde_json::from_slice(METADATA).unwrap();
-    source["variable"] = serde_json::json!([{"key":"base","value":"https://example.test","description":"Collection note"}]);
-    source["item"][0]["variable"] =
-        serde_json::json!([{"key":"limit","value":"10","description":"Folder note"}]);
+    source["variable"] = serde_json::json!([{"key":"base","value":"https://example.test","description":"Collection note","type":"string"}]);
+    source["item"][0]["variable"] = serde_json::json!([{"key":"limit","value":"10","description":"Folder note","disabled":true}]);
     source["item"][0]["item"][0]["request"]["header"][0]["description"] =
         serde_json::json!({"content":"Structured private note","type":"text/markdown"});
     let imported = import::json(&serde_json::to_vec(&source).unwrap()).unwrap();
-    assert!(imported.requires_confirmation());
-    let paths: std::collections::BTreeSet<_> = imported
-        .diagnostics
-        .iter()
-        .filter(|d| d.feature == "row_description")
-        .map(|d| d.path.as_str())
-        .collect();
-    assert_eq!(
-        paths,
-        [
-            "/variable/0/description",
-            "/item/0/variable/0/description",
-            "/item/0/item/0/request/header/0/description"
-        ]
-        .into_iter()
-        .collect()
-    );
+    assert!(!imported.diagnostics.iter().any(|d| matches!(
+        d.feature.as_str(),
+        "row_description" | "variable_type" | "disabled_scope_variable"
+    )));
     let collection = imported.collection.as_ref().unwrap();
-    assert_eq!(collection.folders[0].requests[0].headers[0].description, "");
+    assert_eq!(
+        collection.variable_metadata[0].description,
+        "Collection note"
+    );
+    assert_eq!(collection.variable_metadata[0].value_type, "string");
+    assert!(!collection.folders[0].variable_metadata[0].enabled);
+    let header = &collection.folders[0].requests[0].headers[0];
+    assert_eq!(header.description, "Structured private note");
+    assert_eq!(
+        rustapi::models::encode_description(&header.description, &header.description_metadata),
+        source["item"][0]["item"][0]["request"]["header"][0]["description"]
+    );
     let report = serde_json::to_string(&imported.report()).unwrap();
     for note in ["Collection note", "Folder note", "Structured private note"] {
         assert!(!report.contains(note));
@@ -224,14 +221,18 @@ fn supported_imports_do_not_need_loss_confirmation() {
 fn environment_type_metadata_and_report_limits_are_visible() {
     let environment = br#"{"name":"Local","values":[{"key":"credential","value":"sensitive-fixture-value","type":"secret","description":"private-note"}]}"#;
     let imported = import::json(environment).unwrap();
-    assert!(imported.requires_confirmation());
-    assert_eq!(imported.diagnostics.len(), 1);
+    assert!(!imported.requires_confirmation());
+    assert!(imported.diagnostics.is_empty());
+    assert_eq!(
+        imported.environment.as_ref().unwrap().variables[0].value_type,
+        "secret"
+    );
     let report = serde_json::to_string(&imported.report()).unwrap();
     assert!(!report.contains("sensitive-fixture-value"));
     assert!(!report.contains("private-note"));
     let mut value: serde_json::Value = serde_json::from_slice(BODIES).unwrap();
     value["item"][0]["request"]["header"] = serde_json::json!(vec![
-        serde_json::json!({"key":"X-Test","value":"private-value","description":{"content":"private-note"}});
+        serde_json::json!({"key":"X-Test","value":"private-value","description":{"content":false}});
         600
     ]);
     let imported = import::json(&serde_json::to_vec(&value).unwrap()).unwrap();
@@ -295,7 +296,7 @@ fn cli_run_and_environment_import_apply_the_same_omission_policy() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("--allow-lossy-import"));
     let mut value: serde_json::Value = serde_json::from_slice(ENVIRONMENT).unwrap();
-    value["values"][0]["type"] = "secret".into();
+    value["values"][0]["description"] = serde_json::json!({"content":false});
     std::fs::write(&source, serde_json::to_vec(&value).unwrap()).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_rustapi"))
         .arg("import")
@@ -313,7 +314,7 @@ fn cli_run_and_environment_import_apply_the_same_omission_policy() {
         0
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["diagnostics"][0]["path"], "/values/0/type");
+    assert_eq!(report["diagnostics"][0]["path"], "/values/0/description");
 }
 
 #[test]
@@ -322,7 +323,7 @@ fn cli_run_reviews_environment_before_executing_requests() {
     let environment = directory.path().join("environment.json");
     let collection = directory.path().join("collection.json");
     let mut value: serde_json::Value = serde_json::from_slice(ENVIRONMENT).unwrap();
-    value["values"][0]["type"] = "secret".into();
+    value["values"][0]["description"] = serde_json::json!({"content":false});
     std::fs::write(&environment, serde_json::to_vec(&value).unwrap()).unwrap();
     let mut native = rustapi::models::Collection::new("Run fixture");
     native.requests.push(rustapi::models::ApiRequest {
@@ -340,7 +341,7 @@ fn cli_run_reviews_environment_before_executing_requests() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("/values/0/type"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("/values/0/description"));
     assert!(output.stdout.is_empty());
 }
 

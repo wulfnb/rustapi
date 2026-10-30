@@ -16,3 +16,6 @@ pub use response::*;
 
 mod workflow;
 pub use workflow::*;
+
+mod description;
+pub use description::*;

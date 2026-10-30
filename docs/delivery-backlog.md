@@ -8,7 +8,7 @@ hosted collaboration. Details and evidence live in [implementation progress](imp
 ## Import correctness
 
 - [x] Request/folder descriptions with backward-compatible storage.
-- [ ] Structured descriptions and collection/folder variable metadata.
+- [x] Structured descriptions and collection/folder variable metadata.
 - [ ] Path-variable substitution and encoding.
 - [ ] Multiple multipart files and per-part MIME types, including generated samples.
 - [ ] Imported request settings and explicit unsupported-setting diagnostics.

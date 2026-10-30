@@ -50,18 +50,21 @@ fn cookie_login_reuse_edit_and_clear() {
 }
 #[test]
 fn cancellation_interrupts_slow_response() {
-    let server = Server::new(1, |_, _| {
+    let (ready, received) = std::sync::mpsc::sync_channel(1);
+    let server = Server::new(1, move |_, _| {
+        ready.send(()).unwrap();
         let mut reply = Reply::json("{}");
         reply.delay_ms = 600;
         reply
     });
     let cancel = Cancellation::default();
     let c = cancel.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(100));
+    let cancelling = std::thread::spawn(move || {
+        received.recv_timeout(Duration::from_secs(5)).unwrap();
+        let start = Instant::now();
         c.cancel();
+        start
     });
-    let start = Instant::now();
     let r = HttpService::default().execute(
         &ApiRequest {
             url: server.url.clone(),
@@ -70,7 +73,8 @@ fn cancellation_interrupts_slow_response() {
         &cancel,
     );
     assert!(r.error.unwrap().contains("cancelled"));
-    assert!(start.elapsed() < Duration::from_millis(500));
+    // Measure cancellation latency after connection, not variable client-startup time.
+    assert!(cancelling.join().unwrap().elapsed() < Duration::from_millis(500));
     server.finish();
 }
 #[test]

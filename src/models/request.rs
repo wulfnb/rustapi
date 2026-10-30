@@ -116,8 +116,14 @@ pub struct KeyValue {
     pub value: String,
     pub enabled: bool,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_metadata: Option<super::DescriptionMetadata>,
     #[serde(default)]
     pub file: bool,
+    #[serde(default)]
+    pub value_type: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub extensions: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 impl KeyValue {
@@ -127,7 +133,10 @@ impl KeyValue {
             value: value.into(),
             enabled: true,
             description: String::new(),
+            description_metadata: None,
             file: false,
+            value_type: String::new(),
+            extensions: Default::default(),
         }
     }
 }
@@ -139,6 +148,8 @@ pub struct ApiRequest {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_metadata: Option<super::DescriptionMetadata>,
     pub method: HttpMethod,
     pub url: String,
     pub headers: Vec<KeyValue>,
@@ -173,6 +184,7 @@ impl Default for ApiRequest {
             id: Uuid::new_v4().to_string(),
             name: String::from("New Request"),
             description: String::new(),
+            description_metadata: None,
             method: HttpMethod::GET,
             url: String::new(),
             headers: vec![],

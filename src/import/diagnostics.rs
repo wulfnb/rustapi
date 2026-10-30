@@ -85,28 +85,20 @@ impl Scanner {
         if let Some(rows) = value.as_array() {
             for (i, row) in rows.iter().enumerate() {
                 let base = format!("{path}/{i}");
-                // Scope variables become plain maps; request/environment rows retain strings.
-                if matches!(context, RowContext::ScopeVariables) {
+                if !crate::models::description_supported(&row["description"]) {
                     self.omitted(
                         &row["description"],
                         format!("{base}/description"),
                         "row_description",
-                        "Collection and folder variable descriptions are not retained.",
-                    );
-                } else if !row["description"].is_string() {
-                    self.omitted(
-                        &row["description"],
-                        format!("{base}/description"),
-                        "row_description",
-                        "Only plain-text row descriptions are retained.",
+                        "Description content must be a string.",
                     );
                 }
-                if !matches!(context, RowContext::Fields) {
+                if !matches!(context, RowContext::Fields) && !row["type"].is_string() {
                     self.omitted(
                         &row["type"],
                         format!("{base}/type"),
                         "variable_type",
-                        "Variable type metadata is not retained; use vault references for secrets.",
+                        "Variable type metadata must be a string.",
                     );
                 }
             }
@@ -134,29 +126,20 @@ impl Scanner {
             &format!("{path}/variable"),
             RowContext::ScopeVariables,
         );
-        if let Some(rows) = variables.as_array() {
-            for (i, row) in rows.iter().enumerate() {
-                if row["disabled"] == true || row["enabled"] == false {
-                    self.add(
-                        format!("{path}/variable/{i}"),
-                        "disabled_scope_variable",
-                        ImportDisposition::Omitted,
-                        "Disabled collection or folder variables are not retained.",
-                    );
-                }
-            }
-        }
     }
+
     fn items(&mut self, items: &Value, path: &str) {
         if let Some(items) = items.as_array() {
             for (i, item) in items.iter().enumerate() {
                 let base = format!("{path}/{i}");
-                if !item["item"].is_array() || !item["description"].is_string() {
+                if !item["item"].is_array()
+                    || !crate::models::description_supported(&item["description"])
+                {
                     self.omitted(
                         &item["description"],
                         format!("{base}/description"),
                         "item_description",
-                        "Only plain-text folder descriptions are retained.",
+                        "Description content must be a string; request-item descriptions must be stored inside request.",
                     );
                 }
                 if item["item"].is_array() {
@@ -174,12 +157,12 @@ impl Scanner {
                 let request = &item["request"];
                 let base = format!("{base}/request");
                 self.settings_and_auth(request, &base);
-                if !request["description"].is_string() {
+                if !crate::models::description_supported(&request["description"]) {
                     self.omitted(
                         &request["description"],
                         format!("{base}/description"),
                         "request_description",
-                        "Only plain-text request descriptions are retained.",
+                        "Description content must be a string.",
                     );
                 }
                 self.omitted(
@@ -225,6 +208,14 @@ impl Scanner {
 // Called only after the importer has validated collection structure and nesting.
 pub(super) fn collection(value: &Value) -> Vec<ImportDiagnostic> {
     let mut scanner = Scanner::default();
+    if !crate::models::description_supported(&value["info"]["description"]) {
+        scanner.omitted(
+            &value["info"]["description"],
+            "/info/description".into(),
+            "collection_description",
+            "Description content must be a string.",
+        );
+    }
     scanner.scope(value, "");
     scanner.items(&value["item"], "/item");
     scanner.diagnostics

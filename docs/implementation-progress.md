@@ -1,6 +1,6 @@
 # RustAPI implementation progress
 
-Updated: **2026-10-30**. Source baseline for the current step: `d73cf4f`.
+Updated: **2026-10-30**. Source baseline for the current step: `0990c95`.
 
 ## Working agreement
 
@@ -128,3 +128,23 @@ on 2026-10-30. [Delivery backlog](delivery-backlog.md) tracks every requested ca
 Continue with structured descriptions and scope-variable metadata, then path variables,
 files, settings and URL/header semantics. Verify, commit and push each slice before
 starting the next. Later protocol/hosted-platform work is outside these three groups.
+
+## Step 6 — Structured descriptions and scope-variable metadata
+
+Status: **complete**, verified locally; delivery is recorded in Git history.
+
+- Preserve description content, format and extension metadata across collection,
+  folder, request, row and environment storage. Encoding uses edited content with
+  retained metadata rather than stale imported text.
+- Preserve scope-variable rows, disabled flags, type hints and extensions alongside
+  legacy value maps. Disabled rows cannot resolve or mask enabled ancestor values;
+  script removals do not resurrect stale metadata values.
+- Invalid description/type representations still require review. Diagnostic reports
+  remain bounded and do not expose imported metadata values.
+- Full local suite: **134 passed**; formatting and warnings-denied Clippy passed.
+- Fixed a cancellation-test timing race by synchronizing cancellation after receipt
+  of a request. The original full run failed when cancellation preceded connection;
+  the corrected full rerun passed.
+
+Next: path-variable substitution and encoding, then multipart files/MIME types.
+The rest of the three-group scope remains active in the delivery backlog.

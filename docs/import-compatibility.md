@@ -19,10 +19,11 @@ and collection/folder/request pre/post scripts. Bodies support raw JSON/text, UR
 multipart and file modes. Unrecognized methods/body modes stop the import before files
 are written. Collection v1/v2.0 documents must be exported as v2.1 first.
 
-Plain-text request/folder descriptions and descriptions on headers, query parameters, URL-encoded/multipart rows
-and environment variables are retained, including disabled rows, Unicode and line
-breaks. They survive workspace save/reload and native collection reimport. Editing
-these descriptions in the request UI is separate, pending work.
+String and structured descriptions retain their text, format and extension metadata.
+Scope-variable rows retain descriptions, type hints, disabled flags and extensions;
+legacy maps remain authoritative for active values. Disabled rows are preserved but
+excluded from resolution. Script changes do not resurrect removed values when rows
+are reconstructed for export. Description editing in the UI is separate pending work.
 
 Scripts are preserved as source and their compatibility warning is visible after import.
 OAuth requires local authorization and upload paths may need adjustment. Unsupported
@@ -42,11 +43,9 @@ recoverable duplicate instead of losing the request.
 ## Known import omissions
 
 Collection v2.1 and environment JSON imports now produce a structured report for
-known data they cannot retain: structured request/folder/row descriptions,
-collection/folder variable descriptions, saved response examples, structured path
-variables, request behavior settings, multipart part MIME
-types and additional files, variable type metadata, disabled collection/folder
-variables and unsupported authentication configurations.
+known data they cannot retain or apply: saved response examples, structured path
+variables, request behavior settings, multipart part MIME types/additional files,
+malformed description/type representations and unsupported authentication configurations.
 
 The desktop presents **Review import omissions** before saving. Cancel or close
 the review to discard the pending import; choose **Import with omissions** to save

@@ -36,11 +36,39 @@ fn values(v: &Value) -> Vec<KeyValue> {
     v.as_array()
         .map(|a| {
             a.iter()
-                .map(|v| KeyValue {
-                    enabled: v["enabled"].as_bool().unwrap_or(true)
-                        && !v["disabled"].as_bool().unwrap_or(false),
-                    description: v["description"].as_str().unwrap_or_default().into(),
-                    ..KeyValue::new(text(&v["key"]), text(&v["value"]))
+                .map(|v| {
+                    let (description, description_metadata) = decode_description(&v["description"]);
+                    KeyValue {
+                        enabled: v["enabled"].as_bool().unwrap_or(true)
+                            && !v["disabled"].as_bool().unwrap_or(false),
+                        description,
+                        description_metadata,
+                        value_type: v["type"].as_str().unwrap_or_default().into(),
+                        extensions: v
+                            .as_object()
+                            .map(|object| {
+                                object
+                                    .iter()
+                                    .filter(|(key, _)| {
+                                        ![
+                                            "key",
+                                            "value",
+                                            "enabled",
+                                            "disabled",
+                                            "description",
+                                            "type",
+                                            "file",
+                                            "src",
+                                            "contentType",
+                                        ]
+                                        .contains(&key.as_str())
+                                    })
+                                    .map(|(key, value)| (key.clone(), value.clone()))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        ..KeyValue::new(text(&v["key"]), text(&v["value"]))
+                    }
                 })
                 .collect()
         })
@@ -120,7 +148,7 @@ fn scripts(v: &Value) -> (String, String) {
 fn request(item: &Value, warnings: &mut Vec<String>) -> Result<ApiRequest> {
     let v = &item["request"];
     let mut r = ApiRequest::new(text(&item["name"]));
-    r.description = v["description"].as_str().unwrap_or_default().into();
+    (r.description, r.description_metadata) = decode_description(&v["description"]);
     if let Some(url) = v.as_str() {
         r.url = url.into();
         return Ok(r);
@@ -212,9 +240,12 @@ fn items(
     for item in v.as_array().context("Collection items must be an array")? {
         if item["item"].is_array() {
             let mut f = Folder::new(text(&item["name"]));
-            f.description = item["description"].as_str().unwrap_or_default().into();
+            (f.description, f.description_metadata) = decode_description(&item["description"]);
             f.auth = auth(&item["auth"], warnings);
-            f.variables = values(&item["variable"])
+            f.variable_metadata = values(&item["variable"]);
+            f.variables = f
+                .variable_metadata
+                .clone()
                 .into_iter()
                 .filter(|v| v.enabled)
                 .map(|v| (v.key, v.value))
@@ -254,12 +285,15 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
             "Only collection schema v2.1 is supported"
         );
         let mut c = Collection::new(text(&v["info"]["name"]));
-        c.description = text(&v["info"]["description"]);
+        (c.description, c.description_metadata) = decode_description(&v["info"]["description"]);
         c.auth = auth(&v["auth"], &mut warnings);
         if c.auth.auth_type == AuthType::Inherit {
             c.auth.auth_type = AuthType::None;
         }
-        c.variables = values(&v["variable"])
+        c.variable_metadata = values(&v["variable"]);
+        c.variables = c
+            .variable_metadata
+            .clone()
             .into_iter()
             .filter(|v| v.enabled)
             .map(|v| (v.key, v.value))

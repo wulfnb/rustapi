@@ -13,6 +13,8 @@ pub struct Folder {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_metadata: Option<super::DescriptionMetadata>,
     pub requests: Vec<ApiRequest>,
     #[serde(default)]
     pub order: Vec<String>,
@@ -26,6 +28,8 @@ pub struct Folder {
     pub post_script: String,
     #[serde(default)]
     pub variables: HashMap<String, String>,
+    #[serde(default)]
+    pub variable_metadata: Vec<super::KeyValue>,
 }
 
 impl Folder {
@@ -34,6 +38,7 @@ impl Folder {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             description: String::new(),
+            description_metadata: None,
             requests: vec![],
             order: vec![],
             folders: vec![],
@@ -45,6 +50,7 @@ impl Folder {
             pre_script: String::new(),
             post_script: String::new(),
             variables: HashMap::new(),
+            variable_metadata: vec![],
         }
     }
 }
@@ -55,6 +61,8 @@ pub struct Collection {
     pub id: String,
     pub name: String,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description_metadata: Option<super::DescriptionMetadata>,
     pub version: String,
     #[serde(default = "schema_version")]
     pub schema_version: u32,
@@ -69,6 +77,8 @@ pub struct Collection {
     pub order: Vec<String>,
     pub folders: Vec<Folder>,
     pub variables: HashMap<String, String>,
+    #[serde(default)]
+    pub variable_metadata: Vec<super::KeyValue>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(skip)]
@@ -83,6 +93,7 @@ impl Default for Collection {
             id: Uuid::new_v4().to_string(),
             name: String::from("New Collection"),
             description: String::new(),
+            description_metadata: None,
             version: String::from("1.0.0"),
             schema_version: schema_version(),
             auth: Default::default(),
@@ -92,6 +103,7 @@ impl Default for Collection {
             order: vec![],
             folders: vec![],
             variables: HashMap::new(),
+            variable_metadata: vec![],
             created_at: Utc::now(),
             updated_at: Utc::now(),
             file_path: None,
@@ -168,7 +180,10 @@ impl Collection {
                     out.push(r);
                 } else if let Some(f) = folders.iter().find(|f| f.id == id) {
                     let mut vars = vars.clone();
-                    vars.extend(f.variables.clone());
+                    vars.extend(effective_scope_variables(
+                        &f.variables,
+                        &f.variable_metadata,
+                    ));
                     let auth = if f.auth.auth_type == super::AuthType::Inherit {
                         auth
                     } else {
@@ -190,16 +205,12 @@ impl Collection {
             }
         }
         let mut all = vec![];
+        let variables = effective_scope_variables(&self.variables, &self.variable_metadata);
         visit(
             &self.requests,
             &self.folders,
             &self.order,
-            (
-                &self.variables,
-                &self.auth,
-                &self.pre_script,
-                &self.post_script,
-            ),
+            (&variables, &self.auth, &self.pre_script, &self.post_script),
             &mut all,
         );
         if let Some(id) = folder {
@@ -335,4 +346,52 @@ pub fn validate_collection(c: &Collection) -> anyhow::Result<()> {
         Ok(())
     }
     visit(&c.requests, &c.folders, &mut Default::default())
+}
+
+/// Legacy maps remain authoritative for values; metadata supplies disabled flags.
+pub fn effective_scope_variables(
+    values: &HashMap<String, String>,
+    rows: &[super::KeyValue],
+) -> HashMap<String, String> {
+    let mut values = values.clone();
+    let enabled: std::collections::HashSet<_> =
+        rows.iter().filter(|r| r.enabled).map(|r| &r.key).collect();
+    for row in rows {
+        if !row.enabled && !enabled.contains(&row.key) {
+            values.remove(&row.key);
+        }
+    }
+    values
+}
+
+/// Reconstruct portable rows without resurrecting values deleted by scripts or edits.
+pub fn scope_variable_rows(
+    values: &HashMap<String, String>,
+    rows: &[super::KeyValue],
+) -> Vec<super::KeyValue> {
+    let mut output = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for row in rows {
+        let mut row = row.clone();
+        if row.enabled {
+            if let Some(value) = values.get(&row.key) {
+                row.value = value.clone();
+            } else {
+                row.enabled = false;
+            }
+        }
+        seen.insert(row.key.clone());
+        output.push(row);
+    }
+    let mut extra: Vec<_> = values
+        .iter()
+        .filter(|(key, _)| !seen.contains(*key))
+        .collect();
+    extra.sort_by_key(|(key, _)| *key);
+    output.extend(
+        extra
+            .into_iter()
+            .map(|(key, value)| super::KeyValue::new(key, value)),
+    );
+    output
 }
