@@ -7,6 +7,8 @@ RUN apt-get update && xargs -a /tmp/build-packages.txt apt-get install -y --no-i
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY build.rs ./
 COPY assets ./assets
+# Embedded with include_str! by src/http/cookie_bridge.rs.
+COPY browser-connector ./browser-connector
 COPY src ./src
 COPY tests ./tests
 COPY examples ./examples
