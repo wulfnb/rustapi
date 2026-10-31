@@ -93,10 +93,52 @@ fn auth(v: &Value, warnings: &mut Vec<String>) -> Result<AuthConfig> {
             a.auth_type = AuthType::BearerToken;
             a.bearer_token = get("token");
         }
-        "basic" => {
-            a.auth_type = AuthType::BasicAuth;
+        "basic" | "digest" => {
+            a.auth_type = if kind == "digest" {
+                AuthType::Digest
+            } else {
+                AuthType::BasicAuth
+            };
             a.basic_username = get("username");
             a.basic_password = get("password");
+        }
+        "jwt" => {
+            anyhow::ensure!(
+                get("isSecretBase64Encoded") != "true",
+                "Base64-encoded JWT secrets must be decoded before import"
+            );
+            anyhow::ensure!(
+                ["", "Bearer"].contains(&get("headerPrefix").as_str())
+                    && ["", "header"].contains(&get("addTokenTo").as_str()),
+                "Only JWT Bearer authorization headers are supported"
+            );
+            a.auth_type = AuthType::Jwt;
+            a.jwt.algorithm = if get("algorithm").is_empty() {
+                "HS256".into()
+            } else {
+                get("algorithm")
+            };
+            a.jwt.key = if a.jwt.algorithm.starts_with("HS") || get("privateKey").is_empty() {
+                get("secret")
+            } else {
+                get("privateKey")
+            };
+            a.jwt.key_id = get("keyId");
+            a.jwt.claims = if get("payload").is_empty() {
+                "{}".into()
+            } else {
+                get("payload")
+            };
+        }
+        "awsv4" => {
+            a.auth_type = AuthType::AwsSigV4;
+            a.aws = AwsConfig {
+                access_key: get("accessKey"),
+                secret_key: get("secretKey"),
+                session_token: get("sessionToken"),
+                region: get("region"),
+                service: get("service"),
+            };
         }
         "apikey" => {
             a.auth_type = AuthType::ApiKey;
@@ -119,6 +161,7 @@ fn auth(v: &Value, warnings: &mut Vec<String>) -> Result<AuthConfig> {
             a.oauth.grant = get("grant_type");
             a.oauth.refresh_url = get("refreshTokenUrl");
             a.oauth.refresh_scope = get("refreshTokenScope");
+            a.oauth.persist_tokens = get("_rustapiPersistTokens") == "true";
             a.oauth.client_auth = match get("client_authentication").as_str() {
                 "" | "body" | "client_secret_post" => OAuthClientAuth::Body,
                 "header" | "client_secret_basic" => OAuthClientAuth::Basic,
@@ -299,6 +342,19 @@ fn request(
     r.auth = auth(&v["auth"], warnings)?;
     let body = &v["body"];
     match body["mode"].as_str().unwrap_or("") {
+        "graphql" => {
+            anyhow::ensure!(
+                body["graphql"].is_object() && body["graphql"]["query"].is_string(),
+                "GraphQL body requires a query document"
+            );
+            r.graphql = Some(crate::graphql::Graphql {
+                query: text(&body["graphql"]["query"]),
+                variables: body["graphql"]["variables"].as_str().unwrap_or("{}").into(),
+                operation_name: text(&body["graphql"]["operationName"]),
+                ..Default::default()
+            });
+            r.method = HttpMethod::POST;
+        }
         "raw" => {
             r.body = text(&body["raw"]);
             r.body_type = if body["options"]["raw"]["language"] == "json"
@@ -513,6 +569,26 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
         "Import exceeds 64 MiB limit"
     );
     let v: Value = serde_json::from_slice(bytes)?;
+    if v["openapi"].is_string() {
+        let spec = crate::openapi::Specification::parse(std::str::from_utf8(bytes)?)?;
+        let (collection, issues) = spec.import()?;
+        let diagnostics = issues
+            .into_iter()
+            .map(|issue| ImportDiagnostic {
+                path: issue.path,
+                feature: "openapi_review".into(),
+                severity: ImportSeverity::Warning,
+                disposition: ImportDisposition::Omitted,
+                message: issue.message,
+            })
+            .collect();
+        return Ok(ImportResult {
+            collection: Some(collection),
+            environment: None,
+            warnings: vec![],
+            diagnostics,
+        });
+    }
     if v["$kind"] == "collection" {
         return crate::v3::import_document(&v);
     }
@@ -716,7 +792,12 @@ pub fn path(path: &std::path::Path) -> Result<ImportResult> {
         .extension()
         .is_some_and(|extension| extension == "yaml" || extension == "yml")
     {
-        crate::v3::import_document(&crate::v3::parse_yaml(std::str::from_utf8(&bytes)?)?)
+        let value = crate::v3::parse_yaml(std::str::from_utf8(&bytes)?)?;
+        if value["openapi"].is_string() {
+            json(&serde_json::to_vec(&value)?)
+        } else {
+            crate::v3::import_document(&value)
+        }
     } else {
         json(&bytes)
     }

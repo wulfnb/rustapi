@@ -1,0 +1,1 @@
+{"private":true,"type":"module","dependencies":{"aedes":"1.2.0","socket.io":"4.8.4","@grpc/grpc-js":"1.14.7","@grpc/proto-loader":"0.8.1"}}

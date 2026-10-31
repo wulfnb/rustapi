@@ -69,6 +69,20 @@ See the [feature gap analysis](docs/feature-gap-analysis.md) and
   redacts known sensitive fields by default; including credentials is an explicit action.
 - cURL, Python requests, JavaScript Fetch, Rust reqwest, raw HTTP, Go, C#, Java
   and Dart code generation. See [target capabilities](docs/code-generation.md).
+- JWT signing, AWS SigV4, Digest, encrypted persistent OAuth tokens/cookie jars
+  and an opt-in Chromium cookie connector.
+- OpenAPI 3 import/edit/lint, response contracts and drift; offline documentation
+  and example-backed local mocks with matching, delays and faults.
+- Saved run profiles/datasets, local scheduling and webhook alerts; concurrent
+  virtual users, load stages, latency percentiles and result comparisons.
+- GraphQL document/schema tools and live SSE, WebSocket, MQTT, Socket.IO and gRPC
+  sessions (gRPC requires `grpcurl`).
+- Optional self-hosted collection synchronization/catalogs, visual request flows,
+  Ollama request drafting, MCP stdio tools, Vault/AWS secret providers and policies.
+
+See the [advanced tools guide](docs/advanced-tools.md) for desktop/CLI setup,
+configuration examples and the supported protocol and governance boundaries.
+These additions keep local use account-free; external services are optional.
 
 ## Build and run
 

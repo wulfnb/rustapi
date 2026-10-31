@@ -1,0 +1,6 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>RustAPI cookies</title>
+<style>body{font:14px system-ui;width:340px;padding:14px}input{width:100%;box-sizing:border-box;margin:8px 0}button{margin:6px 6px 6px 0}p{overflow-wrap:anywhere}</style>
+<h1>RustAPI cookies</h1><label>Private pairing URL from RustAPI<input id="pair" type="password" placeholder="http://127.0.0.1:port/#token"></label>
+<p>Only the current tab's host is accessed when you click. Sync merges cookies; it does not propagate deletions or partitioned cookies.</p>
+<button id="capture">Capture into RustAPI</button><button id="sync">Merge into browser</button><p id="status" role="status"></p>
+<script type="module" src="popup.js"></script></html>

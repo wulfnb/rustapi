@@ -10,4 +10,9 @@ pub use prepared::*;
 
 pub mod oauth;
 
+pub mod auth;
+mod cookies;
+pub use cookies::*;
+mod cookie_bridge;
+pub use cookie_bridge::*;
 mod codegen_targets;

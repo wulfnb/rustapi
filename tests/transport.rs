@@ -81,18 +81,21 @@ fn cancellation_interrupts_slow_response() {
 fn timeout_and_response_limit_are_transport_errors() {
     let server = Server::new(1, |_, _| {
         let mut r = Reply::json("{}");
-        r.delay_ms = 150;
+        r.delay_ms = 400;
         r
     });
     let r = ApiRequest {
         url: server.url.clone(),
         settings: HttpSettings {
-            timeout_ms: 30,
+            timeout_ms: 100,
             ..Default::default()
         },
         ..Default::default()
     };
-    assert!(HttpService::default()
+    let service = HttpService::default();
+    // Isolate the response deadline from platform trust-store/client initialization.
+    service.client(&r.settings).unwrap();
+    assert!(service
         .execute(&r, &Cancellation::default())
         .error
         .is_some());

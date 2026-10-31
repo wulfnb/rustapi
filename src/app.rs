@@ -108,6 +108,10 @@ pub struct RustApiApp {
     search: String,
     response_search: String,
     documents: DocumentEditor,
+    api_tools: ApiTools,
+    protocol_console: ProtocolConsole,
+    flow_editor: FlowEditor,
+    platform_tools: PlatformTools,
     show_history: bool,
     show_environments: bool,
     show_import: bool,
@@ -138,6 +142,7 @@ pub struct RustApiApp {
     show_vault: bool,
     vault_password: String,
     secrets: BTreeMap<String, String>,
+    session_secrets: BTreeMap<String, String>,
     vault_unlocked: bool,
     secret_name: String,
     secret_value: String,
@@ -146,6 +151,7 @@ pub struct RustApiApp {
     show_inspector: bool,
     reveal_inspector: bool,
     show_cookies: bool,
+    cookie_bridge: Option<rustapi::http::CookieBridge>,
     cookie_url: String,
     cookie_value: String,
     show_code: bool,
@@ -217,6 +223,10 @@ impl Default for RustApiApp {
             search: String::new(),
             response_search: String::new(),
             documents: DocumentEditor::recover(),
+            api_tools: ApiTools::recover(),
+            protocol_console: ProtocolConsole::default(),
+            flow_editor: FlowEditor::default(),
+            platform_tools: PlatformTools::default(),
             show_history: false,
             show_environments: false,
             show_import: false,
@@ -247,6 +257,7 @@ impl Default for RustApiApp {
             show_vault: false,
             vault_password: String::new(),
             secrets: BTreeMap::new(),
+            session_secrets: BTreeMap::new(),
             vault_unlocked: false,
             secret_name: String::new(),
             secret_value: String::new(),
@@ -255,6 +266,7 @@ impl Default for RustApiApp {
             show_inspector: false,
             reveal_inspector: false,
             show_cookies: false,
+            cookie_bridge: None,
             cookie_url: String::new(),
             cookie_value: String::new(),
             show_code: false,
@@ -277,6 +289,11 @@ impl Default for RustApiApp {
     }
 }
 impl RustApiApp {
+    fn execution_secrets(&self) -> BTreeMap<String, String> {
+        let mut values = self.secrets.clone();
+        values.extend(self.session_secrets.clone());
+        values
+    }
     pub fn new(_: &eframe::CreationContext<'_>) -> Self {
         Self::default()
     }
@@ -287,7 +304,7 @@ impl RustApiApp {
             vars.local_overrides = self.environment_overrides.get_overrides(&env.id, &env.name);
         }
         vars.local = self.variables.clone();
-        vars.secrets = self.secrets.clone();
+        vars.secrets = self.execution_secrets();
         vars
     }
     fn result<T>(&mut self, result: anyhow::Result<T>) -> Option<T> {
@@ -882,7 +899,7 @@ impl RustApiApp {
         self.report = Some(RunReport::default());
         let env = self.environment().cloned();
         let service = self.service.clone();
-        let secrets = self.secrets.clone();
+        let secrets = self.execution_secrets();
         let cancel = Cancellation::default();
         self.run_cancel = Some(cancel.clone());
         let sender = self.sender.clone();
@@ -917,7 +934,7 @@ impl RustApiApp {
         let request = self.contextual_request(tab);
         let mut vars = Variables::for_request(&request, self.environment());
         vars.local = self.variables.clone();
-        vars.secrets = self.secrets.clone();
+        vars.secrets = self.execution_secrets();
         self.tab_manager
             .active_tab_mut()
             .unwrap()
@@ -1089,6 +1106,18 @@ impl RustApiApp {
                 }
                 if ui.button("Documents").clicked() {
                     self.documents.open = true;
+                }
+                if ui.button("API tools").clicked() {
+                    self.api_tools.open = true;
+                }
+                if ui.button("Protocols").clicked() {
+                    self.protocol_console.open = true;
+                }
+                if ui.button("Visual flows").clicked() {
+                    self.flow_editor.open = true;
+                }
+                if ui.button("Self-hosted tools").clicked() {
+                    self.platform_tools.open = true;
                 }
                 if ui.button("History").clicked() {
                     self.show_history = true;
@@ -1444,7 +1473,65 @@ fn folder_choices(
 
 impl RustApiApp {
     fn windows(&mut self, ctx: &egui::Context) {
+        let execution_secrets = self.execution_secrets();
         self.documents.window(ctx);
+        self.flow_editor.window(
+            ctx,
+            &self.collections,
+            self.service.clone(),
+            &execution_secrets,
+        );
+        self.protocol_console
+            .window(ctx, self.service.clone(), &execution_secrets);
+        if let Some(imported) = self.api_tools.window(
+            ctx,
+            &self.collections,
+            self.service.clone(),
+            &execution_secrets,
+        ) {
+            self.import(Ok(imported));
+        }
+        if let Some(action) = self.platform_tools.window(
+            ctx,
+            &self.collections,
+            self.service.clone(),
+            &execution_secrets,
+        ) {
+            match action {
+                PlatformAction::Import(collection) => {
+                    self.import(Ok(rustapi::import::ImportResult {
+                        collection: Some(*collection),
+                        environment: None,
+                        warnings: vec![],
+                        diagnostics: vec![],
+                    }))
+                }
+                PlatformAction::Draft(request) => self.tab_manager.open_tab(*request, None),
+                PlatformAction::Secrets(values) => self.session_secrets.extend(values),
+                PlatformAction::ExternalSecrets(values) => {
+                    self.session_secrets
+                        .retain(|key, _| !key.starts_with("ext/"));
+                    self.session_secrets.extend(values);
+                }
+                PlatformAction::Linked {
+                    local_id,
+                    remote_id,
+                    revision,
+                } => {
+                    if let Some(mut collection) =
+                        self.collections.iter().find(|c| c.id == local_id).cloned()
+                    {
+                        collection
+                            .imported_settings
+                            .insert("team.remote_id".into(), remote_id.into());
+                        collection
+                            .imported_settings
+                            .insert("team.revision".into(), revision.into());
+                        self.commit_collection(collection);
+                    }
+                }
+            }
+        }
         if self.show_new_collection {
             egui::Window::new("New collection").show(ctx, |ui| {
                 ui.text_edit_singleline(&mut self.new_name);
@@ -1841,12 +1928,86 @@ impl RustApiApp {
                 });
         }
         if self.show_cookies {
-            egui::Window::new("Workspace cookies (session)")
+            egui::Window::new("Workspace cookies")
                 .default_width(600.)
                 .vscroll(true)
                 .show(ctx, |ui| {
-                    for cookie in self.service.cookies.list() {
-                        ui.monospace(cookie);
+                    ui.label(if self.service.cookies.persistent() {
+                        "Encrypted persistent jar (unlocked)"
+                    } else {
+                        "Session jar"
+                    });
+                    if let Some(error) = self.service.cookies.last_error() {
+                        ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    }
+                    if !self.service.cookies.persistent()
+                        && ui.button("Keep jar in encrypted vault").clicked()
+                    {
+                        if self.vault_unlocked {
+                            self.result(self.service.cookies.unlock(
+                                &storage::get_app_data_dir().join(".local/cookies.json"),
+                                &self.vault_password,
+                            ));
+                        } else {
+                            self.error = Some("Unlock Local encrypted secrets first".into());
+                        }
+                    }
+                    for cookie in self.service.cookies.entries() {
+                        ui.push_id((&cookie.domain, &cookie.path, &cookie.name), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(format!(
+                                    "{} · {}{} · Secure={} HttpOnly={} SameSite={}",
+                                    cookie.name,
+                                    cookie.domain,
+                                    cookie.path,
+                                    cookie.secure,
+                                    cookie.http_only,
+                                    cookie.same_site
+                                ));
+                                if ui.small_button("Edit").clicked() {
+                                    self.cookie_url = format!(
+                                        "{}://{}{}",
+                                        if cookie.secure { "https" } else { "http" },
+                                        cookie.domain.trim_start_matches('.'),
+                                        cookie.path
+                                    );
+                                    self.cookie_value = format!(
+                                        "{}={}; Path={}{}{}{}{}",
+                                        cookie.name,
+                                        cookie.value,
+                                        cookie.path,
+                                        if cookie.host_only {
+                                            String::new()
+                                        } else {
+                                            format!("; Domain={}", cookie.domain)
+                                        },
+                                        if cookie.secure { "; Secure" } else { "" },
+                                        if cookie.http_only { "; HttpOnly" } else { "" },
+                                        if cookie.same_site.is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!("; SameSite={}", cookie.same_site)
+                                        }
+                                    );
+                                    if let Some(expires) = cookie
+                                        .expiration_date
+                                        .and_then(|t| chrono::DateTime::from_timestamp(t as i64, 0))
+                                    {
+                                        self.cookie_value.push_str(&format!(
+                                            "; Expires={}",
+                                            expires.format("%a, %d %b %Y %H:%M:%S GMT")
+                                        ));
+                                    }
+                                }
+                                if ui.small_button("Delete").clicked() {
+                                    self.result(self.service.cookies.remove(
+                                        &cookie.domain,
+                                        &cookie.path,
+                                        &cookie.name,
+                                    ));
+                                }
+                            });
+                        });
                     }
                     if ui.button("Clear all cookies").clicked() {
                         self.service.cookies.clear();
@@ -1854,13 +2015,43 @@ impl RustApiApp {
                     ui.label("Origin URL");
                     ui.text_edit_singleline(&mut self.cookie_url);
                     ui.label("Set-Cookie value (use Max-Age=0 to delete a cookie)");
-                    ui.text_edit_singleline(&mut self.cookie_value);
+                    ui.add(egui::TextEdit::singleline(&mut self.cookie_value).password(true));
                     if ui.button("Set cookie").clicked() {
                         let result = self
                             .service
                             .cookies
                             .set(&self.cookie_url, &self.cookie_value);
                         self.result(result);
+                    }
+                    ui.separator();
+                    ui.label("Browser capture / sync (manual merge; deletions are local)");
+                    ui.hyperlink_to(
+                        "Browser connector setup",
+                        "https://github.com/wulfnb/rustapi/tree/main/browser-connector",
+                    );
+                    if ui.button("Export browser connector").clicked() {
+                        if let Some(parent) = rfd::FileDialog::new().pick_folder() {
+                            if let Some(path) = self.result(rustapi::http::export_connector(&parent)) {
+                                ui.ctx().copy_text(path.display().to_string());
+                            }
+                        }
+                    }
+                    ui.small("Export creates an unpacked Chromium extension and copies its directory path.");
+                    if self.cookie_bridge.is_none()
+                        && ui.button("Enable browser connection").clicked()
+                    {
+                        self.cookie_bridge = self.result(rustapi::http::CookieBridge::start(
+                            self.service.cookies.clone(),
+                        ));
+                    }
+                    if let Some(bridge) = &self.cookie_bridge {
+                        ui.label(format!("Listening on {}", bridge.server.address));
+                        if ui.button("Copy private pairing URL").clicked() {
+                            ui.ctx().copy_text(bridge.pairing.clone());
+                        }
+                        if ui.button("Disable browser connection").clicked() {
+                            self.cookie_bridge = None;
+                        }
                     }
                     if ui.button("Close").clicked() {
                         self.show_cookies = false;
@@ -1906,7 +2097,7 @@ impl RustApiApp {
                         };
                         let mut code = code;
                         if !self.include_secrets {
-                            for v in self.secrets.values() {
+                            for v in self.secrets.values().chain(self.session_secrets.values()) {
                                 if !v.is_empty() {
                                     code = code.replace(v, "[redacted]");
                                 }
@@ -2237,7 +2428,23 @@ impl RustApiApp {
                             self.result(rustapi::secrets::load(&path, &self.vault_password))
                         {
                             self.secrets = secrets;
-                            self.vault_unlocked = true;
+                            let token_path =
+                                storage::get_app_data_dir().join(".local/oauth-tokens.json");
+                            self.vault_unlocked = self
+                                .result(
+                                    self.service
+                                        .unlock_tokens(&token_path, &self.vault_password),
+                                )
+                                .is_some();
+                            let cookie_path =
+                                storage::get_app_data_dir().join(".local/cookies.json");
+                            if self.vault_unlocked && cookie_path.exists() {
+                                self.result(
+                                    self.service
+                                        .cookies
+                                        .unlock(&cookie_path, &self.vault_password),
+                                );
+                            }
                         }
                     }
                 } else {
@@ -2276,9 +2483,27 @@ impl RustApiApp {
                         }
                     }
                     if ui.button("Lock vault").clicked() {
+                        self.platform_tools.cancel();
+                        self.service.lock_tokens();
+                        self.cookie_bridge = None;
+                        self.service.cookies.lock();
                         self.secrets.clear();
+                        self.session_secrets.clear();
                         self.vault_password.clear();
                         self.vault_unlocked = false;
+                    }
+                    ui.separator();
+                    ui.label("OAuth tokens (values hidden)");
+                    for token in self.service.token_summaries() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "{} · {}s remaining · refresh: {}",
+                                token.label, token.valid_for_seconds, token.refreshable
+                            ));
+                            if ui.button("Forget token").clicked() {
+                                self.result(self.service.forget_token(&token.id));
+                            }
+                        });
                     }
                 }
                 if ui.button("Close").clicked() {

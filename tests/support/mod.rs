@@ -32,12 +32,19 @@ pub struct Server {
 }
 impl Server {
     pub fn new(count: usize, handler: impl Fn(usize, &Request) -> Reply + Send + 'static) -> Self {
+        Self::with_timeout(count, Duration::from_secs(10), handler)
+    }
+    pub fn with_timeout(
+        count: usize,
+        timeout: Duration,
+        handler: impl Fn(usize, &Request) -> Reply + Send + 'static,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let handle = thread::spawn(move || {
             let mut requests = vec![];
-            let deadline = Instant::now() + Duration::from_secs(10);
+            let deadline = Instant::now() + timeout;
             while requests.len() < count {
                 let (mut stream, _) = loop {
                     match listener.accept() {

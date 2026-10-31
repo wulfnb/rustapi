@@ -98,6 +98,39 @@ pub fn generate_code(
     }
 }
 fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
+    let mut resolved = r.clone();
+    if let Err(error) = crate::graphql::prepare(&mut resolved) {
+        return format!("Cannot generate code: {error}");
+    }
+    if resolved
+        .headers
+        .iter()
+        .any(|header| header.enabled && header.key.eq_ignore_ascii_case("authorization"))
+        && matches!(
+            resolved.auth.auth_type,
+            AuthType::Jwt | AuthType::AwsSigV4 | AuthType::Digest
+        )
+    {
+        resolved.auth.auth_type = AuthType::None;
+    }
+    if resolved.auth.auth_type == AuthType::Jwt {
+        match super::auth::jwt(&resolved.auth.jwt) {
+            Ok(token) => {
+                resolved.auth.auth_type = AuthType::BearerToken;
+                resolved.auth.bearer_token = token;
+            }
+            Err(error) => return format!("Cannot generate code: {error}"),
+        }
+    }
+    let r = &resolved;
+    if matches!(r.auth.auth_type, AuthType::AwsSigV4 | AuthType::Digest)
+        && language != CodeGenLanguage::Curl
+    {
+        return "Cannot generate code: AWS SigV4 and Digest helpers currently require the cURL target.".into();
+    }
+    if r.auth.auth_type == AuthType::AwsSigV4 && r.settings.follow_redirects {
+        return "Cannot generate code: disable redirects for cURL AWS SigV4 samples to protect session-token headers.".into();
+    }
     if matches!(
         r.auth.auth_type,
         AuthType::Inherit | AuthType::OAuth2 | AuthType::Unsupported
@@ -154,6 +187,42 @@ fn generate(r: &ApiRequest, language: CodeGenLanguage) -> String {
             let mut prelude = String::new();
             let mut input = String::new();
             let mut p = vec![format!("curl -X {}", r.method.as_str())];
+            if !configured.iter().any(|(name, _)| name == "authorization") {
+                if r.auth.auth_type == AuthType::Digest {
+                    p.push("--digest".into());
+                    p.push(format!(
+                        "--user {}",
+                        shell(&format!(
+                            "{}:{}",
+                            r.auth.basic_username, r.auth.basic_password
+                        ))
+                    ));
+                } else if r.auth.auth_type == AuthType::AwsSigV4 {
+                    p.push(format!(
+                        "--aws-sigv4 {}",
+                        shell(&format!(
+                            "aws:amz:{}:{}",
+                            r.auth.aws.region, r.auth.aws.service
+                        ))
+                    ));
+                    p.push(format!(
+                        "--user {}",
+                        shell(&format!(
+                            "{}:{}",
+                            r.auth.aws.access_key, r.auth.aws.secret_key
+                        ))
+                    ));
+                    if !r.auth.aws.session_token.is_empty() {
+                        p.push(format!(
+                            "-H {}",
+                            shell(&format!(
+                                "x-amz-security-token: {}",
+                                r.auth.aws.session_token
+                            ))
+                        ));
+                    }
+                }
+            }
             for (k, v) in &configured {
                 p.push(format!("-H {}", shell(&format!("{k}: {v}"))));
             }

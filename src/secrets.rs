@@ -77,6 +77,22 @@ pub fn sensitive(name: &str) -> bool {
     .iter()
     .any(|k| n.contains(k))
 }
+/// Keep portable vault references while masking literal credentials.
+pub fn mask_credential(value: &str) -> String {
+    let reference = value
+        .strip_prefix("{{vault:")
+        .and_then(|v| v.strip_suffix("}}"));
+    if reference.is_some_and(|v| {
+        !v.is_empty()
+            && v.len() <= 256
+            && v.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_-/.:".contains(&b))
+    }) {
+        value.into()
+    } else {
+        "[redacted]".into()
+    }
+}
 pub fn redact_json(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
@@ -108,7 +124,7 @@ fn redact_metadata(map: &mut BTreeMap<String, serde_json::Value>) {
 fn redact_rows(rows: &mut [crate::models::KeyValue]) {
     for row in rows {
         if sensitive(&row.key) || row.value_type.eq_ignore_ascii_case("secret") {
-            row.value = "[redacted]".into();
+            row.value = mask_credential(&row.value);
         }
         redact_metadata(&mut row.extensions);
         if let Some(metadata) = &mut row.description_metadata {
@@ -171,10 +187,21 @@ pub fn redact_url(input: &str) -> String {
 }
 pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiRequest {
     let mut r = r.clone();
-    r.auth.bearer_token = "[redacted]".into();
-    r.auth.basic_password = "[redacted]".into();
-    r.auth.api_key_value = "[redacted]".into();
-    r.auth.oauth.client_secret = "[redacted]".into();
+    if let Some(graphql) = &mut r.graphql {
+        if let Ok(mut variables) = serde_json::from_str::<serde_json::Value>(&graphql.variables) {
+            redact_json(&mut variables);
+            graphql.variables = variables.to_string();
+        }
+    }
+    r.auth.bearer_token = mask_credential(&r.auth.bearer_token);
+    r.auth.basic_password = mask_credential(&r.auth.basic_password);
+    r.auth.api_key_value = mask_credential(&r.auth.api_key_value);
+    r.auth.jwt.key = mask_credential(&r.auth.jwt.key);
+    r.auth.jwt.claims = "{}".into();
+    r.auth.aws.access_key = mask_credential(&r.auth.aws.access_key);
+    r.auth.aws.secret_key = mask_credential(&r.auth.aws.secret_key);
+    r.auth.aws.session_token = mask_credential(&r.auth.aws.session_token);
+    r.auth.oauth.client_secret = mask_credential(&r.auth.oauth.client_secret);
     for rows in [
         &mut r.auth.oauth.authorization_params,
         &mut r.auth.oauth.token_params,
@@ -183,7 +210,7 @@ pub fn redact_request(r: &crate::models::ApiRequest) -> crate::models::ApiReques
         redact_rows(rows);
         for row in rows {
             if row.key.to_ascii_lowercase().contains("assertion") {
-                row.value = "[redacted]".into();
+                row.value = mask_credential(&row.value);
             }
         }
     }

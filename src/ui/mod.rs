@@ -34,4 +34,14 @@ pub use inspector::*;
 mod response_detail;
 pub use response_detail::*;
 
+mod api_tools;
 pub mod autocomplete;
+pub use api_tools::*;
+mod automation_tools;
+mod protocol_console;
+pub use protocol_console::*;
+mod flow_editor;
+pub use flow_editor::*;
+mod platform_tools;
+pub use platform_tools::*;
+mod tool_dialogs;

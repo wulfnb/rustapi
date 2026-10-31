@@ -52,6 +52,8 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Unit and loopback integration tests
         run: cargo test --locked --all-targets
+      - name: Browser connector regression tests
+        run: node --test tests/browser_connector.mjs
       - name: Documentation tests
         run: cargo test --locked --doc
       - name: Build native application
@@ -76,6 +78,18 @@ jobs:
         env:
           RUSTAPI_CODEGEN_CACHE: ${{ runner.temp }}/rustapi-codegen
         run: python tests/codegen_targets.py target/debug
+      - name: Independent MQTT, Socket.IO and gRPC interoperability
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          npm ci --prefix tests/protocol-interop --ignore-scripts --no-audit --no-fund
+          curl --fail --silent --show-error --location \
+            https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_x86_64.tar.gz \
+            --output "$RUNNER_TEMP/grpcurl.tar.gz"
+          echo "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736  $RUNNER_TEMP/grpcurl.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/grpcurl.tar.gz" -C "$RUNNER_TEMP" grpcurl
+          export RUSTAPI_GRPCURL="$RUNNER_TEMP/grpcurl"
+          python tests/protocol-interop/validate.py target/debug/rustapi "$PWD/tests/protocol-interop"
       - name: Desktop startup (Linux software renderer)
         if: runner.os == 'Linux'
         env:

@@ -1,5 +1,10 @@
 # RustAPI feature gap analysis
 
+This is a historical review of the commit below. For the current remaining-feature
+implementation, see [advanced tools](advanced-tools.md) and
+[implementation progress](implementation-progress.md); the old gap table is not a
+current availability checklist.
+
 Reviewed **2026-10-29** against RustAPI commit
 `70b02c038d133b3e8f32cd48ccdadb51f693eddf`. This document describes RustAPI's
 implemented capabilities, remaining workflow gaps and proposed product scope.

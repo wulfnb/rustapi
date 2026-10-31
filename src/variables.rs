@@ -106,6 +106,11 @@ impl Variables {
         }
         r.url = resolve_path_variables(&r.url, &r.path_params)?;
         r.body = self.resolve(&r.body)?;
+        if let Some(graphql) = &mut r.graphql {
+            graphql.query = self.resolve(&graphql.query)?;
+            graphql.variables = self.resolve(&graphql.variables)?;
+            graphql.operation_name = self.resolve(&graphql.operation_name)?;
+        }
         r.binary_file = self.resolve(&r.binary_file)?;
         for field in [
             &mut r.auth.bearer_token,
@@ -113,6 +118,15 @@ impl Variables {
             &mut r.auth.basic_password,
             &mut r.auth.api_key_name,
             &mut r.auth.api_key_value,
+            &mut r.auth.jwt.algorithm,
+            &mut r.auth.jwt.key,
+            &mut r.auth.jwt.key_id,
+            &mut r.auth.jwt.claims,
+            &mut r.auth.aws.access_key,
+            &mut r.auth.aws.secret_key,
+            &mut r.auth.aws.session_token,
+            &mut r.auth.aws.region,
+            &mut r.auth.aws.service,
             &mut r.auth.oauth.authorization_url,
             &mut r.auth.oauth.refresh_url,
             &mut r.auth.oauth.refresh_scope,

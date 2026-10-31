@@ -10,7 +10,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
-const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE] [--debug-report FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi export INPUT.json OUTPUT.json [--format v2.1|environment|native|v3] [--include-credentials] [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nVault commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
+const HELP:&str="Usage: rustapi [--workspace DIR] [--version | --help | --smoke-test]\n       rustapi run COLLECTION.json [--workspace DIR] [--environment FILE] [--folder ID]\n           [--data FILE.csv|FILE.json] [--iterations N] [--stop-on-failure] [--delay MS]\n           [--report-json FILE] [--report-junit FILE] [--debug-report FILE]\n       rustapi import FILE.json [--workspace DIR] [--import-report] [--allow-lossy-import]\n       rustapi import --curl 'curl ...' [--workspace DIR]\n       rustapi export INPUT.json OUTPUT.json [--format v2.1|environment|native|v3] [--include-credentials] [--workspace DIR]\n       rustapi vault set NAME [--workspace DIR]\n       rustapi vault delete NAME [--workspace DIR]\nImports with known omissions require --allow-lossy-import (also available for run).\n--import-report prints JSON diagnostics instead of saved paths.\nrustapi tokens list | tokens forget ID [--workspace DIR]\nVault and token commands use RUSTAPI_VAULT_PASSWORD; set reads the value from stdin.\n";
 pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     if args == ["--version"] {
         println!("RustAPI {}", env!("CARGO_PKG_VERSION"));
@@ -18,10 +18,14 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     }
     if args == ["--help"] {
         print!("{HELP}");
+        print!("{}", crate::tools_cli::HELP);
         return Ok(Some(0));
     }
     if args.is_empty() || args == ["--smoke-test"] {
         return Ok(None);
+    }
+    if let Some(code) = crate::tools_cli::dispatch(args)? {
+        return Ok(Some(code));
     }
     if args.first().is_some_and(|a| a == "--workspace") && args.len() == 2 {
         let path = workspace::open_workspace(Path::new(&args[1]))?;
@@ -30,7 +34,7 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     }
     let command = args.first().context("Missing command")?.as_str();
     anyhow::ensure!(
-        ["run", "import", "export", "vault"].contains(&command),
+        ["run", "import", "export", "vault", "tokens"].contains(&command),
         "Unknown command {command}\n{HELP}"
     );
     let mut options = BTreeMap::new();
@@ -115,6 +119,21 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
     std::env::set_var("RUSTAPI_DATA_DIR", &root);
     storage::init_storage()?;
     match command {
+        "tokens" => {
+            let password = std::env::var("RUSTAPI_VAULT_PASSWORD")
+                .context("Set RUSTAPI_VAULT_PASSWORD to unlock tokens")?;
+            let service = HttpService::default();
+            service.unlock_tokens(&root.join(".local/oauth-tokens.json"), &password)?;
+            match positional.as_slice() {
+                [action] if action == "list" => println!(
+                    "{}",
+                    serde_json::to_string_pretty(&service.token_summaries())?
+                ),
+                [action, id] if action == "forget" => service.forget_token(id)?,
+                _ => bail!("Usage: rustapi tokens list | tokens forget ID [--workspace DIR]"),
+            }
+            Ok(Some(0))
+        }
         "export" => {
             anyhow::ensure!(
                 positional.len() == 2,
@@ -213,6 +232,7 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
                 .transpose()?
                 .unwrap_or_default();
             let settings = RunOptions {
+                workspace_root: Some(root.clone()),
                 folder: options.get("--folder").cloned(),
                 iterations: options
                     .get("--iterations")
@@ -227,11 +247,10 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
                     .unwrap_or(0),
                 data,
             };
-            let secrets = load_secrets(&root)?;
+            let (service, secrets) = crate::tools_cli::unlocked(&root)?;
             let cancel = Cancellation::default();
             let signal = cancel.clone();
             ctrlc::set_handler(move || signal.cancel()).context("Install interrupt handler")?;
-            let service = HttpService::default();
             let report = runner::run(&service, &c, env.as_ref(), &settings, secrets, &cancel)?;
             let json = serde_json::to_vec_pretty(&report)?;
             if let Some(p) = options.get("--report-json") {
@@ -309,13 +328,6 @@ pub fn dispatch(args: &[String]) -> Result<Option<i32>> {
             Ok(Some(0))
         }
         _ => bail!("Unknown command {command}\n{HELP}"),
-    }
-}
-fn load_secrets(root: &Path) -> Result<BTreeMap<String, String>> {
-    let path = root.join(".local/vault.json");
-    match std::env::var("RUSTAPI_VAULT_PASSWORD") {
-        Ok(password) => crate::secrets::load(&path, &password),
-        Err(_) => Ok(BTreeMap::new()),
     }
 }
 

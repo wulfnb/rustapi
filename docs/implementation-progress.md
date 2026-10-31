@@ -463,3 +463,40 @@ Validation:
 - Local Rust test suite: **204 passed, 0 failed** (including new `tests/editor_improvements.rs` and `tests/variable_improvements.rs`).
 - Warnings-denied Clippy: passed.
 - `cargo fmt --all --check` and `git diff --check`: passed.
+
+## Step 23 — Remaining groups 6–15
+
+Status: **implemented for the documented bounded feature set; verified locally**.
+Validated on canonical main before delivery; Git history and Actions track subsequent
+commits and checks. No hosted CI/package/release result is implied by these local
+results. Local use remains account-free. Collaboration uses an optional
+self-hosted server, following the user's selected preference.
+
+- Authentication: JWT signing, AWS SigV4, Digest and encrypted persistent OAuth
+  refresh/token management, with inherited settings, variables and editor controls.
+- Cookies: encrypted persistent jars, attribute editing/removal and an exportable
+  opt-in Chromium connector for manual capture/merge through a paired local bridge.
+- Interoperability: broader v3 credential/variable representations and GraphQL
+  resources; independent Postman CLI lint plus reverse-import fixture validation.
+- OpenAPI: JSON/YAML import, editor/lint/draft recovery, response contracts and drift.
+  Offline Markdown/HTML generation and optional team-server documentation publishing.
+- Mocks: saved-example responses, ordered matchers, delays/status/disconnect faults.
+- Automation: saved profiles, managed datasets, persistent history/comparison,
+  singleton scheduling and metadata-only failure alerts. Bounded history retention.
+- Performance: concurrent isolated users, stages/ramp/pacing, shared execution caps,
+  error thresholds, latency percentiles and workload-aware comparisons.
+- Protocols: GraphQL document/schema tools and live SSE/WebSocket/MQTT/Socket.IO/gRPC
+  sessions, including incremental results and cancellation.
+- Optional platform: role/expiry/revision-controlled collection sync/catalogs, audit,
+  visual conditional flows, unsent Ollama drafts, MCP stdio tools/cancellation,
+  in-memory Vault/AWS secret bindings and workspace execution policies.
+
+Local validation: **244 Rust tests**, six independent protocol cases, 15 JavaScript
+tests and 16 Python tooling tests. Rust coverage: **81.21% lines**, **77.64% functions**;
+Python statement/branch coverage: **100%**. Clippy, formatting, workflow/shell checks,
+native macOS smoke, source secret scan and the vulnerability audit gate passed.
+
+See [advanced tools](advanced-tools.md) for usage and compatibility limits and
+[validation evidence](validation-remaining-features.md) for exact scope, independent
+client caveats and remaining advisory/platform validation. This adds local tools and
+bounded integrations; full enterprise identity/protocol/OpenAPI parity is not claimed.

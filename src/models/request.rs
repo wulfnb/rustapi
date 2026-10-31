@@ -187,7 +187,10 @@ impl KeyValue {
 
 /// An API request
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ApiRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql: Option<crate::graphql::Graphql>,
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -231,6 +234,7 @@ pub struct ApiRequest {
 impl Default for ApiRequest {
     fn default() -> Self {
         Self {
+            graphql: None,
             id: Uuid::new_v4().to_string(),
             name: String::from("New Request"),
             description: String::new(),

@@ -20,7 +20,17 @@ pub fn effective_headers(request: &ApiRequest) -> Result<Vec<(String, String)>> 
         headers.push((name.as_str().into(), field.value.clone()));
     }
     let explicit: HashSet<_> = headers.iter().map(|(key, _)| key.clone()).collect();
-    if let Some((name, value)) = request.auth.get_auth_header() {
+    let generated_auth = if request.auth.auth_type == crate::models::AuthType::Jwt
+        && !explicit.contains("authorization")
+    {
+        Some((
+            "authorization".into(),
+            format!("Bearer {}", super::auth::jwt(&request.auth.jwt)?),
+        ))
+    } else {
+        request.auth.get_auth_header()
+    };
+    if let Some((name, value)) = generated_auth {
         let name = reqwest::header::HeaderName::try_from(name.as_str())
             .context("Invalid auth header name")?
             .as_str()

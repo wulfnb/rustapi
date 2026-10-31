@@ -114,6 +114,46 @@ impl<S, F: FnMut(&Context, &mut S)> Harness<S, F> {
         self.click_n(name, 0);
     }
 
+    pub fn tool_click(&mut self, window: &str, name: &str) {
+        self.refresh();
+        let area = self
+            .ctx
+            .memory(|m| m.area_rect(egui::Id::new(window)))
+            .unwrap();
+        let pos = egui::pos2(area.right() - 35.0, area.center().y);
+        self.input(vec![
+            Event::PointerMoved(pos),
+            Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, 10000.0),
+                modifiers: Modifiers::default(),
+            },
+        ]);
+        for _ in 0..30 {
+            self.refresh();
+            let visible = self.nodes().iter().any(|(_, n)| {
+                n.label() == Some(name)
+                    && n.bounds().is_some_and(|b| {
+                        b.y0 > f64::from(area.top() + 25.0)
+                            && b.y1 < f64::from(area.bottom() - 10.0)
+                    })
+            });
+            if visible {
+                self.click(name);
+                return;
+            }
+            self.input(vec![
+                Event::PointerMoved(pos),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -200.0),
+                    modifiers: Modifiers::default(),
+                },
+            ]);
+        }
+        panic!("Could not scroll to {name}");
+    }
+
     pub fn click_n(&mut self, name: &str, index: usize) {
         self.refresh();
         let rect = self.rect_n(name, index);

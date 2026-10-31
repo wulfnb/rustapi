@@ -70,5 +70,7 @@ coverage/
 **/__pycache__/
 .coverage
 .coverage.*
+*.profraw
+*.profdata
 
 /.venv/

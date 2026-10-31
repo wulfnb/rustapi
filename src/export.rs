@@ -24,11 +24,41 @@ fn auth(auth: &AuthConfig) -> Result<Value> {
             anyhow::bail!("Configure unsupported imported authentication before portable export")
         }
         AuthType::BearerToken => ("bearer", vec![("token", auth.bearer_token.clone())]),
-        AuthType::BasicAuth => (
-            "basic",
+        AuthType::BasicAuth | AuthType::Digest => (
+            if auth.auth_type == AuthType::Digest {
+                "digest"
+            } else {
+                "basic"
+            },
             vec![
                 ("username", auth.basic_username.clone()),
                 ("password", auth.basic_password.clone()),
+            ],
+        ),
+        AuthType::Jwt => (
+            "jwt",
+            vec![
+                ("algorithm", auth.jwt.algorithm.clone()),
+                (
+                    if auth.jwt.algorithm.starts_with("HS") {
+                        "secret"
+                    } else {
+                        "privateKey"
+                    },
+                    auth.jwt.key.clone(),
+                ),
+                ("payload", auth.jwt.claims.clone()),
+                ("keyId", auth.jwt.key_id.clone()),
+            ],
+        ),
+        AuthType::AwsSigV4 => (
+            "awsv4",
+            vec![
+                ("accessKey", auth.aws.access_key.clone()),
+                ("secretKey", auth.aws.secret_key.clone()),
+                ("sessionToken", auth.aws.session_token.clone()),
+                ("region", auth.aws.region.clone()),
+                ("service", auth.aws.service.clone()),
             ],
         ),
         AuthType::ApiKey => (
@@ -72,6 +102,7 @@ fn auth(auth: &AuthConfig) -> Result<Value> {
         for (key, value) in [
             ("refreshTokenUrl", json!(auth.oauth.refresh_url)),
             ("refreshTokenScope", json!(auth.oauth.refresh_scope)),
+            ("_rustapiPersistTokens", json!(auth.oauth.persist_tokens)),
             (
                 "client_authentication",
                 json!(match auth.oauth.client_auth {
@@ -103,7 +134,10 @@ fn request(r: &ApiRequest) -> Result<Value> {
         BodyType::FormData => json!({"mode":"formdata","formdata":rows(&r.form_data)}),
         BodyType::Binary => json!({"mode":"file","file":{"src":r.binary_file}}),
     };
-    if r.body_type == BodyType::FormData {
+    if let Some(graphql) = &r.graphql {
+        body = json!({"mode":"graphql","graphql":{"query":graphql.query,"variables":graphql.variables,"operationName":graphql.operation_name}});
+    }
+    if r.body_type == BodyType::FormData && r.graphql.is_none() {
         for (row, field) in r
             .form_data
             .iter()

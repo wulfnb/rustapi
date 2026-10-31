@@ -19,6 +19,10 @@ fn every_generator_handles_auth_body_fields_and_query_parameters() {
                 let request = ApiRequest {
                     url: "https://test/resource".into(),
                     method: HttpMethod::POST,
+                    settings: HttpSettings {
+                        follow_redirects: *auth_type != AuthType::AwsSigV4,
+                        ..Default::default()
+                    },
                     body_type,
                     body: "{\"name\":\"{{value}}\"}".into(),
                     headers: vec![KeyValue::new("x-value", "{{value}}"), KeyValue::default()],
@@ -31,6 +35,17 @@ fn every_generator_handles_auth_body_fields_and_query_parameters() {
                         basic_password: "secret".into(),
                         api_key_name: "x-api-key".into(),
                         api_key_value: "{{value}}".into(),
+                        jwt: JwtConfig {
+                            key: "0123456789abcdef0123456789abcdef".into(), // gitleaks:allow -- public synthetic HMAC test key
+                            ..Default::default()
+                        },
+                        aws: AwsConfig {
+                            access_key: "test".into(),
+                            secret_key: "secret".into(),
+                            region: "us-east-1".into(),
+                            service: "s3".into(),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
                     ..Default::default()
@@ -38,6 +53,12 @@ fn every_generator_handles_auth_body_fields_and_query_parameters() {
                 let code = generate_code(&request, *language, Some(&env));
                 if matches!(auth_type, AuthType::Inherit | AuthType::OAuth2) {
                     assert!(code.contains("Resolve inherited auth"));
+                    continue;
+                }
+                if matches!(auth_type, AuthType::AwsSigV4 | AuthType::Digest)
+                    && *language != CodeGenLanguage::Curl
+                {
+                    assert!(code.contains("require the cURL target"));
                     continue;
                 }
                 if *language == CodeGenLanguage::Http {

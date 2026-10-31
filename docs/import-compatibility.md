@@ -1,15 +1,16 @@
 # Import compatibility and first-release boundaries
 
 RustAPI targets a local-first REST workflow. The supported import format is
-collection v2.1 JSON plus environment JSON, alongside native RustAPI JSON and
-cURL commands. There is no account requirement. Cloud/team features, hosted monitors,
-mocks, OpenAPI generation and specialized gRPC/WebSocket/GraphQL tooling remain later
-milestones. This release does not claim that arbitrary imported collections run unchanged.
+collection v2.1 JSON plus environment JSON, alongside native RustAPI JSON,
+cURL commands, bounded v3 directories and OpenAPI 3 specifications. There is no
+account requirement. Optional protocols, automation and self-hosted tools are
+described in the [advanced tools guide](advanced-tools.md), including their limits.
+Arbitrary imported collections are not guaranteed to run unchanged.
 
 For supported format boundaries, known import-fidelity gaps and
 future work, see the [feature gap analysis](feature-gap-analysis.md) and
 [implementation plan](implementation-plan.md). RustAPI imports
-v2.1 JSON and a bounded v3 HTTP subset in JSON/YAML and directory form.
+v2.1 JSON and a bounded v3 HTTP/GraphQL subset in JSON/YAML and directory form.
 
 ## Import and project data
 
@@ -27,9 +28,10 @@ are reconstructed for export. The desktop edits request, collection, folder and 
 
 Scripts are preserved as source and their compatibility warning is visible after import.
 OAuth requires local authorization and upload paths may need adjustment. Unsupported
-auth types produce a warning and require explicit configuration before use. Dynamic
-variables such as `{{$randomInt}}` and global variables are not implemented; unresolved
-references are errors. Unknown native collection schema versions are rejected.
+auth types produce a warning and require explicit configuration before use. Global
+variables, supported dynamic generators (including `{{$randomInt}}`) and local
+environment overrides resolve through the native variable engine; missing references
+are errors. Unknown native collection schema versions are rejected.
 
 Portable project files carry stable IDs and explicit child order. Legacy collection
 JSON defaults to schema 1. Legacy name-derived collection files retain their loaded
@@ -72,10 +74,11 @@ existing validation paths. Preserving the omitted fields remains future work.
 
 Precedence, from broad to narrow:
 
-1. Collection and nested folder variables, with nearest folder overriding ancestors.
-2. Active environment variables.
-3. CSV/JSON iteration data.
-4. Local variables and response extractions for the current send/run iteration.
+1. Global variables.
+2. Collection and nested folder variables, with nearest folder overriding ancestors.
+3. Active environment variables and persistent local environment overrides.
+4. CSV/JSON iteration data.
+5. Local variables and response extractions for the current send/run iteration.
 
 `{{vault:name}}` resolves separately from the unlocked encrypted local vault. Recursive
 expansion is deterministic and stops with an error on missing references or cycles.
@@ -121,7 +124,8 @@ client-certificate PEM files, system/explicit proxies, redirect control and time
 Responses are limited to 32 MiB by default (configurable up to 256 MiB), with a 1 MiB
 text preview and raw download. Read failures are transport errors; total timing includes
 body transfer. Cookies are scoped to the current workspace service and current session,
-with inspect/set/clear controls. OAuth tokens are also session-local.
+with inspect/set/clear controls. Cookies and OAuth tokens can optionally persist in
+the encrypted local vault; see [authentication](authentication.md).
 
 Vault passwords/keys are never stored. Local draft files contain the request text you
 edit and are excluded from Git by a workspace's .gitignore. Use vault references rather
@@ -262,7 +266,7 @@ by every external client is not claimed. Export notes disclose this boundary.
 Semantic round trips are verified through RustAPI's independent import adapter;
 this is not a universal format-conformance or scripting-parity claim.
 
-## v3 HTTP collections
+## v3 HTTP and GraphQL collections
 
 GUI import accepts a v3 directory, while CLI import/run accepts a directory or
 collection JSON/YAML file. Export v3 directory is available from collection menus
@@ -275,12 +279,28 @@ inline JavaScript, with HTTP lifecycle mapping to the existing bounded runtime.
 
 The supported subset covers HTTP methods, raw/JSON, form, file and multipart bodies,
 headers/query/path variables, plain scope variables, supported auth, settings,
-folders, scripts and examples. External secret providers, rule-selected auth arrays,
+folders, scripts and HTTP examples. GraphQL query/variables/operation names and
+before-query scripts are supported. Schema-source settings other than none/auto and
+streaming GraphQL examples require explicit configuration; native GraphQL examples
+are carried in the RustAPI sidecar rather than standard GraphQL example resources.
+Shorthand variable maps, credential objects and single credential-set arrays are
+accepted. Multiple/rule-selected credential sets require review or rejection.
+External secret resources, rule-selected auth arrays,
 linked assets, other protocols, script package/request dependencies and external
 script/include resources are rejected before persistence. Unknown resource files
 are rejected rather than silently skipped. Upload references still require checking
 local paths; export does not copy upload files. Rich annotations unsupported by the
-native model are outside this HTTP subset.
+native model are outside this subset. Native live protocol profiles are separate
+from imported collection resources.
+
+An independent Postman CLI 1.83.1 check accepted a RustAPI-exported HTTP v3 directory
+with zero lint issues, and an official CLI-migrated v3 fixture imported into RustAPI.
+This proves those fixtures in both directions; it is not blanket v3/resource parity.
+The final macOS CLI migration wrote its files, then crashed in system keychain
+access under the sandbox. Its generated directory passed an independent lint and
+RustAPI import; a clean exit from that external migration process is not claimed.
+JWT/AWS/Digest settings and portable limitations are documented in
+[authentication](authentication.md).
 
 Native-only metadata is retained in .resources/rustapi.json. It is restored only
 when regenerating standard YAML from that native collection matches every parsed

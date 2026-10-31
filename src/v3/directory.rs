@@ -177,8 +177,8 @@ fn scan(
         if entry.ends_with(".request.yaml") || entry.ends_with(".request.yml") {
             let mut request = load(files, &path, used)?;
             ensure!(
-                request["$kind"] == "http-request",
-                "Only v3 HTTP request files are supported"
+                request["$kind"] == "http-request" || request["$kind"] == "graphql-request",
+                "Only v3 HTTP and GraphQL request files are supported"
             );
             let stem = entry
                 .strip_suffix(".request.yaml")

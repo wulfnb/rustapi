@@ -8,6 +8,158 @@ pub struct Token {
     pub access: String,
     pub refresh: String,
     pub expires: Instant,
+    pub persistent: bool,
+    pub label: String,
+}
+pub(crate) struct TokenStore {
+    path: std::path::PathBuf,
+    password: zeroize::Zeroizing<String>,
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredToken {
+    access: String,
+    refresh: String,
+    expires_at: u64,
+    label: String,
+}
+#[derive(serde::Serialize)]
+pub struct TokenSummary {
+    pub id: String,
+    pub label: String,
+    pub valid_for_seconds: u64,
+    pub refreshable: bool,
+    pub persistent: bool,
+}
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn save_tokens(
+    store: &TokenStore,
+    tokens: &std::collections::HashMap<String, Token>,
+) -> Result<()> {
+    let values = tokens
+        .iter()
+        .filter(|(_, token)| token.persistent)
+        .map(|(key, token)| {
+            let stored = StoredToken {
+                access: token.access.clone(),
+                refresh: token.refresh.clone(),
+                expires_at: unix_now().saturating_add(
+                    token
+                        .expires
+                        .saturating_duration_since(Instant::now())
+                        .as_secs(),
+                ),
+                label: token.label.clone(),
+            };
+            Ok((key.clone(), serde_json::to_string(&stored)?))
+        })
+        .collect::<Result<std::collections::BTreeMap<_, _>>>()?;
+    crate::secrets::save(&store.path, &store.password, &values)
+}
+impl super::HttpService {
+    /// The password lives only in memory until lock_tokens; token values never enter reports.
+    pub fn unlock_tokens(&self, path: &std::path::Path, password: &str) -> Result<()> {
+        let mut store = self.token_store.lock().unwrap_or_else(|p| p.into_inner());
+        anyhow::ensure!(
+            !path.exists() || std::fs::metadata(path)?.len() <= 4 * 1024 * 1024,
+            "OAuth token store exceeds 4 MiB"
+        );
+        let values = crate::secrets::load(path, password)?;
+        anyhow::ensure!(values.len() <= 1000, "Too many saved OAuth tokens");
+        let mut loaded = std::collections::HashMap::new();
+        for (key, value) in values {
+            let token: StoredToken =
+                serde_json::from_str(&value).context("Invalid OAuth token store")?;
+            loaded.insert(
+                key,
+                Token {
+                    access: token.access,
+                    refresh: token.refresh,
+                    expires: Instant::now()
+                        + Duration::from_secs(
+                            token.expires_at.saturating_sub(unix_now()).min(86400 * 30),
+                        ),
+                    persistent: true,
+                    label: token.label,
+                },
+            );
+        }
+        self.tokens
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .extend(loaded);
+        *store = Some(TokenStore {
+            path: path.into(),
+            password: zeroize::Zeroizing::new(password.into()),
+        });
+        Ok(())
+    }
+    pub fn lock_tokens(&self) {
+        let mut store = self.token_store.lock().unwrap_or_else(|p| p.into_inner());
+        *store = None;
+        self.tokens
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+    }
+    pub fn token_summaries(&self) -> Vec<TokenSummary> {
+        let tokens = self.tokens.lock().unwrap_or_else(|p| p.into_inner());
+        let mut output = tokens
+            .iter()
+            .map(|(id, t)| TokenSummary {
+                id: id.clone(),
+                label: t.label.clone(),
+                valid_for_seconds: t
+                    .expires
+                    .saturating_duration_since(Instant::now())
+                    .as_secs(),
+                refreshable: !t.refresh.is_empty(),
+                persistent: t.persistent,
+            })
+            .collect::<Vec<_>>();
+        output.sort_by(|a, b| a.id.cmp(&b.id));
+        output
+    }
+    pub fn forget_token(&self, id: &str) -> Result<()> {
+        let store = self.token_store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut tokens = self.tokens.lock().unwrap_or_else(|p| p.into_inner());
+        let mut next = tokens.clone();
+        next.remove(id);
+        if let Some(store) = store.as_ref() {
+            save_tokens(store, &next)?;
+        }
+        *tokens = next;
+        Ok(())
+    }
+    fn remember_token(&self, id: String, token: Token) -> Result<()> {
+        let store = self.token_store.lock().unwrap_or_else(|p| p.into_inner());
+        let mut tokens = self.tokens.lock().unwrap_or_else(|p| p.into_inner());
+        let mut next = tokens.clone();
+        next.insert(id, token.clone());
+        if token.persistent {
+            save_tokens(
+                store
+                    .as_ref()
+                    .context("Unlock the vault to persist OAuth tokens")?,
+                &next,
+            )?;
+        }
+        *tokens = next;
+        Ok(())
+    }
+}
+fn cache_key(config: &OAuthConfig) -> Result<String> {
+    let mut config = config.clone();
+    config.code.clear();
+    config.verifier.clear();
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&config)?)
+    ))
 }
 pub fn pkce() -> (String, String) {
     let verifier = format!(
@@ -101,7 +253,17 @@ pub async fn access_token(
     client: &reqwest::Client,
     c: &OAuthConfig,
 ) -> Result<String> {
-    let key = serde_json::to_string(c)?;
+    let key = cache_key(c)?;
+    if c.persist_tokens {
+        anyhow::ensure!(
+            service
+                .token_store
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_some(),
+            "Unlock the vault to persist OAuth tokens"
+        );
+    }
     let previous = service
         .tokens
         .lock()
@@ -169,6 +331,7 @@ pub async fn access_token(
     } else {
         &c.token_url
     })?;
+    service.policy()?.url(url.as_str())?;
     let mut request = client.post(url.clone()).form(&fields);
     if c.client_auth == OAuthClientAuth::Basic {
         request = request.basic_auth(
@@ -225,18 +388,16 @@ pub async fn access_token(
         .as_str()
         .map(String::from)
         .unwrap_or_else(|| previous.map(|t| t.refresh).unwrap_or_default());
-    service
-        .tokens
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .insert(
-            key,
-            Token {
-                access: access.clone(),
-                refresh,
-                expires: Instant::now() + Duration::from_secs(expires),
-            },
-        );
+    service.remember_token(
+        key,
+        Token {
+            access: access.clone(),
+            refresh,
+            expires: Instant::now() + Duration::from_secs(expires),
+            persistent: c.persist_tokens,
+            label: format!("{} ({})", crate::debug::safe_url(&c.token_url), c.client_id),
+        },
+    )?;
     Ok(access)
 }
 

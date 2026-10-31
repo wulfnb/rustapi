@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "RustAPI Cookie Connector",
+  "version": "0.1.0",
+  "description": "Explicitly capture or merge cookies with your local RustAPI workspace.",
+  "permissions": ["cookies", "activeTab", "storage"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "action": {"default_popup": "popup.html"}
+}

@@ -13,6 +13,9 @@ pub enum AuthType {
     ApiKey,
     Inherit,
     OAuth2,
+    Jwt,
+    AwsSigV4,
+    Digest,
     Unsupported,
 }
 
@@ -25,6 +28,9 @@ impl AuthType {
             AuthType::ApiKey,
             AuthType::Inherit,
             AuthType::OAuth2,
+            AuthType::Jwt,
+            AuthType::AwsSigV4,
+            AuthType::Digest,
         ]
     }
 
@@ -36,6 +42,9 @@ impl AuthType {
             AuthType::ApiKey => "API Key",
             AuthType::Inherit => "Inherit",
             AuthType::OAuth2 => "OAuth 2.0",
+            AuthType::Jwt => "JWT signing",
+            AuthType::AwsSigV4 => "AWS Signature V4",
+            AuthType::Digest => "Digest",
             AuthType::Unsupported => "Unsupported imported auth",
         }
     }
@@ -60,6 +69,7 @@ impl ApiKeyLocation {
 
 /// Authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct AuthConfig {
     pub auth_type: AuthType,
     // Bearer Token
@@ -73,13 +83,51 @@ pub struct AuthConfig {
     pub api_key_location: ApiKeyLocation,
     #[serde(default)]
     pub oauth: super::OAuthConfig,
+    #[serde(default)]
+    pub jwt: JwtConfig,
+    #[serde(default)]
+    pub aws: AwsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct JwtConfig {
+    pub algorithm: String,
+    pub key: String,
+    pub key_id: String,
+    pub claims: String,
+}
+impl Default for JwtConfig {
+    fn default() -> Self {
+        Self {
+            algorithm: "HS256".into(),
+            key: String::new(),
+            key_id: String::new(),
+            claims: "{}".into(),
+        }
+    }
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AwsConfig {
+    pub access_key: String,
+    pub secret_key: String,
+    pub session_token: String,
+    pub region: String,
+    pub service: String,
 }
 
 impl AuthConfig {
     /// Generate authorization header value if applicable
     pub fn get_auth_header(&self) -> Option<(String, String)> {
         match self.auth_type {
-            AuthType::None | AuthType::Inherit | AuthType::OAuth2 | AuthType::Unsupported => None,
+            AuthType::None
+            | AuthType::Inherit
+            | AuthType::OAuth2
+            | AuthType::Unsupported
+            | AuthType::Jwt
+            | AuthType::AwsSigV4
+            | AuthType::Digest => None,
             AuthType::BearerToken => {
                 if self.bearer_token.is_empty() {
                     None

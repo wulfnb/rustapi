@@ -19,6 +19,55 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
     ui.add_space(8.0);
 
     match auth.auth_type {
+        AuthType::Jwt => {
+            ui.label("JWT algorithm");
+            egui::ComboBox::from_id_salt("jwt_algorithm")
+                .selected_text(&auth.jwt.algorithm)
+                .show_ui(ui, |ui| {
+                    for algorithm in [
+                        "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "PS256", "PS384",
+                        "PS512", "ES256", "ES384", "EdDSA",
+                    ] {
+                        ui.selectable_value(&mut auth.jwt.algorithm, algorithm.into(), algorithm);
+                    }
+                });
+            ui.label("Signing secret or private PEM key ({{vault:name}} supported)");
+            ui.add(
+                egui::TextEdit::multiline(&mut auth.jwt.key)
+                    .password(true)
+                    .desired_rows(2),
+            );
+            ui.label("Key ID (optional)");
+            ui.text_edit_singleline(&mut auth.jwt.key_id);
+            ui.label("Claims JSON (variables supported)");
+            ui.add(
+                egui::TextEdit::multiline(&mut auth.jwt.claims)
+                    .code_editor()
+                    .desired_rows(6),
+            );
+            ui.small("Signed when sending. Set exp/iat explicitly in claims; no unsigned algorithm is supported.");
+        }
+        AuthType::AwsSigV4 => {
+            for (label, field, secret) in [
+                ("Access key", &mut auth.aws.access_key, true),
+                ("Secret key", &mut auth.aws.secret_key, true),
+                (
+                    "Session token (optional)",
+                    &mut auth.aws.session_token,
+                    true,
+                ),
+                ("Region", &mut auth.aws.region, false),
+                (
+                    "Service (e.g. s3, execute-api)",
+                    &mut auth.aws.service,
+                    false,
+                ),
+            ] {
+                ui.label(label);
+                ui.add(egui::TextEdit::singleline(field).password(secret));
+            }
+            ui.small("Vault references are supported. Final encoded bytes are signed; cross-origin redirects are not followed.");
+        }
         AuthType::Unsupported => {
             ui.colored_label(
                 egui::Color32::LIGHT_RED,
@@ -30,6 +79,13 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
         }
         AuthType::OAuth2 => {
             let c = &mut auth.oauth;
+            ui.checkbox(
+                &mut c.persist_tokens,
+                "Keep tokens in the encrypted local vault",
+            );
+            if c.persist_tokens {
+                ui.small("Unlock Local encrypted secrets before sending. Tokens can be inspected and forgotten there.");
+            }
             egui::ComboBox::from_id_salt("oauth_grant")
                 .selected_text(if c.grant == "authorization_code" {
                     "Authorization code + PKCE"
@@ -119,7 +175,7 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
                     .weak(),
             );
         }
-        AuthType::BasicAuth => {
+        AuthType::BasicAuth | AuthType::Digest => {
             ui.horizontal(|ui| {
                 ui.label("Username:");
                 ui.add(
@@ -139,7 +195,9 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
                 );
             });
             ui.add_space(4.0);
-            ui.label(egui::RichText::new("Credentials will be base64 encoded and sent as: Authorization: Basic <encoded>").small().weak());
+            ui.label(egui::RichText::new(if auth.auth_type == AuthType::Digest {
+                "Digest negotiates the server challenge. MD5, SHA-256, SHA-512-256, sess and auth-int are supported."
+            } else { "Credentials will be base64 encoded and sent as: Authorization: Basic <encoded>" }).small().weak());
         }
         AuthType::ApiKey => {
             ui.horizontal(|ui| {

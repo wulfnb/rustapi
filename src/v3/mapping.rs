@@ -30,6 +30,23 @@ fn description(value: &Value) -> Value {
     }
 }
 fn field_rows(value: &Value, variables: bool) -> Result<Value> {
+    if variables && value.is_object() {
+        let rows = value
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(key, value)| {
+                if let Some(fields) = value.as_object() {
+                    let mut fields = fields.clone();
+                    fields.insert("key".into(), key.clone().into());
+                    Value::Object(fields)
+                } else {
+                    json!({"key":key,"value":value})
+                }
+            })
+            .collect::<Vec<_>>();
+        return field_rows(&Value::Array(rows), true);
+    }
     let mut rows = vec![];
     for row in array(value)? {
         keys(
@@ -58,6 +75,16 @@ fn field_rows(value: &Value, variables: bool) -> Result<Value> {
     Ok(Value::Array(rows))
 }
 fn auth_to_21(value: &Value) -> Result<Value> {
+    if let Some(sets) = value.as_array() {
+        ensure!(
+            sets.len() <= 1,
+            "Multiple v3 credential sets require explicit rule selection"
+        );
+        return match sets.first() {
+            Some(value) => auth_to_21(value),
+            None => Ok(Value::Null),
+        };
+    }
     if value.is_null() {
         return Ok(Value::Null);
     }
@@ -67,7 +94,16 @@ fn auth_to_21(value: &Value) -> Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("Auth type is required"))?;
     let mut auth = json!({"type":kind});
     if kind != "noauth" {
-        auth[kind] = value["credentials"].clone();
+        auth[kind] = if let Some(credentials) = value["credentials"].as_object() {
+            Value::Array(
+                credentials
+                    .iter()
+                    .map(|(key, value)| json!({"key":key,"value":value}))
+                    .collect(),
+            )
+        } else {
+            value["credentials"].clone()
+        };
     }
     Ok(auth)
 }
@@ -93,7 +129,7 @@ fn events_to_21(value: &Value, scope: bool) -> Result<Value> {
             kind
         };
         let listen = match kind {
-            "beforeRequest" => "prerequest",
+            "beforeRequest" | "beforeQuery" => "prerequest",
             "afterResponse" => "test",
             _ => anyhow::bail!("Unsupported script lifecycle event"),
         };
@@ -225,6 +261,43 @@ fn examples_to_21(value: &Value) -> Result<Value> {
 }
 pub fn to_21(value: &Value, root: bool) -> Result<Value> {
     match value["$kind"].as_str().unwrap_or_default() {
+        "graphql-request" => {
+            keys(
+                value,
+                &[
+                    "id",
+                    "name",
+                    "description",
+                    "url",
+                    "query",
+                    "variables",
+                    "headers",
+                    "settings",
+                    "auth",
+                    "schema",
+                    "operationName",
+                    "$kind",
+                    "examples",
+                    "scripts",
+                    "order",
+                ],
+            )?;
+            ensure!(
+                value["schema"].is_null()
+                    || ["none", "auto"]
+                        .contains(&value["schema"]["source"].as_str().unwrap_or_default()),
+                "External GraphQL schema sources require local schema import"
+            );
+            ensure!(
+                value["examples"].is_null()
+                    || value["examples"].as_array().is_some_and(Vec::is_empty),
+                "Streaming GraphQL examples are not yet supported"
+            );
+            let request = json!({"method":"POST","url":value["url"],"header":field_rows(&value["headers"],false)?,"description":value["description"],"body":{"mode":"graphql","graphql":{"query":value["query"],"variables":value["variables"].as_str().unwrap_or("{}"),"operationName":value["operationName"]}},"auth":auth_to_21(&value["auth"])?,"protocolProfileBehavior":value["settings"]});
+            Ok(
+                json!({"name":value["name"],"request":request,"event":events_to_21(&value["scripts"],false)?}),
+            )
+        }
         "collection" => {
             keys(
                 value,
@@ -339,6 +412,26 @@ pub fn from_21(value: &Value, root: bool) -> Value {
             for field in ["headers","queryParams","pathVariables"] {for row in snapshot[field].as_array_mut().into_iter().flatten(){row.as_object_mut().unwrap().remove("$type");}}
             json!({"$kind":"http-example","name":example["name"],"auth":auth_from_21(&example["originalRequest"]["auth"]),"request":snapshot,"response":{"statusCode":example["code"],"statusText":example["status"],"headers":rows_from_21(&example["header"],false),"body":{"type":"text","content":example["body"]}}})
         }).collect());
+        if r["body"]["mode"] == "graphql" {
+            for key in ["method", "body", "queryParams", "pathVariables", "settings"] {
+                out.as_object_mut().unwrap().remove(key);
+            }
+            out["$kind"] = "graphql-request".into();
+            out["query"] = r["body"]["graphql"]["query"].clone();
+            out["variables"] = r["body"]["graphql"]["variables"].clone();
+            if r["body"]["graphql"]["operationName"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+            {
+                out["operationName"] = r["body"]["graphql"]["operationName"].clone();
+            }
+            for script in out["scripts"].as_array_mut().into_iter().flatten() {
+                if script["type"] == "beforeRequest" {
+                    script["type"] = "beforeQuery".into();
+                }
+            }
+            out["examples"] = json!([]);
+        }
         out
     }
 }

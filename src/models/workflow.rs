@@ -36,6 +36,7 @@ pub enum OAuthClientAuth {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OAuthConfig {
+    pub persist_tokens: bool,
     pub authorization_url: String,
     pub token_url: String,
     pub refresh_url: String,
@@ -62,6 +63,7 @@ pub enum AssertionKind {
     BodyContains,
     MaxTime,
     JsonSchema,
+    OpenApi,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assertion {

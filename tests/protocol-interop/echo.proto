@@ -1,0 +1,7 @@
+syntax = "proto3";
+package fixture;
+service Echo {
+  rpc Unary (Message) returns (Message);
+  rpc Stream (Message) returns (stream Message);
+}
+message Message { string text = 1; }

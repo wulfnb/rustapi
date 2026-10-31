@@ -8,7 +8,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RunOptions {
+    #[serde(skip)]
+    pub workspace_root: Option<std::path::PathBuf>,
     pub folder: Option<String>,
     pub iterations: usize,
     pub stop_on_failure: bool,
@@ -98,6 +101,11 @@ fn execute_with_flow(
 ) -> (ApiResponse, crate::scripts::Workflow) {
     let mut workflow = crate::scripts::Workflow::default();
     let work = || -> Result<ApiResponse> {
+        anyhow::ensure!(
+            service.policy()?.allow_scripts
+                || r.pre_script.trim().is_empty() && r.post_script.trim().is_empty(),
+            "Workspace policy disables scripts"
+        );
         let mut draft = r.clone();
         let result =
             crate::scripts::execute_request(&r.pre_script, vars, Some(&mut draft), None, cancel)?;
@@ -126,12 +134,48 @@ fn execute_with_flow(
         if response.error.is_some() {
             return Ok(response);
         }
+        if request.graphql.is_some() {
+            let value =
+                serde_json::from_slice::<serde_json::Value>(if response.raw_body.is_empty() {
+                    response.body.as_bytes()
+                } else {
+                    &response.raw_body
+                })
+                .ok();
+            let passed = value.as_ref().is_some_and(|v| {
+                v.get("data").is_some()
+                    && v.get("errors")
+                        .is_none_or(|e| e.as_array().is_some_and(Vec::is_empty))
+            });
+            pre.push(TestResult {
+                name: "GraphQL response".into(),
+                passed,
+                message: if passed {
+                    String::new()
+                } else {
+                    "GraphQL response is invalid or contains errors".into()
+                },
+            });
+        }
         let body_json = if response.raw_body.is_empty() {
             serde_json::from_str::<serde_json::Value>(&response.body).ok()
         } else {
             serde_json::from_slice::<serde_json::Value>(&response.raw_body).ok()
         };
         for check in &r.checks {
+            if check.kind == AssertionKind::OpenApi {
+                let result = crate::openapi::response_contract(&check.expected, &response);
+                let (passed, message) = match result {
+                    Ok(errors) => (errors.is_empty(), errors.join("; ")),
+                    Err(error) => (false, error.to_string()),
+                };
+                pre.push(TestResult {
+                    name: check.name.clone(),
+                    passed,
+                    message,
+                });
+                continue;
+            }
             if check.kind == AssertionKind::JsonSchema {
                 let result = body_json
                     .as_ref()
@@ -181,7 +225,9 @@ fn execute_with_flow(
                         .to_string(),
                     )
                 }
-                AssertionKind::JsonSchema => unreachable!("Handled before ordinary assertions"),
+                AssertionKind::JsonSchema | AssertionKind::OpenApi => {
+                    unreachable!("Handled before ordinary assertions")
+                }
                 AssertionKind::MaxTime => Some(
                     (response.time_ms
                         <= check
@@ -282,9 +328,44 @@ pub fn run_with_progress(
     options: &RunOptions,
     secrets: BTreeMap<String, String>,
     cancel: &Cancellation,
-    mut progress: impl FnMut(&RunEntry),
+    progress: impl FnMut(&RunEntry),
 ) -> Result<RunReport> {
+    run_with_gate(
+        service,
+        c,
+        env,
+        options,
+        secrets,
+        cancel,
+        (progress, || true),
+    )
+}
+/// A gate is checked before every execution, including scripted workflow jumps.
+pub fn run_with_gate(
+    service: &HttpService,
+    c: &Collection,
+    env: Option<&Environment>,
+    options: &RunOptions,
+    secrets: BTreeMap<String, String>,
+    cancel: &Cancellation,
+    callbacks: (impl FnMut(&RunEntry), impl FnMut() -> bool),
+) -> Result<RunReport> {
+    let (mut progress, mut gate) = callbacks;
     let requests = c.ordered_requests(options.folder.as_deref());
+    let root = options
+        .workspace_root
+        .clone()
+        .unwrap_or_else(crate::storage::get_app_data_dir);
+    let mut global = if root.exists() {
+        crate::storage::GlobalVariables::load(&root)?.variables
+    } else {
+        BTreeMap::new()
+    };
+    let local_overrides = if root.exists() {
+        crate::storage::LocalEnvironmentOverrides::load(&root)?
+    } else {
+        Default::default()
+    };
     anyhow::ensure!(!requests.is_empty(), "No requests selected");
     let iterations = if options.iterations == 0 {
         options.data.len().max(1)
@@ -295,6 +376,11 @@ pub fn run_with_progress(
     let mut report = RunReport::default();
     for i in 0..iterations {
         let mut vars = Variables {
+            global: global.clone(),
+            local_overrides: env
+                .and_then(|e| local_overrides.overrides.get(&e.id))
+                .cloned()
+                .unwrap_or_default(),
             environment: env
                 .map(|e| {
                     e.variables
@@ -321,6 +407,9 @@ pub fn run_with_progress(
             steps += 1;
             if cancel.is_cancelled() {
                 report.cancelled = true;
+                return Ok(report);
+            }
+            if !gate() {
                 return Ok(report);
             }
             vars.collection = r.inherited_variables.clone().into_iter().collect();
@@ -397,6 +486,7 @@ pub fn run_with_progress(
                 delay -= step;
             }
         }
+        global = vars.global;
     }
     Ok(report)
 }

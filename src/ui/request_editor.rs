@@ -96,7 +96,23 @@ pub fn render_request_editor(
             render_key_value_editor(ui, &mut request.headers);
         }
         RequestTab::Body => {
-            render_body_editor(ui, request);
+            let mut graphql=request.graphql.is_some();
+            if ui.checkbox(&mut graphql,"GraphQL document").changed(){request.graphql=graphql.then(Default::default);if graphql{request.method=HttpMethod::POST;}}
+            if let Some(graphql)=&mut request.graphql {
+                ui.label("Query / mutation");ui.add(egui::TextEdit::multiline(&mut graphql.query).code_editor().desired_rows(10).desired_width(f32::INFINITY));
+                ui.label("Variables JSON");ui.add(egui::TextEdit::multiline(&mut graphql.variables).code_editor().desired_rows(5).desired_width(f32::INFINITY));
+                ui.label("Operation name (required for multiple operations)");ui.text_edit_singleline(&mut graphql.operation_name);
+                ui.horizontal(|ui|{if ui.button("Format GraphQL").clicked(){if let Err(error)=graphql.format(){ui.label(error.to_string());}}
+if ui.button("Use introspection query").clicked(){graphql.query=rustapi::graphql::INTROSPECTION.into();graphql.operation_name="RustAPIIntrospection".into();graphql.variables="{}".into();}});
+                if let Err(error)=graphql.body(){ui.colored_label(egui::Color32::LIGHT_RED,error.to_string());}
+                egui::CollapsingHeader::new("GraphQL schema / field catalog").show(ui,|ui|{
+                    ui.small("Paste SDL or an introspection response, then inspect its type fields.");
+                    let catalog_id=ui.id().with("graphql_catalog");
+                    if ui.add(egui::TextEdit::multiline(&mut graphql.schema).code_editor().desired_rows(4)).changed(){ui.data_mut(|data|data.remove::<Result<Vec<String>,String>>(catalog_id));}
+                    if ui.button("Inspect schema fields").clicked(){let result=graphql.fields().map_err(|error|error.to_string());ui.data_mut(|data|data.insert_temp(catalog_id,result));}
+                    if let Some(result)=ui.data(|data|data.get_temp::<Result<Vec<String>,String>>(catalog_id)){match result{Ok(fields)=>{for field in fields.into_iter().take(200){ui.label(field);}},Err(error)=>{ui.label(error);}}}
+                });
+            }else{render_body_editor(ui, request);}
         }
         RequestTab::Auth => { render_auth_editor(ui, &mut request.auth); }
         RequestTab::Tests => {
@@ -104,8 +120,8 @@ pub fn render_request_editor(
             let mut remove=None;
             for (i,c) in request.checks.iter_mut().enumerate() { ui.push_id(i,|ui| {
                 ui.text_edit_singleline(&mut c.name);
-                egui::ComboBox::from_id_salt("kind").selected_text(format!("{:?}",c.kind)).show_ui(ui,|ui|{for k in [crate::models::AssertionKind::Status,crate::models::AssertionKind::Header,crate::models::AssertionKind::Json,crate::models::AssertionKind::BodyContains,crate::models::AssertionKind::MaxTime,crate::models::AssertionKind::JsonSchema]{let label=format!("{k:?}");ui.selectable_value(&mut c.kind,k,label);}});
-                ui.horizontal(|ui|{ui.label("Target");ui.text_edit_singleline(&mut c.target);ui.label("Expected");if c.kind==crate::models::AssertionKind::JsonSchema{ui.add(egui::TextEdit::multiline(&mut c.expected).code_editor().desired_rows(5));}else{ui.text_edit_singleline(&mut c.expected);}
+                egui::ComboBox::from_id_salt("kind").selected_text(format!("{:?}",c.kind)).show_ui(ui,|ui|{for k in [crate::models::AssertionKind::Status,crate::models::AssertionKind::Header,crate::models::AssertionKind::Json,crate::models::AssertionKind::BodyContains,crate::models::AssertionKind::MaxTime,crate::models::AssertionKind::JsonSchema,crate::models::AssertionKind::OpenApi]{let label=format!("{k:?}");ui.selectable_value(&mut c.kind,k,label);}});
+                ui.horizontal(|ui|{ui.label("Target");ui.text_edit_singleline(&mut c.target);ui.label("Expected");if matches!(c.kind,crate::models::AssertionKind::JsonSchema|crate::models::AssertionKind::OpenApi){ui.add(egui::TextEdit::multiline(&mut c.expected).code_editor().desired_rows(5));}else{ui.text_edit_singleline(&mut c.expected);}
  if ui.small_button("Remove").clicked(){remove=Some(i);}});
             }); }
             if let Some(i)=remove {request.checks.remove(i);}

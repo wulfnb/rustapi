@@ -17,6 +17,38 @@ fn app_with_collection() -> RustApiApp {
 }
 
 #[test]
+fn saving_local_vault_never_persists_external_or_session_secrets() {
+    let profile = Profile::new();
+    let app = RustApiApp {
+        show_vault: true,
+        vault_unlocked: true,
+        vault_password: "isolated-test-vault-password".into(),
+        secret_name: "saved".into(),
+        secret_value: "local-value".into(),
+        session_secrets: BTreeMap::from([
+            ("ext/provider".into(), "external-value".into()),
+            ("team_token".into(), "session-value".into()),
+        ]),
+        ..Default::default()
+    };
+    let mut h = Harness::new(app, |ctx, app| app.vault_window(ctx));
+    h.click("Save secret");
+    let saved = rustapi::secrets::load(
+        &profile.directory.path().join(".local/vault.json"),
+        "isolated-test-vault-password",
+    )
+    .unwrap();
+    assert_eq!(
+        saved,
+        BTreeMap::from([("saved".into(), "local-value".into())])
+    );
+    assert_eq!(h.state.execution_secrets().len(), 3);
+    h.click("Lock vault");
+    assert!(h.state.execution_secrets().is_empty());
+    assert!(!h.state.vault_unlocked);
+}
+
+#[test]
 fn lossy_import_review_cancel_and_accept_control_persistence() {
     let profile = Profile::new();
     let source = profile.directory.path().join("source.json");

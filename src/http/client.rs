@@ -1,4 +1,5 @@
 //! Shared, cancellable HTTP service used by GUI sends and collection runs.
+use super::CookieJar;
 use crate::models::*;
 use anyhow::{bail, Context, Result};
 use reqwest::{
@@ -24,70 +25,61 @@ impl Cancellation {
         self.0.load(Ordering::SeqCst)
     }
 }
-#[derive(Default)]
-pub struct CookieJar(Mutex<cookie_store::CookieStore>);
-impl reqwest::cookie::CookieStore for CookieJar {
-    fn set_cookies(&self, headers: &mut dyn Iterator<Item = &HeaderValue>, url: &reqwest::Url) {
-        let mut jar = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        for h in headers {
-            if let Ok(s) = h.to_str() {
-                let _ = jar.parse(s, url);
-            }
-        }
-    }
-    fn cookies(&self, url: &reqwest::Url) -> Option<HeaderValue> {
-        let jar = self.0.lock().unwrap_or_else(|p| p.into_inner());
-        let text = jar
-            .get_request_values(url)
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join("; ");
-        if text.is_empty() {
-            None
-        } else {
-            HeaderValue::from_str(&text).ok()
-        }
-    }
-}
-impl CookieJar {
-    pub fn clear(&self) {
-        self.0.lock().unwrap_or_else(|p| p.into_inner()).clear();
-    }
-    pub fn list(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter_any()
-            .map(|c| {
-                format!(
-                    "{}={}; domain={:?}; path={:?}",
-                    c.name(),
-                    c.value(),
-                    c.domain,
-                    c.path
-                )
-            })
-            .collect()
-    }
-    pub fn set(&self, url: &str, cookie: &str) -> Result<()> {
-        self.0
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .parse(cookie, &reqwest::Url::parse(url)?)
-            .map_err(|_| anyhow::anyhow!("Invalid cookie"))?;
-        Ok(())
-    }
-}
-#[derive(Default)]
 pub struct HttpService {
     pub debug: crate::debug::DebugLog,
     clients: Mutex<HashMap<String, Client>>,
     runtime: std::sync::OnceLock<std::result::Result<tokio::runtime::Runtime, String>>,
     pub cookies: Arc<CookieJar>,
     pub(crate) tokens: Mutex<HashMap<String, super::oauth::Token>>,
+    pub(crate) token_store: Mutex<Option<super::oauth::TokenStore>>,
+    policy: Mutex<std::result::Result<Arc<crate::policy::Policy>, String>>,
+}
+impl Default for HttpService {
+    fn default() -> Self {
+        Self::for_workspace(&crate::storage::get_app_data_dir())
+    }
 }
 impl HttpService {
+    pub fn for_workspace(root: &std::path::Path) -> Self {
+        let policy = if root.exists() {
+            crate::policy::Policy::load(root).map_err(|error| error.to_string())
+        } else {
+            Ok(crate::policy::Policy::default())
+        };
+        Self {
+            debug: Default::default(),
+            clients: Default::default(),
+            runtime: Default::default(),
+            cookies: Default::default(),
+            tokens: Default::default(),
+            token_store: Default::default(),
+            policy: Mutex::new(policy.map(Arc::new)),
+        }
+    }
+    pub fn policy(&self) -> Result<Arc<crate::policy::Policy>> {
+        self.policy
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+            .map_err(|error| anyhow::anyhow!("Workspace policy is invalid: {error}"))
+    }
+    pub fn reload_policy(&self, root: &std::path::Path) -> Result<()> {
+        let next = crate::policy::Policy::load(root)
+            .map(Arc::new)
+            .map_err(|error| error.to_string());
+        *self.policy.lock().unwrap_or_else(|p| p.into_inner()) = next;
+        self.clients
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        self.policy()?;
+        Ok(())
+    }
     pub fn client(&self, s: &HttpSettings) -> Result<Client> {
+        anyhow::ensure!(
+            self.policy()?.allow_insecure_tls || s.verify_tls,
+            "Workspace policy requires certificate verification"
+        );
         anyhow::ensure!(
             s.timeout_ms > 0 && s.timeout_ms <= 3_600_000,
             "Timeout must be between 1 and 3600000 ms"
@@ -106,7 +98,16 @@ impl HttpService {
             .danger_accept_invalid_certs(!s.verify_tls)
             .timeout(Duration::from_millis(s.timeout_ms))
             .redirect(if s.follow_redirects {
-                reqwest::redirect::Policy::limited(10)
+                let policy = self.policy()?;
+                reqwest::redirect::Policy::custom(move |attempt| {
+                    if attempt.previous().len() >= 10 {
+                        return attempt.error("Too many redirects");
+                    }
+                    if policy.url(attempt.url().as_str()).is_err() {
+                        return attempt.error("Workspace policy blocks this redirect");
+                    }
+                    attempt.follow()
+                })
             } else {
                 reqwest::redirect::Policy::none()
             });
@@ -157,7 +158,7 @@ impl HttpService {
                 tokio::select! {
                     biased;
                     _=async {while !cancel.is_cancelled(){tokio::time::sleep(Duration::from_millis(20)).await;}}=>bail!("Request cancelled"),
-                    result=self.execute_async(request,start)=>result,
+                    result=tokio::time::timeout(Duration::from_millis(request.settings.timeout_ms),self.execute_async(request,start))=>result.context("Request deadline exceeded")?,
                 }
             })
         };
@@ -173,8 +174,19 @@ impl HttpService {
         response
     }
     async fn execute_async(&self, r: &ApiRequest, start: Instant) -> Result<ApiResponse> {
-        let client = self.client(&r.settings)?;
+        self.policy()?.request(r)?;
+        let helper_auth = matches!(r.auth.auth_type, AuthType::AwsSigV4 | AuthType::Digest)
+            && !r
+                .headers
+                .iter()
+                .any(|field| field.enabled && field.key.eq_ignore_ascii_case("authorization"));
+        let mut settings = r.settings.clone();
+        if helper_auth {
+            settings.follow_redirects = false;
+        }
+        let client = self.client(&settings)?;
         let mut r = r.clone();
+        crate::graphql::prepare(&mut r)?;
         if r.auth.auth_type == AuthType::OAuth2 {
             let mut token_settings = r.settings.clone();
             token_settings.follow_redirects = false;
@@ -218,11 +230,11 @@ impl HttpService {
                         HeaderValue::from_static(content_type),
                     );
                 }
-                b = b.body(r.body);
+                b = b.body(r.body.clone());
             }
             BodyType::Binary => {
                 let bytes = if r.binary_file.is_empty() {
-                    r.body.into_bytes()
+                    r.body.clone().into_bytes()
                 } else {
                     std::fs::read(&r.binary_file).context("Read binary upload")?
                 };
@@ -271,11 +283,12 @@ impl HttpService {
                 b = b.multipart(form);
             }
         }
-        let mut response = b
-            .headers(headers)
-            .send()
-            .await
-            .context("Send HTTP request")?;
+        let request = b.headers(headers).build()?;
+        let mut response = if helper_auth {
+            super::auth::send(&client, request, &r.auth, r.settings.follow_redirects).await?
+        } else {
+            client.execute(request).await.context("Send HTTP request")?
+        };
         let status = response.status();
         let headers_time_ms = start.elapsed().as_millis();
         let headers = response

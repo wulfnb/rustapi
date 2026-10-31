@@ -274,7 +274,7 @@ fn collection_environment_disabled_flags_and_unsupported_auth_are_explicit() {
     assert!(!e.variables[0].enabled);
     let mut v: serde_json::Value =
         serde_json::from_slice(include_bytes!("fixtures/collection-v2.1.json")).unwrap();
-    v["item"][0]["request"]["auth"] = serde_json::json!({"type":"digest"});
+    v["item"][0]["request"]["auth"] = serde_json::json!({"type":"ntlm"});
     let c = rustapi::import::json(&serde_json::to_vec(&v).unwrap())
         .unwrap()
         .collection
