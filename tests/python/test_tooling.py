@@ -69,6 +69,12 @@ class PackageTests(unittest.TestCase):
                     notices = base / "dist" / f"RustAPI-{platform}-arm64"
                     for name in ("LICENSE", "NOTICE", "CONTRIBUTING.md"):
                         self.assertEqual((notices / name).read_bytes(), (ROOT / name).read_bytes())
+                    if platform == "linux":
+                        # Desktop integration comes from the repository, not the working directory.
+                        self.assertEqual((notices / "share/applications/rustapi.desktop").read_bytes(),
+                                         (ROOT / "packaging/linux/rustapi.desktop").read_bytes())
+                        self.assertTrue((notices / "share/icons/hicolor/256x256/apps/rustapi.png").is_file())
+                        self.assertTrue(os.access(notices / "install.sh", os.X_OK))
                     with patch.dict(os.environ, {}, clear=True):
                         run_script("scripts/package.py", ["--binary", "input.bin", "--platform", platform, "--arch", "x86_64"])
                     if platform == "macos":

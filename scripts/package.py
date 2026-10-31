@@ -10,6 +10,9 @@ import tarfile
 import time
 import zipfile
 
+# Source assets live in the repository, wherever the script is run from.
+ROOT = Path(__file__).resolve().parents[1]
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--binary", type=Path, required=True)
 parser.add_argument("--platform", choices=["macos", "linux", "windows"], required=True)
@@ -89,9 +92,9 @@ else:
         # Launcher entry + hicolor icons; install.sh copies them into ~/.local.
         share = stage / "share"
         (share / "applications").mkdir(parents=True)
-        shutil.copy2("packaging/linux/rustapi.desktop", share / "applications")
-        shutil.copytree("assets/icons/hicolor", share / "icons" / "hicolor")
-        shutil.copy2("packaging/linux/install.sh", stage)
+        shutil.copy2(ROOT / "packaging/linux/rustapi.desktop", share / "applications")
+        shutil.copytree(ROOT / "assets/icons/hicolor", share / "icons" / "hicolor")
+        shutil.copy2(ROOT / "packaging/linux/install.sh", stage)
         (stage / "install.sh").chmod(0o755)
     if args.platform == "windows":
         with zipfile.ZipFile(dist / (name + ".zip"), "w", zipfile.ZIP_DEFLATED) as archive:
