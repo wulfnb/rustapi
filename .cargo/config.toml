@@ -1,0 +1,6 @@
+[env]
+# jsonwebtoken's aws_lc_rs backend builds aws-lc-sys, which needs the NASM
+# assembler on Windows x86_64. Use its prebuilt NASM objects instead, so
+# Windows builds (CI runners and local) work without installing NASM. The
+# setting is ignored on other targets and whenever NASM is installed.
+AWS_LC_SYS_PREBUILT_NASM = "1"
