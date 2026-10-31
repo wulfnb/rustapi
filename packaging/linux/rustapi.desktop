@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RustAPI
+GenericName=API Client
+Comment=Fast, file-based API testing client
+Exec=rustapi
+Icon=rustapi
+Terminal=false
+Categories=Development;Network;
+Keywords=API;REST;HTTP;GraphQL;WebSocket;
+StartupWMClass=rustapi

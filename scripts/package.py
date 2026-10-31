@@ -85,6 +85,14 @@ else:
     shutil.copy2(args.binary, binary)
     binary.chmod(0o755)
     shutil.copy2("README.md", stage)
+    if args.platform == "linux":
+        # Launcher entry + hicolor icons; install.sh copies them into ~/.local.
+        share = stage / "share"
+        (share / "applications").mkdir(parents=True)
+        shutil.copy2("packaging/linux/rustapi.desktop", share / "applications")
+        shutil.copytree("assets/icons/hicolor", share / "icons" / "hicolor")
+        shutil.copy2("packaging/linux/install.sh", stage)
+        (stage / "install.sh").chmod(0o755)
     if args.platform == "windows":
         with zipfile.ZipFile(dist / (name + ".zip"), "w", zipfile.ZIP_DEFLATED) as archive:
             for path in stage.rglob("*"):

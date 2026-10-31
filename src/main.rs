@@ -33,13 +33,19 @@ fn main() -> eframe::Result<()> {
         }
     }
     let smoke_test = args.first().is_some_and(|arg| arg == "--smoke-test");
-    let icon =
-        eframe::icon_data::from_png_bytes(include_bytes!("../assets/icons/rustapi-icon-256.png"))
-            .ok();
+    // macOS shows this as the Dock icon while running, so it must use the
+    // padded Big Sur grid like the bundle's .icns; other platforms don't mask.
+    #[cfg(target_os = "macos")]
+    let icon_png = include_bytes!("../assets/icons/rustapi-icon-macos-512.png").as_slice();
+    #[cfg(not(target_os = "macos"))]
+    let icon_png = include_bytes!("../assets/icons/rustapi-icon-256.png").as_slice();
+    let icon = eframe::icon_data::from_png_bytes(icon_png).ok();
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1400.0, 900.0])
         .with_min_inner_size([800.0, 600.0])
-        .with_title("RustAPI - API Testing Client");
+        .with_title("RustAPI - API Testing Client")
+        // Wayland ignores window icons; launchers match this to rustapi.desktop.
+        .with_app_id("rustapi");
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
