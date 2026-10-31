@@ -66,15 +66,55 @@ pub(super) async fn run(
     let mut poll = tokio::time::interval(Duration::from_millis(20));
     let mut sender_done = false;
     loop {
-        tokio::select! {
-                    notification=eventloop.poll()=>match notification.context("MQTT broker event")?{
-                        Notification::Incoming(Packet::ConnAck(_))=>{sink.send("connected",json!({"transport":"mqtt","qos":profile.qos}))?;},
-                        Notification::Incoming(Packet::Publish(packet))=>{use base64::Engine;if sink.send("message",json!({"topic":packet.topic,"qos":packet.qos as u8,"retain":packet.retain,"base64":base64::engine::general_purpose::STANDARD.encode(packet.payload)}))?{sender.abort();return Ok(());}},
-                        Notification::Incoming(Packet::PubAck(_)|Packet::PubComp(_))=>if !profile.subscribe&&sink.send("published",json!({"topic":profile.topic,"qos":profile.qos}))?{sender.abort();return Ok(());},
-                        Notification::Outgoing(rumqttc::Outgoing::Publish(_)) if profile.qos==0&&!profile.subscribe && sink.send("published",json!({"topic":profile.topic,"qos":0}))? =>{sender.abort();return Ok(());},_=>{}
-                    },
-                _=poll.tick()=>{if !sender_done&&sender.is_finished(){(&mut sender).await??;sender_done=true;}
-        if let Some(commands)=commands{if let Ok(message)=commands.try_recv(){ensure!(message.len()<=1024*1024,"MQTT message exceeds 1 MiB");client.try_publish(&profile.topic,qos,profile.retain,message.into_bytes())?;}}}
+        // poll() can be in the middle of TCP/TLS/MQTT connection setup. Keep
+        // that future alive when a command timer tick wins the select.
+        let notification = {
+            let notification = eventloop.poll();
+            tokio::pin!(notification);
+            loop {
+                tokio::select! {
+                    result = &mut notification => break result.context("MQTT broker event")?,
+                    _ = poll.tick() => {
+                        if !sender_done && sender.is_finished() {
+                            (&mut sender).await??;
+                            sender_done = true;
+                        }
+                        if let Some(commands) = commands {
+                            if let Ok(message) = commands.try_recv() {
+                                ensure!(message.len() <= 1024 * 1024, "MQTT message exceeds 1 MiB");
+                                client.try_publish(&profile.topic, qos, profile.retain, message.into_bytes())?;
+                            }
+                        }
+                    }
                 }
+            }
+        };
+        let complete = match notification {
+            Notification::Incoming(Packet::ConnAck(_)) => {
+                sink.send("connected", json!({"transport":"mqtt","qos":profile.qos}))?
+            }
+            Notification::Incoming(Packet::Publish(packet)) => {
+                use base64::Engine;
+                sink.send("message", json!({"topic":packet.topic,"qos":packet.qos as u8,"retain":packet.retain,"base64":base64::engine::general_purpose::STANDARD.encode(packet.payload)}))?
+            }
+            Notification::Incoming(Packet::PubAck(_) | Packet::PubComp(_))
+                if !profile.subscribe =>
+            {
+                sink.send(
+                    "published",
+                    json!({"topic":profile.topic,"qos":profile.qos}),
+                )?
+            }
+            Notification::Outgoing(rumqttc::Outgoing::Publish(_))
+                if profile.qos == 0 && !profile.subscribe =>
+            {
+                sink.send("published", json!({"topic":profile.topic,"qos":0}))?
+            }
+            _ => false,
+        };
+        if complete {
+            sender.abort();
+            return Ok(());
+        }
     }
 }

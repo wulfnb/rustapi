@@ -39,6 +39,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb libgl1-mesa-dri
       - name: Install the repository Rust toolchain
         run: rustup show active-toolchain
+      - name: Use OpenSSL 3 for independent signature verification
+        if: runner.os == 'macOS'
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          openssl_bin="$(brew --prefix openssl@3)/bin"
+          "$openssl_bin/openssl" version
+          echo "$openssl_bin" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: ci-${{ matrix.os }}
