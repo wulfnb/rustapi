@@ -467,23 +467,33 @@ fn helper_configuration_roundtrips_and_redacts() {
 
 #[test]
 fn digest_challenge_and_retry_share_one_deadline() {
-    let server = support::Server::new(2, |index, _| support::Reply {
-        status: if index == 0 { 401 } else { 200 },
-        headers: if index == 0 {
-            vec![(
-                "WWW-Authenticate".into(),
-                "Digest realm=\"test\",nonce=\"nonce\",algorithm=SHA-256,qop=\"auth\"".into(),
-            )]
-        } else {
-            vec![]
-        },
-        body: vec![],
-        delay_ms: 180,
+    let server = support::Server::new(2, |index, request| {
+        if index == 1 {
+            assert!(request
+                .head
+                .to_lowercase()
+                .contains("authorization: digest "));
+        }
+        support::Reply {
+            status: if index == 0 { 401 } else { 200 },
+            headers: if index == 0 {
+                vec![(
+                    "WWW-Authenticate".into(),
+                    "Digest realm=\"test\",nonce=\"nonce\",algorithm=SHA-256,qop=\"auth\"".into(),
+                )]
+            } else {
+                vec![]
+            },
+            body: vec![],
+            // A fresh timeout for the retry would take at least 3 seconds overall.
+            // The shared 2-second deadline must expire during the second response.
+            delay_ms: if index == 0 { 1000 } else { 3000 },
+        }
     });
     let request = ApiRequest {
         url: server.url.clone(),
         settings: HttpSettings {
-            timeout_ms: 300,
+            timeout_ms: 2000,
             follow_redirects: false,
             ..Default::default()
         },
@@ -494,9 +504,21 @@ fn digest_challenge_and_retry_share_one_deadline() {
         ..Default::default()
     };
     let service = HttpService::default();
-    service.client(&request.settings).unwrap();
+    // Warm both the client and runtime before measuring the shared deadline.
+    let warmup = support::Server::new(1, |_, _| support::Reply::json("{}"));
+    let mut warmup_request = request.clone();
+    warmup_request.url = warmup.url.clone();
+    assert!(service
+        .execute(&warmup_request, &Cancellation::default())
+        .error
+        .is_none());
+    warmup.finish();
     let response = service.execute(&request, &Cancellation::default());
-    assert!(response.error.is_some());
-    assert!(response.time_ms < 500);
-    server.finish();
+    let error = response.error.unwrap();
+    assert!(
+        error.contains("deadline") || error.contains("timed out"),
+        "{error}"
+    );
+    assert!(response.time_ms < 2700, "{} ms", response.time_ms);
+    assert_eq!(server.finish().len(), 2);
 }

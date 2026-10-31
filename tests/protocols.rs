@@ -106,10 +106,13 @@ fn sse_delivers_events_before_connection_end_and_event_cap_stops_reading() {
         duration_seconds: 3,
         ..Default::default()
     };
+    let service = HttpService::default();
+    // Measure event delivery rather than platform trust-store initialization.
+    service.client(&profile.request.settings).unwrap();
     let start = Instant::now();
     let mut events = vec![];
     let summary = protocols::run(
-        &HttpService::default(),
+        &service,
         &profile,
         &Variables::default(),
         &Cancellation::default(),
@@ -169,6 +172,98 @@ fn websocket_handshake_auth_initial_message_text_binary_and_cookie_update() {
     assert_eq!(service.cookies.entries()[0].name, "ws");
     thread.join().unwrap();
 }
+#[test]
+fn mqtt_connection_and_delivery_survive_command_timer_ticks() {
+    use std::net::TcpStream;
+    let (release_broker, session_finished) = std::sync::mpsc::channel();
+
+    fn packet(stream: &mut TcpStream) -> (u8, Vec<u8>) {
+        let mut header = [0];
+        stream.read_exact(&mut header).unwrap();
+        let mut length = 0;
+        let mut multiplier = 1;
+        loop {
+            let mut byte = [0];
+            stream.read_exact(&mut byte).unwrap();
+            length += usize::from(byte[0] & 0x7f) * multiplier;
+            assert!(length <= 1024);
+            if byte[0] & 0x80 == 0 {
+                break;
+            }
+            multiplier *= 128;
+            assert!(multiplier <= 128 * 128);
+        }
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).unwrap();
+        (header[0], body)
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let broker = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "MQTT client never connected");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("{error}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        // CONNECT: connection setup must survive several 20 ms timer ticks.
+        assert_eq!(packet(&mut stream).0, 0x10);
+        std::thread::sleep(Duration::from_millis(150));
+        stream.write_all(&[0x20, 2, 0, 0]).unwrap(); // CONNACK
+        let (header, subscribe) = packet(&mut stream);
+        assert_eq!(header, 0x82); // SUBSCRIBE
+        stream
+            .write_all(&[0x90, 3, subscribe[0], subscribe[1], 0])
+            .unwrap(); // SUBACK
+        std::thread::sleep(Duration::from_millis(150));
+        stream.write_all(b"\x30\x0a\x00\x04testecho").unwrap(); // QoS 0 PUBLISH
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
+        // Keep the broker open until the client has consumed the publication.
+        session_finished
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+    });
+    let profile = Session {
+        protocol: Protocol::Mqtt,
+        request: ApiRequest {
+            url: format!("mqtt://{address}"),
+            ..Default::default()
+        },
+        topic: "test".into(),
+        max_events: 1,
+        duration_seconds: 3,
+        ..Default::default()
+    };
+    let mut events = vec![];
+    let result = protocols::run(
+        &HttpService::default(),
+        &profile,
+        &Variables::default(),
+        &Cancellation::default(),
+        None,
+        |event| events.push(event),
+    );
+    let _ = release_broker.send(());
+    broker.join().unwrap();
+    assert_eq!(result.unwrap().events, 1);
+    assert_eq!(events[0].kind, "connected");
+    assert_eq!(events[1].kind, "message");
+    assert_eq!(events[1].data["base64"], "ZWNobw==");
+}
+
 #[test]
 fn v3_shorthand_auth_variables_and_graphql_directories_roundtrip() {
     let directory = tempfile::tempdir().unwrap();
