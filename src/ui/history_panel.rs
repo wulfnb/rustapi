@@ -55,7 +55,8 @@ pub fn render_history_panel(
                     for entry in &history.entries {
                         ui.horizontal(|ui| {
                             // Method badge
-                            let method_color = entry.request.method.color();
+                            let method_color =
+                                super::theme::readable(ui.ctx(), entry.request.method.color());
                             ui.label(
                                 egui::RichText::new(entry.request.method.as_str())
                                     .color(method_color)
@@ -65,7 +66,8 @@ pub fn render_history_panel(
 
                             // Status badge
                             if let Some(ref resp) = entry.response {
-                                let status_color = resp.status_color();
+                                let status_color =
+                                    super::theme::readable(ui.ctx(), resp.status_color());
                                 ui.label(
                                     egui::RichText::new(format!("{}", resp.status))
                                         .color(status_color)
@@ -74,7 +76,7 @@ pub fn render_history_panel(
                             } else {
                                 ui.label(
                                     egui::RichText::new("ERR")
-                                        .color(egui::Color32::RED)
+                                        .color(ui.visuals().error_fg_color)
                                         .size(10.0),
                                 );
                             }

@@ -93,7 +93,7 @@ pub fn render_variable_inspector(
                         ui.monospace(if masked { "[masked]" } else { &resolved });
                     }
                     Err(error) => {
-                        ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());
+                        ui.colored_label(ui.visuals().error_fg_color, error.to_string());
                     }
                 }
                 ui.end_row();

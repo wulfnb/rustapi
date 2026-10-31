@@ -19,7 +19,7 @@ pub fn render_examples(
                 }
             }
         }
-        if let Some(error) = ui.data(|data| data.get_temp::<String>(ui.id().with("example_error"))) { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+        if let Some(error) = ui.data(|data| data.get_temp::<String>(ui.id().with("example_error"))) { ui.colored_label(ui.visuals().error_fg_color, error); }
         let mut removed = None; let mut copy = None;
         for (index, example) in request.examples.iter_mut().enumerate() {
             egui::CollapsingHeader::new(&example.name).id_salt(&example.id).show(ui, |ui| {

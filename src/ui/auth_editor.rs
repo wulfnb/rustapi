@@ -70,7 +70,7 @@ pub fn render_auth_editor(ui: &mut Ui, auth: &mut AuthConfig) {
         }
         AuthType::Unsupported => {
             ui.colored_label(
-                egui::Color32::LIGHT_RED,
+                ui.visuals().error_fg_color,
                 "Choose a supported authentication type before sending.",
             );
         }

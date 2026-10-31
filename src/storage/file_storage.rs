@@ -13,6 +13,18 @@ pub struct AppState {
     pub active_environment_id: Option<String>,
     pub recent_files: Vec<String>,
     pub window_size: Option<(f32, f32)>,
+    #[serde(default)]
+    pub theme: ThemeChoice,
+}
+
+/// Colour scheme the user picked in View → Theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeChoice {
+    System,
+    #[default]
+    Dark,
+    Light,
 }
 
 /// Get the application data directory

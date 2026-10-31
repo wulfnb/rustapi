@@ -14,7 +14,7 @@ pub fn render_bulk_rows(ui: &mut egui::Ui, rows: &mut Vec<KeyValue>) {
             if ui.button("Apply bulk rows").clicked() {match storage::parse_bulk_rows(&draft.text){Ok(value)=>{*rows=value;draft.error.clear();},Err(error)=>draft.error=error.to_string()}}
             if ui.button("Reload rows into bulk editor").clicked() {draft.text=serde_json::to_string_pretty(rows).unwrap_or_default();draft.error.clear();}
         });
-        if !draft.error.is_empty(){ui.colored_label(egui::Color32::LIGHT_RED,&draft.error);}
+        if !draft.error.is_empty(){ui.colored_label(ui.visuals().error_fg_color,&draft.error);}
         ui.data_mut(|data|data.insert_temp(id,draft));
     });
 }
@@ -45,7 +45,7 @@ pub fn render_header_presets(ui: &mut egui::Ui, rows: &mut Vec<KeyValue>) {
         });});}
         if let Some(index)=remove {let mut next=editor.presets.clone();next.presets.remove(index);match next.save(&root){Ok(())=>editor.presets=next,Err(error)=>editor.error=error.to_string()}}
         if ui.button("Reload presets").clicked(){editor.loaded=false;}
-        if !editor.error.is_empty(){ui.colored_label(egui::Color32::LIGHT_RED,&editor.error);}
+        if !editor.error.is_empty(){ui.colored_label(ui.visuals().error_fg_color,&editor.error);}
         ui.small("Presets stay in .local/. Credential fields require variable references. Append preserves duplicates; singleton conflicts are rejected when sending.");
         ui.data_mut(|data|data.insert_temp(id,editor));
     });

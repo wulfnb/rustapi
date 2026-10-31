@@ -166,6 +166,7 @@ pub struct RustApiApp {
     show_overrides: bool,
     override_key: String,
     override_value: String,
+    pub theme: storage::ThemeChoice,
 }
 impl Default for RustApiApp {
     fn default() -> Self {
@@ -190,7 +191,7 @@ impl Default for RustApiApp {
                             storage::load_environment(&p).map(|_| ())
                         };
                         if let Err(e) = result {
-                            errors.push(e.to_string());
+                            errors.push(format!("{e:#}"));
                         }
                     }
                 }
@@ -209,6 +210,7 @@ impl Default for RustApiApp {
             collections,
             environments,
             active_environment_id: state.active_environment_id,
+            theme: state.theme,
             tab_manager,
             service: Arc::new(HttpService::default()),
             sender,
@@ -332,6 +334,14 @@ impl RustApiApp {
             true
         } else {
             false
+        }
+    }
+    fn app_state(&self) -> AppState {
+        AppState {
+            active_environment_id: self.active_environment_id.clone(),
+            recent_files: vec![],
+            window_size: None,
+            theme: self.theme,
         }
     }
     fn environment(&self) -> Option<&Environment> {
@@ -983,12 +993,7 @@ impl eframe::App for RustApiApp {
     }
     fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         self.persist_drafts();
-        let state = AppState {
-            active_environment_id: self.active_environment_id.clone(),
-            recent_files: vec![],
-            window_size: None,
-        };
-        let result = storage::save_app_state(&state);
+        let result = storage::save_app_state(&self.app_state());
         if let Err(e) = result {
             eprintln!("Could not save app state: {e}");
         }
@@ -1018,6 +1023,10 @@ impl RustApiApp {
         if ctx.input_mut(|i| i.consume_shortcut(&open)) {
             self.choose_import();
         }
+        let send = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Enter);
+        if ctx.input_mut(|i| i.consume_shortcut(&send)) {
+            self.send_request();
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&export)) {
             if let Some(id) = self
                 .tab_manager
@@ -1030,7 +1039,12 @@ impl RustApiApp {
         }
 
         self.process_messages();
-        apply_dark_theme(ctx);
+        // The theme only needs installing once per context, not every frame.
+        let themed = egui::Id::new("rustapi_theme_applied");
+        if !ctx.data(|d| d.get_temp::<bool>(themed).unwrap_or(false)) {
+            apply_theme(ctx, self.theme);
+            ctx.data_mut(|d| d.insert_temp(themed, true));
+        }
         if ctx.input(|i| i.viewport().close_requested())
             && !self.allow_exit
             && self.tab_manager.tabs.iter().any(|t| t.is_modified)
@@ -1045,134 +1059,249 @@ impl RustApiApp {
         if self.last_draft.elapsed() > Duration::from_secs(2) {
             self.persist_drafts();
         }
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.heading("RustAPI");
-                if ui.button("Open / create workspace").clicked() {
-                    if let Some(p) = rfd::FileDialog::new().pick_folder() {
-                        self.open_workspace(&p);
-                    }
-                }
-                egui::ComboBox::from_id_salt("env")
-                    .selected_text(
-                        self.environment()
-                            .map(|e| e.name.as_str())
-                            .unwrap_or("No environment"),
-                    )
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.active_environment_id,
-                            None,
-                            "No environment",
-                        );
-                        for e in &self.environments {
-                            ui.selectable_value(
-                                &mut self.active_environment_id,
-                                Some(e.id.clone()),
-                                &e.name,
-                            );
-                        }
-                    });
-                if ui.button("Environments").clicked() {
-                    self.show_environments = true;
-                }
-                if ui.button("Import").clicked() {
-                    self.show_import = true;
-                }
-                if ui.button("Runner").clicked() {
-                    self.show_runner = true;
-                    if self.run_collection.is_none() {
-                        self.run_collection = self.collections.first().map(|c| c.id.clone());
-                    }
-                }
-                if ui.button("Vault").clicked() {
-                    self.show_vault = true;
-                }
-                if ui.button("Debug console").clicked() {
-                    self.show_debug = true;
-                }
-                if ui.button("Inspect variables").clicked() {
-                    self.show_inspector = true;
-                    self.reveal_inspector = false;
-                }
-                if ui.button("Globals").clicked() {
-                    self.show_globals = true;
-                }
-                if ui.button("Local overrides").clicked() {
-                    self.show_overrides = true;
-                }
-                if ui.button("Cookies").clicked() {
-                    self.show_cookies = true;
-                }
-                if ui.button("Documents").clicked() {
-                    self.documents.open = true;
-                }
-                if ui.button("API tools").clicked() {
-                    self.api_tools.open = true;
-                }
-                if ui.button("Protocols").clicked() {
-                    self.protocol_console.open = true;
-                }
-                if ui.button("Visual flows").clicked() {
-                    self.flow_editor.open = true;
-                }
-                if ui.button("Self-hosted tools").clicked() {
-                    self.platform_tools.open = true;
-                }
-                if ui.button("History").clicked() {
-                    self.show_history = true;
-                }
-            });
-            ui.small(format!(
-                "Local workspace: {}",
-                storage::get_app_data_dir().display()
-            ));
-            if let Some(error) = self.error.clone() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
-                    if ui.button("Dismiss").clicked() {
-                        self.error = None;
-                    }
-                });
-            }
-            if !self.notice.is_empty() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(&self.notice);
-                    if ui.button("Dismiss notice").clicked() {
-                        self.notice.clear();
-                    }
-                });
-            }
-        });
-        let mut action = None;
-        egui::SidePanel::left("collections")
-            .default_width(260.)
-            .resizable(true)
+        let t = crate::ui::theme::tokens(ctx);
+        egui::TopBottomPanel::top("top")
+            .frame(
+                egui::Frame::none()
+                    .fill(t.surface_container_low)
+                    .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                    .stroke(egui::Stroke::new(1.0_f32, t.outline_variant)),
+            )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading("Collections");
-                    if ui.button("+").clicked() {
-                        self.show_new_collection = true;
+                    ui.label(
+                        egui::RichText::new("⚡ RustAPI")
+                            .color(t.primary)
+                            .size(17.0)
+                            .strong(),
+                    );
+                    let workspace = storage::get_app_data_dir();
+                    let workspace_name = workspace
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| workspace.display().to_string());
+                    ui.menu_button(format!("{workspace_name} ⏷"), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Local workspace: {}",
+                                workspace.display()
+                            ))
+                            .small()
+                            .color(t.on_surface_variant),
+                        );
+                        ui.separator();
+                        if ui.button("Open / create workspace").clicked() {
+                            ui.close_menu();
+                            if let Some(p) = rfd::FileDialog::new().pick_folder() {
+                                self.open_workspace(&p);
+                            }
+                        }
+                        if ui.button("Show in file manager").clicked() {
+                            ui.close_menu();
+                            reveal_in_file_manager(&workspace);
+                        }
+                    })
+                    .response
+                    .on_hover_text(workspace.display().to_string());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.menu_button("View ⏷", |ui| {
+                            if ui.button("History").clicked() {
+                                self.show_history = true;
+                                ui.close_menu();
+                            }
+                            if ui.button("Debug console").clicked() {
+                                self.show_debug = true;
+                                ui.close_menu();
+                            }
+                            if ui.button("Inspect variables").clicked() {
+                                self.show_inspector = true;
+                                self.reveal_inspector = false;
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            ui.label(
+                                egui::RichText::new("Theme")
+                                    .small()
+                                    .color(t.on_surface_variant),
+                            );
+                            for (choice, label) in [
+                                (storage::ThemeChoice::System, "Follow system"),
+                                (storage::ThemeChoice::Dark, "Dark"),
+                                (storage::ThemeChoice::Light, "Light"),
+                            ] {
+                                if ui.radio(self.theme == choice, label).clicked() {
+                                    self.theme = choice;
+                                    ui.ctx().set_theme(crate::ui::theme::preference(choice));
+                                    let result = storage::save_app_state(&self.app_state());
+                                    self.result(result);
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+                        ui.menu_button("Tools ⏷", |ui| {
+                            for (label, open) in [
+                                ("Vault", &mut self.show_vault),
+                                ("Globals", &mut self.show_globals),
+                                ("Local overrides", &mut self.show_overrides),
+                                ("Cookies", &mut self.show_cookies),
+                                ("Documents", &mut self.documents.open),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    *open = true;
+                                    ui.close_menu();
+                                }
+                            }
+                            ui.separator();
+                            for (label, open) in [
+                                ("API tools", &mut self.api_tools.open),
+                                ("Protocols", &mut self.protocol_console.open),
+                                ("Visual flows", &mut self.flow_editor.open),
+                                ("Self-hosted tools", &mut self.platform_tools.open),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    *open = true;
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+                        if ui.button("Runner").clicked() {
+                            self.show_runner = true;
+                            if self.run_collection.is_none() {
+                                self.run_collection =
+                                    self.collections.first().map(|c| c.id.clone());
+                            }
+                        }
+                        if ui.button("Import").clicked() {
+                            self.show_import = true;
+                        }
+                        ui.separator();
+                        if ui.button("Environments").clicked() {
+                            self.show_environments = true;
+                        }
+                        egui::ComboBox::from_id_salt("env")
+                            .width(160.0)
+                            .selected_text(
+                                self.environment()
+                                    .map(|e| e.name.as_str())
+                                    .unwrap_or("No environment"),
+                            )
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.active_environment_id,
+                                    None,
+                                    "No environment",
+                                );
+                                for e in &self.environments {
+                                    ui.selectable_value(
+                                        &mut self.active_environment_id,
+                                        Some(e.id.clone()),
+                                        &e.name,
+                                    );
+                                }
+                            });
+                    });
+                });
+                if let Some(error) = self.error.clone() {
+                    ui.add_space(6.0);
+                    let file = quoted_path(&error);
+                    crate::ui::widgets::banner(
+                        ui,
+                        crate::ui::widgets::BannerKind::Error,
+                        &error,
+                        |ui| {
+                            if ui.button("Dismiss").clicked() {
+                                self.error = None;
+                            }
+                            if let Some(file) = &file {
+                                if ui.button("Show file").clicked() {
+                                    reveal_in_file_manager(file);
+                                }
+                            }
+                        },
+                    );
+                }
+                if !self.notice.is_empty() {
+                    ui.add_space(6.0);
+                    let notice = self.notice.clone();
+                    crate::ui::widgets::banner(
+                        ui,
+                        crate::ui::widgets::BannerKind::Info,
+                        &notice,
+                        |ui| {
+                            if ui.button("Dismiss notice").clicked() {
+                                self.notice.clear();
+                            }
+                        },
+                    );
+                }
+            });
+        let mut action = None;
+        // The sidebar highlights the saved request behind the active tab.
+        let active_request = self
+            .tab_manager
+            .active_tab()
+            .filter(|t| t.collection_id.is_some())
+            .map(|t| t.request.id.clone());
+        egui::SidePanel::left("collections")
+            .default_width(280.)
+            .resizable(true)
+            .frame(
+                egui::Frame::none()
+                    .fill(t.surface_container_low)
+                    .inner_margin(egui::Margin::symmetric(8.0, 10.0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("COLLECTIONS")
+                            .small()
+                            .strong()
+                            .color(t.on_surface_variant),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("+").on_hover_text("New collection").clicked() {
+                            self.show_new_collection = true;
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    let clear = !self.search.is_empty();
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.search)
+                            .hint_text("🔍 Search requests")
+                            .desired_width(ui.available_width() - if clear { 30.0 } else { 0.0 }),
+                    );
+                    if clear && ui.small_button("✕").on_hover_text("Clear search").clicked() {
+                        self.search.clear();
                     }
                 });
-                ui.text_edit_singleline(&mut self.search);
+                ui.add_space(4.0);
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    if self.collections.is_empty() {
+                        crate::ui::widgets::empty_state(
+                            ui,
+                            "No collections yet",
+                            "Create one with + or use Import",
+                        );
+                    }
                     for c in &self.collections {
-                        let response = egui::CollapsingHeader::new(&c.name)
-                            .id_salt(&c.id)
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                render_tree(
-                                    ui,
-                                    &c.id,
-                                    None,
-                                    &c.requests,
-                                    &c.folders,
-                                    &c.order,
-                                    &self.search,
-                                    &mut action,
-                                );
-                            });
+                        let response =
+                            egui::CollapsingHeader::new(egui::RichText::new(&c.name).strong())
+                                .id_salt(&c.id)
+                                .default_open(true)
+                                .show(ui, |ui| {
+                                    render_tree(
+                                        ui,
+                                        &c.id,
+                                        None,
+                                        &c.requests,
+                                        &c.folders,
+                                        &c.order,
+                                        &self.search,
+                                        active_request.as_deref(),
+                                        &mut action,
+                                    );
+                                });
                         response.header_response.context_menu(|ui| {
                             for (label, a) in [
                                 ("Add request", Action::Add(c.id.clone(), None)),
@@ -1216,18 +1345,42 @@ impl RustApiApp {
                     ui.horizontal(|ui| {
                         for (i, t) in self.tab_manager.tabs.iter().enumerate() {
                             ui.push_id(&t.id, |ui| {
-                                if ui
-                                    .selectable_label(
-                                        self.tab_manager.active_tab_idx == Some(i),
-                                        t.title(),
-                                    )
-                                    .clicked()
-                                {
-                                    self.tab_manager.active_tab_idx = Some(i);
-                                }
-                                if ui.small_button("×").clicked() {
-                                    close = Some(t.id.clone());
-                                }
+                                let active = self.tab_manager.active_tab_idx == Some(i);
+                                let theme = crate::ui::theme::tokens(ui.ctx());
+                                egui::Frame::none()
+                                    .fill(if active {
+                                        theme.surface_container_high
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    })
+                                    .rounding(crate::ui::theme::RADIUS_MD)
+                                    .inner_margin(egui::Margin::symmetric(6.0, 0.0))
+                                    .show(ui, |ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        ui.label(
+                                            egui::RichText::new(method_tag(&t.request.method))
+                                                .monospace()
+                                                .size(10.5)
+                                                .color(crate::ui::theme::readable(
+                                                    ui.ctx(),
+                                                    t.request.method.color(),
+                                                )),
+                                        );
+                                        let title = ui.selectable_label(active, t.title());
+                                        if title.clicked() {
+                                            self.tab_manager.active_tab_idx = Some(i);
+                                        }
+                                        if title.middle_clicked() {
+                                            close = Some(t.id.clone());
+                                        }
+                                        if ui
+                                            .add(egui::Button::new("×").frame(false).small())
+                                            .on_hover_text("Close tab")
+                                            .clicked()
+                                        {
+                                            close = Some(t.id.clone());
+                                        }
+                                    });
                             });
                         }
                         if ui.button("+ New Request").clicked() {
@@ -1248,9 +1401,17 @@ impl RustApiApp {
             let mut example_source = None;
             if let Some(tab) = self.tab_manager.active_tab_mut() {
                 let before = serde_json::to_vec(&tab.request).unwrap_or_default();
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.label("Name");
-                    ui.text_edit_singleline(&mut tab.request.name);
+                    ui.add_space(12.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut tab.request.name)
+                            .hint_text("Untitled request")
+                            .font(egui::TextStyle::Heading)
+                            .frame(false)
+                            .desired_width(ui.available_width() - 160.0),
+                    )
+                    .on_hover_text("Rename request");
                     if tab.pending.is_some() && ui.button("Cancel request").clicked() {
                         if let Some((_, cancel)) = &tab.pending {
                             cancel.cancel();
@@ -1258,10 +1419,14 @@ impl RustApiApp {
                     }
                 });
                 if !tab.request.settings.verify_tls {
-                    ui.colored_label(
-                        egui::Color32::YELLOW,
-                        "TLS certificate verification is disabled for this request",
-                    );
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        crate::ui::widgets::chip(
+                            ui,
+                            "⚠ TLS certificate verification is disabled for this request",
+                            crate::ui::theme::tokens(ui.ctx()).warning,
+                        );
+                    });
                 }
                 render_url_bar(
                     ui,
@@ -1336,6 +1501,7 @@ fn render_tree(
     folders: &[Folder],
     order: &[String],
     search: &str,
+    active: Option<&str>,
     action: &mut Option<Action>,
 ) {
     for id in child_order(requests, folders, order) {
@@ -1347,15 +1513,31 @@ fn render_tree(
             {
                 continue;
             }
-            let response = ui.selectable_label(false, format!("{}  {}", r.method.as_str(), r.name));
+            let response = crate::ui::widgets::list_item(
+                ui,
+                active == Some(r.id.as_str()),
+                Some((
+                    &method_tag(&r.method),
+                    crate::ui::theme::readable(ui.ctx(), r.method.color()),
+                )),
+                &r.name,
+                &format!("{}  {}", r.method.as_str(), r.name),
+            )
+            .on_hover_text(&r.url);
             if response.clicked() {
                 *action = Some(Action::Open(cid.into(), Box::new(r.clone())));
             }
             for example in &r.examples {
                 ui.indent(&example.id, |ui| {
-                    if ui
-                        .selectable_label(false, format!("Example: {}", example.name))
-                        .clicked()
+                    let label = format!("Example: {}", example.name);
+                    if crate::ui::widgets::list_item(
+                        ui,
+                        false,
+                        Some(("EX", crate::ui::theme::tokens(ui.ctx()).on_surface_variant)),
+                        &example.name,
+                        &label,
+                    )
+                    .clicked()
                     {
                         *action = Some(Action::TryExample(
                             Box::new(example.clone()),
@@ -1404,6 +1586,7 @@ fn render_tree(
                         &f.folders,
                         &f.order,
                         search,
+                        active,
                         action,
                     );
                 });
@@ -1442,6 +1625,50 @@ fn render_tree(
         }
     }
 }
+/// Short, fixed-width tag for an HTTP method in lists and tabs.
+fn method_tag(method: &rustapi::models::HttpMethod) -> String {
+    use rustapi::models::HttpMethod;
+    match method {
+        HttpMethod::DELETE => "DEL".into(),
+        HttpMethod::OPTIONS => "OPT".into(),
+        HttpMethod::Custom(name) => name.chars().take(5).collect(),
+        other => other.as_str().into(),
+    }
+}
+
+/// The first existing file path quoted in an error such as
+/// `Failed to parse collection file: "/path/Test.json": expected value`.
+fn quoted_path(error: &str) -> Option<std::path::PathBuf> {
+    error
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(std::path::PathBuf::from)
+        .find(|p| p.is_absolute() && p.exists())
+}
+
+/// Reveal `path` in the platform file manager (selecting it where supported).
+fn reveal_in_file_manager(path: &std::path::Path) {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut c = std::process::Command::new("open");
+        c.arg("-R").arg(path);
+        c
+    } else if cfg!(windows) {
+        let mut c = std::process::Command::new("explorer");
+        c.arg(format!("/select,{}", path.display()));
+        c
+    } else {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        });
+        c
+    };
+    let _ = command.spawn();
+}
+
 fn merge_changes(
     before: &BTreeMap<String, String>,
     after: &BTreeMap<String, String>,
@@ -1701,54 +1928,68 @@ impl RustApiApp {
             if let Some(mut c) = self.edit_draft.clone() {
                 egui::Window::new("Collection / folder settings")
                     .default_width(600.)
-                    .vscroll(true)
+                    .default_height(560.)
                     .show(ctx, |ui| {
-                        let (name, description, vars, auth, pre, post) = if let Some(id) = &folder {
-                            if let Some(f) = c.folder_mut(id) {
-                                (
-                                    &mut f.name,
-                                    &mut f.description,
-                                    &mut f.variables,
-                                    &mut f.auth,
-                                    &mut f.pre_script,
-                                    &mut f.post_script,
-                                )
-                            } else {
-                                return;
-                            }
-                        } else {
-                            (
-                                &mut c.name,
-                                &mut c.description,
-                                &mut c.variables,
-                                &mut c.auth,
-                                &mut c.pre_script,
-                                &mut c.post_script,
-                            )
-                        };
-                        ui.label("Name");
-                        ui.text_edit_singleline(name);
-                        ui.label("Description");
-                        ui.add(
-                            egui::TextEdit::multiline(description)
-                                .desired_rows(4)
-                                .desired_width(f32::INFINITY),
+                        crate::ui::widgets::dialog_footer("collection_settings").show_inside(
+                            ui,
+                            |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("Save").clicked()
+                                        && self.commit_collection(c.clone())
+                                    {
+                                        self.edit = None;
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        self.edit = None;
+                                    }
+                                });
+                            },
                         );
-                        ui.separator();
-                        ui.label("Variables");
-                        edit_variables(ui, vars);
-                        ui.separator();
-                        render_auth_editor(ui, auth);
-                        ui.label("Pre-request script");
-                        ui.add(egui::TextEdit::multiline(pre).code_editor());
-                        ui.label("Post-response script");
-                        ui.add(egui::TextEdit::multiline(post).code_editor());
-                        if ui.button("Save").clicked() && self.commit_collection(c.clone()) {
-                            self.edit = None;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.edit = None;
-                        }
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                let (name, description, vars, auth, pre, post) =
+                                    if let Some(id) = &folder {
+                                        if let Some(f) = c.folder_mut(id) {
+                                            (
+                                                &mut f.name,
+                                                &mut f.description,
+                                                &mut f.variables,
+                                                &mut f.auth,
+                                                &mut f.pre_script,
+                                                &mut f.post_script,
+                                            )
+                                        } else {
+                                            return;
+                                        }
+                                    } else {
+                                        (
+                                            &mut c.name,
+                                            &mut c.description,
+                                            &mut c.variables,
+                                            &mut c.auth,
+                                            &mut c.pre_script,
+                                            &mut c.post_script,
+                                        )
+                                    };
+                                ui.label("Name");
+                                ui.text_edit_singleline(name);
+                                ui.label("Description");
+                                ui.add(
+                                    egui::TextEdit::multiline(description)
+                                        .desired_rows(4)
+                                        .desired_width(f32::INFINITY),
+                                );
+                                ui.separator();
+                                ui.label("Variables");
+                                edit_variables(ui, vars);
+                                ui.separator();
+                                render_auth_editor(ui, auth);
+                                ui.label("Pre-request script");
+                                ui.add(egui::TextEdit::multiline(pre).code_editor());
+                                ui.label("Post-response script");
+                                ui.add(egui::TextEdit::multiline(post).code_editor());
+                            });
                         // Keep edits staged without writing until Save.
                         if self.edit.is_some() {
                             self.collection_editor_cache(&c);
@@ -1834,7 +2075,7 @@ impl RustApiApp {
                         Ok(headers)=>{for (key,value) in headers {
                             // Default masking covers every header value, including custom credential names.
                             ui.horizontal(|ui|{ui.monospace(key);ui.monospace(if self.reveal_inspector{&value}else{"[masked]"});});
-                        }},Err(error)=>{ui.colored_label(egui::Color32::LIGHT_RED,error.to_string());}
+                        }},Err(error)=>{ui.colored_label(ui.visuals().error_fg_color,error.to_string());}
                     }
                     ui.small("Active scopes only. Narrower scopes override broader ones. Header view covers configured/auth/body fields; cookies, Host and Content-Length are transport managed. Multipart boundaries are generated when sending.");
                 } else {ui.label("Open a request to inspect its active context.");}
@@ -1844,218 +2085,234 @@ impl RustApiApp {
         if self.show_globals {
             egui::Window::new("Global variables (.local/globals.json)")
                 .default_size([600., 400.])
-                .vscroll(true)
                 .show(ctx, |ui| {
-                    ui.small("Global variables have the lowest scope precedence (global < collection < env < overrides < iteration < local < vault). They persist across app launches and are stored in .local/.");
-                    let mut remove_key = None;
-                    for (k, v) in &mut self.global_variables.variables {
-                        ui.horizontal(|ui| {
-                            ui.monospace(k);
-                            ui.text_edit_singleline(v);
-                            if ui.small_button("🗑").clicked() {
-                                remove_key = Some(k.clone());
+                    crate::ui::widgets::dialog_footer("globals").show_inside(ui, |ui| {
+                            if ui.button("Save & Close").clicked() {
+                                let _ = self.global_variables.save(&storage::get_app_data_dir());
+                                self.show_globals = false;
                             }
-                        });
-                    }
-                    if let Some(k) = remove_key {
-                        self.global_variables.variables.remove(&k);
-                        let _ = self.global_variables.save(&storage::get_app_data_dir());
-                    }
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut self.global_key).on_hover_text("New variable name");
-                        ui.text_edit_singleline(&mut self.global_value).on_hover_text("Value");
-                        if ui.button("Add global variable").clicked() && !self.global_key.trim().is_empty() {
-                            self.global_variables.variables.insert(self.global_key.trim().to_string(), self.global_value.clone());
-                            self.global_key.clear();
-                            self.global_value.clear();
-                            let _ = self.global_variables.save(&storage::get_app_data_dir());
-                        }
                     });
-                    if ui.button("Save & Close").clicked() {
-                        let _ = self.global_variables.save(&storage::get_app_data_dir());
-                        self.show_globals = false;
-                    }
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.small("Global variables have the lowest scope precedence (global < collection < env < overrides < iteration < local < vault). They persist across app launches and are stored in .local/.");
+                            let mut remove_key = None;
+                            for (k, v) in &mut self.global_variables.variables {
+                                ui.horizontal(|ui| {
+                                    ui.monospace(k);
+                                    ui.text_edit_singleline(v);
+                                    if ui.small_button("🗑").clicked() {
+                                        remove_key = Some(k.clone());
+                                    }
+                                });
+                            }
+                            if let Some(k) = remove_key {
+                                self.global_variables.variables.remove(&k);
+                                let _ = self.global_variables.save(&storage::get_app_data_dir());
+                            }
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.text_edit_singleline(&mut self.global_key).on_hover_text("New variable name");
+                                ui.text_edit_singleline(&mut self.global_value).on_hover_text("Value");
+                                if ui.button("Add global variable").clicked() && !self.global_key.trim().is_empty() {
+                                    self.global_variables.variables.insert(self.global_key.trim().to_string(), self.global_value.clone());
+                                    self.global_key.clear();
+                                    self.global_value.clear();
+                                    let _ = self.global_variables.save(&storage::get_app_data_dir());
+                                }
+                            });
+                        });
                 });
         }
         if self.show_overrides {
             egui::Window::new("Local environment overrides (.local/environment-overrides.json)")
                 .default_size([700., 450.])
-                .vscroll(true)
                 .show(ctx, |ui| {
-                    let active_env = self.environment().map(|e| (e.id.clone(), e.name.clone()));
-                    if let Some((env_id, env_name)) = active_env {
-                        ui.strong(format!("Active environment: {}", env_name));
-                        ui.small("Local overrides take precedence over the tracked environment file, but are kept in .local/ and never committed or exported.");
-                        let mut env_map = self.environment_overrides.get_overrides(&env_id, &env_name);
-                        let mut changed = false;
-                        let mut remove_key = None;
-                        for (k, v) in &mut env_map {
-                            ui.horizontal(|ui| {
-                                ui.monospace(k);
-                                ui.text_edit_singleline(v);
-                                if ui.small_button("🗑").clicked() {
-                                    remove_key = Some(k.clone());
+                    crate::ui::widgets::dialog_footer("overrides").show_inside(ui, |ui| {
+                            if ui.button("Close").clicked() {
+                                let _ = self.environment_overrides.save(&storage::get_app_data_dir());
+                                self.show_overrides = false;
+                            }
+                    });
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            let active_env = self.environment().map(|e| (e.id.clone(), e.name.clone()));
+                            if let Some((env_id, env_name)) = active_env {
+                                ui.strong(format!("Active environment: {}", env_name));
+                                ui.small("Local overrides take precedence over the tracked environment file, but are kept in .local/ and never committed or exported.");
+                                let mut env_map = self.environment_overrides.get_overrides(&env_id, &env_name);
+                                let mut changed = false;
+                                let mut remove_key = None;
+                                for (k, v) in &mut env_map {
+                                    ui.horizontal(|ui| {
+                                        ui.monospace(k);
+                                        ui.text_edit_singleline(v);
+                                        if ui.small_button("🗑").clicked() {
+                                            remove_key = Some(k.clone());
+                                        }
+                                    });
                                 }
-                            });
-                        }
-                        if let Some(k) = remove_key {
-                            env_map.remove(&k);
-                            changed = true;
-                        }
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            ui.text_edit_singleline(&mut self.override_key).on_hover_text("Variable name");
-                            ui.text_edit_singleline(&mut self.override_value).on_hover_text("Local override value");
-                            if ui.button("Add override").clicked() && !self.override_key.trim().is_empty() {
-                                env_map.insert(self.override_key.trim().to_string(), self.override_value.clone());
-                                self.override_key.clear();
-                                self.override_value.clear();
-                                changed = true;
+                                if let Some(k) = remove_key {
+                                    env_map.remove(&k);
+                                    changed = true;
+                                }
+                                ui.separator();
+                                ui.horizontal(|ui| {
+                                    ui.text_edit_singleline(&mut self.override_key).on_hover_text("Variable name");
+                                    ui.text_edit_singleline(&mut self.override_value).on_hover_text("Local override value");
+                                    if ui.button("Add override").clicked() && !self.override_key.trim().is_empty() {
+                                        env_map.insert(self.override_key.trim().to_string(), self.override_value.clone());
+                                        self.override_key.clear();
+                                        self.override_value.clear();
+                                        changed = true;
+                                    }
+                                });
+                                if changed {
+                                    self.environment_overrides.overrides.insert(env_id, env_map);
+                                    let _ = self.environment_overrides.save(&storage::get_app_data_dir());
+                                }
+                            } else {
+                                ui.label("Select an active environment to manage its local overrides.");
                             }
                         });
-                        if changed {
-                            self.environment_overrides.overrides.insert(env_id, env_map);
-                            let _ = self.environment_overrides.save(&storage::get_app_data_dir());
-                        }
-                    } else {
-                        ui.label("Select an active environment to manage its local overrides.");
-                    }
-                    if ui.button("Close").clicked() {
-                        let _ = self.environment_overrides.save(&storage::get_app_data_dir());
-                        self.show_overrides = false;
-                    }
                 });
         }
         if self.show_cookies {
             egui::Window::new("Workspace cookies")
                 .default_width(600.)
-                .vscroll(true)
+                .default_height(520.)
                 .show(ctx, |ui| {
-                    ui.label(if self.service.cookies.persistent() {
-                        "Encrypted persistent jar (unlocked)"
-                    } else {
-                        "Session jar"
+                    crate::ui::widgets::dialog_footer("cookies").show_inside(ui, |ui| {
+                            if ui.button("Close").clicked() {
+                                self.show_cookies = false;
+                            }
                     });
-                    if let Some(error) = self.service.cookies.last_error() {
-                        ui.colored_label(egui::Color32::LIGHT_RED, error);
-                    }
-                    if !self.service.cookies.persistent()
-                        && ui.button("Keep jar in encrypted vault").clicked()
-                    {
-                        if self.vault_unlocked {
-                            self.result(self.service.cookies.unlock(
-                                &storage::get_app_data_dir().join(".local/cookies.json"),
-                                &self.vault_password,
-                            ));
-                        } else {
-                            self.error = Some("Unlock Local encrypted secrets first".into());
-                        }
-                    }
-                    for cookie in self.service.cookies.entries() {
-                        ui.push_id((&cookie.domain, &cookie.path, &cookie.name), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(format!(
-                                    "{} · {}{} · Secure={} HttpOnly={} SameSite={}",
-                                    cookie.name,
-                                    cookie.domain,
-                                    cookie.path,
-                                    cookie.secure,
-                                    cookie.http_only,
-                                    cookie.same_site
-                                ));
-                                if ui.small_button("Edit").clicked() {
-                                    self.cookie_url = format!(
-                                        "{}://{}{}",
-                                        if cookie.secure { "https" } else { "http" },
-                                        cookie.domain.trim_start_matches('.'),
-                                        cookie.path
-                                    );
-                                    self.cookie_value = format!(
-                                        "{}={}; Path={}{}{}{}{}",
-                                        cookie.name,
-                                        cookie.value,
-                                        cookie.path,
-                                        if cookie.host_only {
-                                            String::new()
-                                        } else {
-                                            format!("; Domain={}", cookie.domain)
-                                        },
-                                        if cookie.secure { "; Secure" } else { "" },
-                                        if cookie.http_only { "; HttpOnly" } else { "" },
-                                        if cookie.same_site.is_empty() {
-                                            String::new()
-                                        } else {
-                                            format!("; SameSite={}", cookie.same_site)
-                                        }
-                                    );
-                                    if let Some(expires) = cookie
-                                        .expiration_date
-                                        .and_then(|t| chrono::DateTime::from_timestamp(t as i64, 0))
-                                    {
-                                        self.cookie_value.push_str(&format!(
-                                            "; Expires={}",
-                                            expires.format("%a, %d %b %Y %H:%M:%S GMT")
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.label(if self.service.cookies.persistent() {
+                                "Encrypted persistent jar (unlocked)"
+                            } else {
+                                "Session jar"
+                            });
+                            if let Some(error) = self.service.cookies.last_error() {
+                                ui.colored_label(ui.visuals().error_fg_color, error);
+                            }
+                            if !self.service.cookies.persistent()
+                                && ui.button("Keep jar in encrypted vault").clicked()
+                            {
+                                if self.vault_unlocked {
+                                    self.result(self.service.cookies.unlock(
+                                        &storage::get_app_data_dir().join(".local/cookies.json"),
+                                        &self.vault_password,
+                                    ));
+                                } else {
+                                    self.error = Some("Unlock Local encrypted secrets first".into());
+                                }
+                            }
+                            for cookie in self.service.cookies.entries() {
+                                ui.push_id((&cookie.domain, &cookie.path, &cookie.name), |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!(
+                                            "{} · {}{} · Secure={} HttpOnly={} SameSite={}",
+                                            cookie.name,
+                                            cookie.domain,
+                                            cookie.path,
+                                            cookie.secure,
+                                            cookie.http_only,
+                                            cookie.same_site
                                         ));
+                                        if ui.small_button("Edit").clicked() {
+                                            self.cookie_url = format!(
+                                                "{}://{}{}",
+                                                if cookie.secure { "https" } else { "http" },
+                                                cookie.domain.trim_start_matches('.'),
+                                                cookie.path
+                                            );
+                                            self.cookie_value = format!(
+                                                "{}={}; Path={}{}{}{}{}",
+                                                cookie.name,
+                                                cookie.value,
+                                                cookie.path,
+                                                if cookie.host_only {
+                                                    String::new()
+                                                } else {
+                                                    format!("; Domain={}", cookie.domain)
+                                                },
+                                                if cookie.secure { "; Secure" } else { "" },
+                                                if cookie.http_only { "; HttpOnly" } else { "" },
+                                                if cookie.same_site.is_empty() {
+                                                    String::new()
+                                                } else {
+                                                    format!("; SameSite={}", cookie.same_site)
+                                                }
+                                            );
+                                            if let Some(expires) = cookie
+                                                .expiration_date
+                                                .and_then(|t| chrono::DateTime::from_timestamp(t as i64, 0))
+                                            {
+                                                self.cookie_value.push_str(&format!(
+                                                    "; Expires={}",
+                                                    expires.format("%a, %d %b %Y %H:%M:%S GMT")
+                                                ));
+                                            }
+                                        }
+                                        if ui.small_button("Delete").clicked() {
+                                            self.result(self.service.cookies.remove(
+                                                &cookie.domain,
+                                                &cookie.path,
+                                                &cookie.name,
+                                            ));
+                                        }
+                                    });
+                                });
+                            }
+                            if ui.button("Clear all cookies").clicked() {
+                                self.service.cookies.clear();
+                            }
+                            ui.label("Origin URL");
+                            ui.text_edit_singleline(&mut self.cookie_url);
+                            ui.label("Set-Cookie value (use Max-Age=0 to delete a cookie)");
+                            ui.add(egui::TextEdit::singleline(&mut self.cookie_value).password(true));
+                            if ui.button("Set cookie").clicked() {
+                                let result = self
+                                    .service
+                                    .cookies
+                                    .set(&self.cookie_url, &self.cookie_value);
+                                self.result(result);
+                            }
+                            ui.separator();
+                            ui.label("Browser capture / sync (manual merge; deletions are local)");
+                            ui.hyperlink_to(
+                                "Browser connector setup",
+                                "https://github.com/wulfnb/rustapi/tree/main/browser-connector",
+                            );
+                            if ui.button("Export browser connector").clicked() {
+                                if let Some(parent) = rfd::FileDialog::new().pick_folder() {
+                                    if let Some(path) = self.result(rustapi::http::export_connector(&parent)) {
+                                        ui.ctx().copy_text(path.display().to_string());
                                     }
                                 }
-                                if ui.small_button("Delete").clicked() {
-                                    self.result(self.service.cookies.remove(
-                                        &cookie.domain,
-                                        &cookie.path,
-                                        &cookie.name,
-                                    ));
-                                }
-                            });
-                        });
-                    }
-                    if ui.button("Clear all cookies").clicked() {
-                        self.service.cookies.clear();
-                    }
-                    ui.label("Origin URL");
-                    ui.text_edit_singleline(&mut self.cookie_url);
-                    ui.label("Set-Cookie value (use Max-Age=0 to delete a cookie)");
-                    ui.add(egui::TextEdit::singleline(&mut self.cookie_value).password(true));
-                    if ui.button("Set cookie").clicked() {
-                        let result = self
-                            .service
-                            .cookies
-                            .set(&self.cookie_url, &self.cookie_value);
-                        self.result(result);
-                    }
-                    ui.separator();
-                    ui.label("Browser capture / sync (manual merge; deletions are local)");
-                    ui.hyperlink_to(
-                        "Browser connector setup",
-                        "https://github.com/wulfnb/rustapi/tree/main/browser-connector",
-                    );
-                    if ui.button("Export browser connector").clicked() {
-                        if let Some(parent) = rfd::FileDialog::new().pick_folder() {
-                            if let Some(path) = self.result(rustapi::http::export_connector(&parent)) {
-                                ui.ctx().copy_text(path.display().to_string());
                             }
-                        }
-                    }
-                    ui.small("Export creates an unpacked Chromium extension and copies its directory path.");
-                    if self.cookie_bridge.is_none()
-                        && ui.button("Enable browser connection").clicked()
-                    {
-                        self.cookie_bridge = self.result(rustapi::http::CookieBridge::start(
-                            self.service.cookies.clone(),
-                        ));
-                    }
-                    if let Some(bridge) = &self.cookie_bridge {
-                        ui.label(format!("Listening on {}", bridge.server.address));
-                        if ui.button("Copy private pairing URL").clicked() {
-                            ui.ctx().copy_text(bridge.pairing.clone());
-                        }
-                        if ui.button("Disable browser connection").clicked() {
-                            self.cookie_bridge = None;
-                        }
-                    }
-                    if ui.button("Close").clicked() {
-                        self.show_cookies = false;
-                    }
+                            ui.small("Export creates an unpacked Chromium extension and copies its directory path.");
+                            if self.cookie_bridge.is_none()
+                                && ui.button("Enable browser connection").clicked()
+                            {
+                                self.cookie_bridge = self.result(rustapi::http::CookieBridge::start(
+                                    self.service.cookies.clone(),
+                                ));
+                            }
+                            if let Some(bridge) = &self.cookie_bridge {
+                                ui.label(format!("Listening on {}", bridge.server.address));
+                                if ui.button("Copy private pairing URL").clicked() {
+                                    ui.ctx().copy_text(bridge.pairing.clone());
+                                }
+                                if ui.button("Disable browser connection").clicked() {
+                                    self.cookie_bridge = None;
+                                }
+                            }
+                        });
                 });
         }
         if self.show_history {
@@ -2208,71 +2465,76 @@ impl RustApiApp {
         }
         egui::Window::new("Environments")
             .default_width(620.)
-            .vscroll(true)
+            .default_height(560.)
             .show(ctx, |ui| {
-                if ui.button("New environment").clicked() {
-                    self.environments.push(Environment::new("New Environment"));
-                }
-                let mut save = None;
-                let mut delete = None;
-                let mut export_environment = None;
-                for (i, e) in self.environments.iter_mut().enumerate() {
-                    egui::CollapsingHeader::new(&e.name)
-                        .id_salt(&e.id)
-                        .show(ui, |ui| {
-                            ui.text_edit_singleline(&mut e.name);
-                            ui.label("Use {{vault:name}} for sensitive values");
-                            render_key_value_editor(ui, &mut e.variables);
-                            if ui.button("Save environment").clicked() {
-                                e.updated_at = chrono::Utc::now();
-                                save = Some(e.clone());
+                crate::ui::widgets::dialog_footer("environments").show_inside(ui, |ui| {
+                    if ui.button("Save all and close").clicked() {
+                        let mut good = true;
+                        for e in self.environments.clone() {
+                            if self.result(storage::save_environment(&e)).is_none() {
+                                good = false;
                             }
-                            if ui.button("Export environment (redacted)").clicked() {
-                                export_environment = Some(e.clone());
-                            }
-                            if ui.button("Delete environment").clicked() {
-                                delete = Some(i);
-                            }
-                        });
-                }
-                if let Some(e) = save {
-                    self.result(storage::save_environment(&e));
-                }
-                if let Some(environment) = export_environment {
-                    if let Some(path) = self.dialogs.export(&environment.name) {
-                        let result = rustapi::export::environment(&environment, false).and_then(
-                            |exported| {
-                                rustapi::workspace::atomic_write(
-                                    &path,
-                                    &serde_json::to_vec_pretty(&exported.document)?,
-                                )
-                            },
-                        );
-                        self.result(result);
-                    }
-                }
-                if let Some(i) = delete {
-                    if self
-                        .result(storage::delete_environment(&self.environments[i]))
-                        .is_some()
-                    {
-                        let e = self.environments.remove(i);
-                        if self.active_environment_id.as_ref() == Some(&e.id) {
-                            self.active_environment_id = None;
+                        }
+                        if good {
+                            self.show_environments = false;
                         }
                     }
-                }
-                if ui.button("Save all and close").clicked() {
-                    let mut good = true;
-                    for e in self.environments.clone() {
-                        if self.result(storage::save_environment(&e)).is_none() {
-                            good = false;
+                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if ui.button("New environment").clicked() {
+                            self.environments.push(Environment::new("New Environment"));
                         }
-                    }
-                    if good {
-                        self.show_environments = false;
-                    }
-                }
+                        let mut save = None;
+                        let mut delete = None;
+                        let mut export_environment = None;
+                        for (i, e) in self.environments.iter_mut().enumerate() {
+                            egui::CollapsingHeader::new(&e.name)
+                                .id_salt(&e.id)
+                                .show(ui, |ui| {
+                                    ui.text_edit_singleline(&mut e.name);
+                                    ui.label("Use {{vault:name}} for sensitive values");
+                                    render_key_value_editor(ui, &mut e.variables);
+                                    if ui.button("Save environment").clicked() {
+                                        e.updated_at = chrono::Utc::now();
+                                        save = Some(e.clone());
+                                    }
+                                    if ui.button("Export environment (redacted)").clicked() {
+                                        export_environment = Some(e.clone());
+                                    }
+                                    if ui.button("Delete environment").clicked() {
+                                        delete = Some(i);
+                                    }
+                                });
+                        }
+                        if let Some(e) = save {
+                            self.result(storage::save_environment(&e));
+                        }
+                        if let Some(environment) = export_environment {
+                            if let Some(path) = self.dialogs.export(&environment.name) {
+                                let result = rustapi::export::environment(&environment, false)
+                                    .and_then(|exported| {
+                                        rustapi::workspace::atomic_write(
+                                            &path,
+                                            &serde_json::to_vec_pretty(&exported.document)?,
+                                        )
+                                    });
+                                self.result(result);
+                            }
+                        }
+                        if let Some(i) = delete {
+                            if self
+                                .result(storage::delete_environment(&self.environments[i]))
+                                .is_some()
+                            {
+                                let e = self.environments.remove(i);
+                                if self.active_environment_id.as_ref() == Some(&e.id) {
+                                    self.active_environment_id = None;
+                                }
+                            }
+                        }
+                    });
             });
     }
     fn runner_window(&mut self, ctx: &egui::Context) {

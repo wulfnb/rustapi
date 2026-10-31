@@ -168,7 +168,7 @@ pub fn render_response_preview(ui: &mut egui::Ui, response: &ApiResponse) {
                     );
                 }
                 Err(error) => {
-                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                    ui.colored_label(ui.visuals().error_fg_color, error);
                 }
             }
         }

@@ -28,39 +28,24 @@ pub fn render_request_editor(
 ) {
     ui.push_id(request.id.clone(), |ui| {
     // Tabs
+    let enabled = |rows: &[KeyValue]| rows.iter().filter(|r| r.enabled && !r.key.is_empty()).count();
+    let counts = [
+        (RequestTab::Params, "Params", Some(enabled(&request.query_params))),
+        (RequestTab::Headers, "Headers", Some(enabled(&request.headers))),
+        (RequestTab::Body, "Body", None),
+        (RequestTab::Auth, "Auth", None),
+        (RequestTab::Tests, "Tests", Some(request.checks.len())),
+        (RequestTab::Scripts, "Scripts", None),
+        (RequestTab::Settings, "Settings", None),
+        (RequestTab::Description, "Description", None),
+    ];
     ui.horizontal(|ui| {
-        if ui
-            .selectable_label(*current_tab == RequestTab::Params, "Params")
-            .clicked()
-        {
-            *current_tab = RequestTab::Params;
-        }
-        if ui
-            .selectable_label(*current_tab == RequestTab::Headers, "Headers")
-            .clicked()
-        {
-            *current_tab = RequestTab::Headers;
-        }
-        if ui
-            .selectable_label(*current_tab == RequestTab::Body, "Body")
-            .clicked()
-        {
-            *current_tab = RequestTab::Body;
-        }
-        if ui
-            .selectable_label(*current_tab == RequestTab::Auth, "Auth")
-            .clicked()
-        {
-            *current_tab = RequestTab::Auth;
-        }
-
-        for (tab, label) in [
-            (RequestTab::Tests, "Tests"),
-            (RequestTab::Scripts, "Scripts"),
-            (RequestTab::Settings, "Settings"),
-            (RequestTab::Description, "Description"),
-        ] {
-            ui.selectable_value(current_tab, tab, label);
+        ui.spacing_mut().item_spacing.x = 2.0;
+        ui.add_space(8.0);
+        for (tab, label, count) in counts {
+            if super::widgets::tab(ui, *current_tab == tab, label, count).clicked() {
+                *current_tab = tab;
+            }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("💾 Save").clicked() {
@@ -104,7 +89,7 @@ pub fn render_request_editor(
                 ui.label("Operation name (required for multiple operations)");ui.text_edit_singleline(&mut graphql.operation_name);
                 ui.horizontal(|ui|{if ui.button("Format GraphQL").clicked(){if let Err(error)=graphql.format(){ui.label(error.to_string());}}
 if ui.button("Use introspection query").clicked(){graphql.query=rustapi::graphql::INTROSPECTION.into();graphql.operation_name="RustAPIIntrospection".into();graphql.variables="{}".into();}});
-                if let Err(error)=graphql.body(){ui.colored_label(egui::Color32::LIGHT_RED,error.to_string());}
+                if let Err(error)=graphql.body(){ui.colored_label(ui.visuals().error_fg_color,error.to_string());}
                 egui::CollapsingHeader::new("GraphQL schema / field catalog").show(ui,|ui|{
                     ui.small("Paste SDL or an introspection response, then inspect its type fields.");
                     let catalog_id=ui.id().with("graphql_catalog");
@@ -141,7 +126,7 @@ if ui.button("Use introspection query").clicked(){graphql.query=rustapi::graphql
             ui.horizontal(|ui|{ui.label("Timeout (ms)");ui.add(egui::DragValue::new(&mut s.timeout_ms).range(1..=3_600_000));});
             ui.checkbox(&mut s.follow_redirects,"Follow redirects");ui.checkbox(&mut s.verify_tls,"Verify TLS certificates");
             ui.checkbox(&mut s.use_cookies,"Use workspace cookie jar");
-            if !s.verify_tls{ui.colored_label(egui::Color32::YELLOW,"TLS verification disabled for this request");}
+            if !s.verify_tls{ui.colored_label(ui.visuals().warn_fg_color,"TLS verification disabled for this request");}
             ui.label("Proxy URL (empty uses system configuration)");ui.text_edit_singleline(&mut s.proxy);
             ui.label("Custom CA PEM file");ui.text_edit_singleline(&mut s.ca_file);
             ui.label("Client certificate + private key PEM file");ui.text_edit_singleline(&mut s.identity_file);
@@ -166,9 +151,15 @@ pub fn render_key_value_editor(ui: &mut Ui, items: &mut Vec<KeyValue>) {
 
     ui.add_space(4.0);
 
+    let t = super::theme::tokens(ui.ctx());
     for (idx, item) in items.iter_mut().enumerate() {
         ui.push_id(idx, |ui| {
-            ui.horizontal(|ui| {
+            // Row hover state from the previous frame, so the background can
+            // be painted behind the row and the delete icon can light up.
+            let hover_id = ui.id().with("row_hovered");
+            let hovered = ui.data(|d| d.get_temp::<bool>(hover_id).unwrap_or(false));
+            let background = ui.painter().add(egui::Shape::Noop);
+            let row = ui.horizontal(|ui| {
                 ui.checkbox(&mut item.enabled, "");
 
                 let key_edit = egui::TextEdit::singleline(&mut item.key)
@@ -206,10 +197,32 @@ pub fn render_key_value_editor(ui: &mut Ui, items: &mut Vec<KeyValue>) {
                     });
                 }
 
-                if ui.small_button("🗑").clicked() {
+                let delete = egui::Button::new(egui::RichText::new("🗑").color(if hovered {
+                    t.error
+                } else {
+                    t.outline
+                }))
+                .frame(false);
+                if ui.add(delete).on_hover_text("Delete row").clicked() {
                     to_delete = Some(idx);
                 }
             });
+            let rect = row.response.rect.expand2(egui::vec2(4.0, 2.0));
+            let now_hovered = ui.rect_contains_pointer(rect);
+            if now_hovered {
+                ui.painter().set(
+                    background,
+                    egui::Shape::rect_filled(
+                        rect,
+                        super::theme::RADIUS_SM,
+                        super::theme::layer(t.on_surface, super::theme::HOVER_LAYER),
+                    ),
+                );
+            }
+            if now_hovered != hovered {
+                ui.data_mut(|d| d.insert_temp(hover_id, now_hovered));
+                ui.ctx().request_repaint();
+            }
             egui::CollapsingHeader::new("Row description").show(ui, |ui| {
                 ui.add(
                     egui::TextEdit::multiline(&mut item.description)
@@ -320,79 +333,110 @@ pub fn render_url_bar(
     on_send: &mut bool,
     on_generate_code: &mut bool,
 ) {
+    let t = super::theme::tokens(ui.ctx());
     ui.horizontal(|ui| {
-        ui.add_space(16.0);
+        ui.add_space(12.0);
+        // Method, URL and actions share one outlined field.
+        egui::Frame::none()
+            .fill(t.surface_container)
+            .stroke(egui::Stroke::new(1.0_f32, t.outline_variant))
+            .rounding(super::theme::RADIUS_MD)
+            .inner_margin(egui::Margin::same(4.0))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width() - 12.0);
+                ui.horizontal(|ui| {
+                    // Method selector
+                    egui::ComboBox::from_id_salt("method_selector")
+                        .width(96.0)
+                        .selected_text(
+                            egui::RichText::new(request.method.as_str())
+                                .color(super::theme::readable(ui.ctx(), request.method.color()))
+                                .monospace()
+                                .strong(),
+                        )
+                        .show_ui(ui, |ui| {
+                            for method in HttpMethod::all() {
+                                ui.selectable_value(
+                                    &mut request.method,
+                                    method.clone(),
+                                    egui::RichText::new(method.as_str())
+                                        .color(super::theme::readable(ui.ctx(), method.color())),
+                                );
+                            }
+                            ui.separator();
+                            let is_custom = matches!(request.method, HttpMethod::Custom(_));
+                            if ui.selectable_label(is_custom, "Custom...").clicked() && !is_custom {
+                                request.method = HttpMethod::Custom("CUSTOM".into());
+                            }
+                        });
 
-        // Method selector
-        egui::ComboBox::from_id_salt("method_selector")
-            .width(100.0)
-            .selected_text(
-                egui::RichText::new(request.method.as_str())
-                    .color(request.method.color())
-                    .strong(),
-            )
-            .show_ui(ui, |ui| {
-                for method in HttpMethod::all() {
-                    ui.selectable_value(
-                        &mut request.method,
-                        method.clone(),
-                        egui::RichText::new(method.as_str()).color(method.color()),
-                    );
-                }
-                ui.separator();
-                let is_custom = matches!(request.method, HttpMethod::Custom(_));
-                if ui.selectable_label(is_custom, "Custom...").clicked() && !is_custom {
-                    request.method = HttpMethod::Custom("CUSTOM".into());
-                }
+                    if let HttpMethod::Custom(ref mut custom_name) = request.method {
+                        ui.add(
+                            egui::TextEdit::singleline(custom_name)
+                                .hint_text("METHOD")
+                                .desired_width(70.0)
+                                .font(egui::TextStyle::Monospace),
+                        );
+                    }
+
+                    // URL input
+                    let url_width = ui.available_width() - 150.0;
+                    let url_edit = egui::TextEdit::singleline(&mut request.url)
+                        .hint_text("Enter request URL")
+                        .font(egui::TextStyle::Monospace)
+                        .frame(false)
+                        .margin(egui::vec2(6.0, 4.0))
+                        .desired_width(url_width);
+
+                    let url_response = ui.add(url_edit);
+                    if url_response.changed() {
+                        crate::http::sync_url_to_query_params(
+                            &request.url,
+                            &mut request.query_params,
+                        );
+                    }
+
+                    // Send on Enter
+                    if !is_loading
+                        && url_response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
+                        *on_send = true;
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Send button
+                        let send_btn = if is_loading {
+                            egui::Button::new("⏳ Sending...")
+                        } else {
+                            super::widgets::filled_button(ui.ctx(), "▶ Send")
+                        };
+                        if ui
+                            .add_enabled(!is_loading, send_btn.min_size(egui::vec2(84.0, 28.0)))
+                            .on_hover_text(if cfg!(target_os = "macos") {
+                                "Send (⌘ Enter)"
+                            } else {
+                                "Send (Ctrl+Enter)"
+                            })
+                            .clicked()
+                        {
+                            *on_send = true;
+                        }
+
+                        // Code gen button
+                        if ui
+                            .add(
+                                egui::Button::new("< >")
+                                    .frame(false)
+                                    .min_size(egui::vec2(32.0, 28.0)),
+                            )
+                            .on_hover_text("Generate code")
+                            .clicked()
+                        {
+                            *on_generate_code = true;
+                        }
+                    });
+                });
             });
-
-        if let HttpMethod::Custom(ref mut custom_name) = request.method {
-            ui.add(
-                egui::TextEdit::singleline(custom_name)
-                    .hint_text("METHOD")
-                    .desired_width(70.0)
-                    .font(egui::TextStyle::Monospace),
-            );
-        }
-
-        // URL input
-        let url_width = if matches!(request.method, HttpMethod::Custom(_)) {
-            ui.available_width() - 300.0
-        } else {
-            ui.available_width() - 220.0
-        };
-        let url_edit = egui::TextEdit::singleline(&mut request.url)
-            .hint_text("Enter URL...")
-            .font(egui::TextStyle::Monospace)
-            .desired_width(url_width);
-
-        let url_response = ui.add(url_edit);
-        if url_response.changed() {
-            crate::http::sync_url_to_query_params(&request.url, &mut request.query_params);
-        }
-
-        // Send on Enter
-        if !is_loading && url_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
-        {
-            *on_send = true;
-        }
-
-        // Code gen button
-        if ui.button("< >").on_hover_text("Generate Code").clicked() {
-            *on_generate_code = true;
-        }
-
-        // Send button
-        let send_btn = egui::Button::new(if is_loading {
-            egui::RichText::new("⏳ Sending...")
-        } else {
-            egui::RichText::new("▶ Send").strong()
-        });
-
-        if ui.add_enabled(!is_loading, send_btn).clicked() {
-            *on_send = true;
-        }
-
-        ui.add_space(16.0);
     });
 }

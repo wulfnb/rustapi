@@ -39,8 +39,16 @@ fn profile_lifecycle_uses_only_a_temporary_data_directory() {
         active_environment_id: Some(env.id.clone()),
         recent_files: vec!["a.json".into()],
         window_size: Some((800.0, 600.0)),
+        theme: ThemeChoice::Light,
     };
     save_app_state(&state).unwrap();
+    assert_eq!(load_app_state().unwrap().theme, ThemeChoice::Light);
+    // State written before the theme setting existed keeps the dark default.
+    let legacy: AppState = serde_json::from_str(
+        r#"{"active_environment_id":null,"recent_files":[],"window_size":null}"#,
+    )
+    .unwrap();
+    assert_eq!(legacy.theme, ThemeChoice::Dark);
     assert_eq!(
         load_app_state().unwrap().active_environment_id,
         Some(env.id.clone())

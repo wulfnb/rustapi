@@ -91,7 +91,7 @@ impl DocumentEditor {
                 if ui.button("Discard document changes").clicked() {self.text=self.saved.clone();self.name=self.loaded_name.clone();self.error.clear();}
                 if ui.button("Close documents").clicked() {self.open=false;}
             });
-            if !self.error.is_empty() {ui.colored_label(egui::Color32::LIGHT_RED,&self.error);}
+            if !self.error.is_empty() {ui.colored_label(ui.visuals().error_fg_color,&self.error);}
             ui.small("Documents are UTF-8 Markdown files in documents/. Edits stay in memory until Save; drafts recover after restart. A new filename saves a copy.");
         });
         self.checkpoint();

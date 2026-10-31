@@ -200,6 +200,7 @@ fn application_renders_welcome_toolbar_editor_modals_and_history_actions() {
     h.click("Environments");
     assert!(h.state.show_environments);
     h.click("Save all and close");
+    h.click("View ⏷");
     h.click("History");
     h.click("Close");
     assert!(!h.state.show_history);
@@ -228,6 +229,7 @@ fn application_renders_welcome_toolbar_editor_modals_and_history_actions() {
         None,
     );
     storage::save_history(&history).unwrap();
+    h.click("View ⏷");
     h.click("History");
     h.click("http://test/history");
     assert_eq!(
@@ -345,9 +347,11 @@ fn desktop_windows_persist_environment_and_collection_edits() {
     h.click("Runner");
     assert!(h.state.show_runner);
     h.click("Close");
+    h.click("Tools ⏷");
     h.click("Vault");
     assert!(h.state.show_vault);
     h.click("Close");
+    h.click("Tools ⏷");
     h.click("Cookies");
     h.click("Clear all cookies");
     h.click("Close");
@@ -412,6 +416,7 @@ fn workspace_document_ui_saves_and_reopens_offline() {
         "# API guide\nLocal text"
     );
     h.click("Close documents");
+    h.click("Tools ⏷");
     h.click("Documents");
     h.click("WORKSPACE-README.md");
     assert_eq!(h.state.documents.text, "# API guide\nLocal text");
@@ -488,6 +493,7 @@ fn desktop_debug_console_copies_redacted_events_and_clears_session() {
     let mut h = Harness::new(app, |ctx: &egui::Context, app: &mut RustApiApp| {
         app.render(ctx)
     });
+    h.click("View ⏷");
     h.click("Debug console");
     h.click("Copy redacted events");
     assert!(h.output.platform_output.copied_text.contains("200"));

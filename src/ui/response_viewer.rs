@@ -26,24 +26,18 @@ pub fn render_response_viewer(
     search: &mut String,
 ) {
     ui.horizontal(|ui| {
+        ui.add_space(8.0);
         ui.strong("Response");
 
         if let Some(response) = response {
-            ui.separator();
-
-            // Status badge
+            ui.add_space(8.0);
+            // Status, time and size chips.
             let status_text = format!("{} {}", response.status, response.status_text);
-            ui.label(
-                egui::RichText::new(status_text)
-                    .color(response.status_color())
-                    .strong(),
-            );
-
-            ui.separator();
-            ui.label(format!("{}ms", response.time_ms));
-
-            ui.separator();
-            ui.label(format_size(response.size));
+            let status_color = super::theme::readable(ui.ctx(), response.status_color());
+            super::widgets::chip(ui, status_text, status_color);
+            let muted = super::theme::tokens(ui.ctx()).on_surface_variant;
+            super::widgets::chip(ui, format!("{}ms", response.time_ms), muted);
+            super::widgets::chip(ui, format_size(response.size), muted);
         }
     });
 
@@ -54,7 +48,7 @@ pub fn render_response_viewer(
             ui.label("Skipped by pre-request script; no HTTP request sent.");
         }
         if let Some(ref error) = response.error {
-            ui.colored_label(egui::Color32::RED, error);
+            ui.colored_label(ui.visuals().error_fg_color, error);
         } else {
             ui.horizontal(|ui| {
                 ui.label("Search response");
@@ -72,9 +66,9 @@ pub fn render_response_viewer(
             for test in &response.tests {
                 ui.colored_label(
                     if test.passed {
-                        egui::Color32::LIGHT_GREEN
+                        super::theme::tokens(ui.ctx()).success
                     } else {
-                        egui::Color32::LIGHT_RED
+                        super::theme::tokens(ui.ctx()).error
                     },
                     format!(
                         "{} {} {}",
@@ -86,26 +80,22 @@ pub fn render_response_viewer(
             }
             // Response tabs
             ui.horizontal(|ui| {
-                if ui
-                    .selectable_label(*current_tab == ResponseTab::Body, "Body")
-                    .clicked()
-                {
-                    *current_tab = ResponseTab::Body;
-                }
-                if ui
-                    .selectable_label(*current_tab == ResponseTab::Headers, "Headers")
-                    .clicked()
-                {
-                    *current_tab = ResponseTab::Headers;
-                }
-
-                for (tab, label) in [
-                    (ResponseTab::Tree, "JSON tree"),
-                    (ResponseTab::Raw, "Raw"),
-                    (ResponseTab::Preview, "Preview"),
-                    (ResponseTab::Timing, "Timing"),
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for (tab, label, count) in [
+                    (ResponseTab::Body, "Body", None),
+                    (
+                        ResponseTab::Headers,
+                        "Headers",
+                        Some(response.headers.len()),
+                    ),
+                    (ResponseTab::Tree, "JSON tree", None),
+                    (ResponseTab::Raw, "Raw", None),
+                    (ResponseTab::Preview, "Preview", None),
+                    (ResponseTab::Timing, "Timing", None),
                 ] {
-                    ui.selectable_value(current_tab, tab, label);
+                    if super::widgets::tab(ui, *current_tab == tab, label, count).clicked() {
+                        *current_tab = tab;
+                    }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.checkbox(format_json_enabled, "Format JSON");
@@ -203,9 +193,16 @@ pub fn render_response_viewer(
             ui.spinner();
         });
     } else {
-        ui.centered_and_justified(|ui| {
-            ui.label("Send a request to see the response");
-        });
+        let shortcut = if cfg!(target_os = "macos") {
+            "⌘ Enter"
+        } else {
+            "Ctrl+Enter"
+        };
+        super::widgets::empty_state(
+            ui,
+            "Send a request to see the response",
+            &format!("Press Send or {shortcut}"),
+        );
     }
 }
 
