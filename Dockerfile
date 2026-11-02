@@ -1,10 +1,18 @@
 # syntax=docker/dockerfile:1
-FROM rust:1.99.0-slim-bookworm AS build
+FROM rust:1.99.0-slim-bookworm AS chef
 WORKDIR /source
 COPY docker/build-packages.txt /tmp/build-packages.txt
 RUN apt-get update && xargs -a /tmp/build-packages.txt apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+# cargo-chef compiles dependencies in their own layer, so a source change no
+# longer rebuilds all of them.
+RUN cargo install cargo-chef --locked --version 0.1.78
+# Install the pinned toolchain once here instead of inside every build step.
+COPY rust-toolchain.toml ./
+RUN rustup show active-toolchain
+
+FROM chef AS sources
+COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
 COPY assets ./assets
 # Embedded with include_str! by src/http/cookie_bridge.rs.
@@ -12,12 +20,24 @@ COPY browser-connector ./browser-connector
 COPY src ./src
 COPY tests ./tests
 COPY examples ./examples
-FROM build AS test
-ENV CARGO_BUILD_JOBS=2 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+
+FROM sources AS planner
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS test
+# Two jobs keep local Docker Desktop builds within its memory limit; CI passes more.
+ARG TEST_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${TEST_BUILD_JOBS} CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
+COPY --from=planner /source/recipe.json recipe.json
+RUN cargo chef cook --locked --all-targets --recipe-path recipe.json
+COPY --from=sources /source ./
 ENV HTTP_PROXY="" HTTPS_PROXY="" ALL_PROXY="" NO_PROXY="127.0.0.1,localhost"
 RUN cargo test --locked --all-targets
 
-FROM build AS release
+FROM chef AS release
+COPY --from=planner /source/recipe.json recipe.json
+RUN cargo chef cook --locked --release --recipe-path recipe.json
+COPY --from=sources /source ./
 RUN cargo build --locked --release
 
 FROM debian:bookworm-slim AS runtime
