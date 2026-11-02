@@ -1,3 +1,6 @@
+# Keep the commit-SHA-pinned GitHub Actions and Cargo dependencies current.
+# Security updates are separate from this schedule: they need Dependabot alerts
+# and security updates enabled in the repository settings.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -12,6 +15,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # One PR for compatible updates (auto-merged after CI); each major stays its own PR.
+    groups:
+      compatible:
+        patterns: ["*"]
+        update-types: [minor, patch]
   - package-ecosystem: docker
     directory: /
     schedule:
