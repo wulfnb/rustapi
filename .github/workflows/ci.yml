@@ -14,7 +14,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_BUILD_JOBS: 2
   # Loopback integration tests must never pass through the runner's proxy.
   NO_PROXY: 127.0.0.1,localhost
 
@@ -112,8 +111,30 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then binary="$binary.exe"; fi
           python scripts/desktop-smoke.py "$binary"
 
+  # The builder tests and the runtime image are independent builds; as two jobs
+  # they run in parallel (they took 9 + 9 minutes in sequence). Only main writes
+  # Docker layer caches: PR copies pushed the repository past the 10 GB limit.
+  docker-test:
+    name: Docker builder tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Test inside Linux builder
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: test
+          push: false
+          build-args: TEST_BUILD_JOBS=4
+          cache-from: type=gha,scope=docker-test
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=docker-test,mode=max' || '' }}
+
   docker:
-    name: Docker tests and browser desktop
+    name: Docker browser desktop
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -124,14 +145,6 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
-      - name: Test inside Linux builder
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          target: test
-          push: false
-          cache-from: type=gha,scope=docker-test
-          cache-to: type=gha,scope=docker-test,mode=max
       - name: Build runnable desktop image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -139,7 +152,7 @@ jobs:
           load: true
           tags: rustapi:ci
           cache-from: type=gha,scope=docker-runtime
-          cache-to: type=gha,scope=docker-runtime,mode=max
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=docker-runtime,mode=max' || '' }}
       - name: Check Compose configuration
         run: docker compose config --quiet
       - name: Real GUI, WebSocket, and persistent volume smoke test
@@ -239,7 +252,7 @@ jobs:
   ci-gate:
     name: CI Completion Gate
     if: always()
-    needs: [native, docker, quality]
+    needs: [native, docker-test, docker, quality]
     runs-on: ubuntu-24.04
     steps:
       - name: Verify all checks passed
