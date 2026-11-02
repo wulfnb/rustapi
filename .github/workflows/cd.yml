@@ -136,7 +136,11 @@ jobs:
           $compilerDir = Join-Path $env:RUNNER_TEMP 'innosetup'
           $install = Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$compilerDir`"" -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "Inno Setup installation failed: $($install.ExitCode)" }
-          & (Join-Path $compilerDir 'ISCC.exe') packaging\windows\rustapi.iss
+          # Preview builds carry their commit, so "Installed apps" shows which build is installed.
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if (!$version) { throw 'Cannot read the package version from Cargo.toml' }
+          if ($env:GITHUB_REF -notlike 'refs/tags/*') { $version = "$version+$($env:GITHUB_SHA.Substring(0, 12))" }
+          & (Join-Path $compilerDir 'ISCC.exe') "/DAppVersion=$version" packaging\windows\rustapi.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (!(Test-Path dist\RustAPI-windows-x86_64-Setup.exe)) { throw "Windows installer was not created" }
       - name: Verify packaged application (Linux)
@@ -204,7 +208,7 @@ jobs:
         with:
           image-ref: ${{ steps.identity.outputs.name }}:sha-${{ github.sha }}
           format: 'table'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
