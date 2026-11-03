@@ -59,7 +59,7 @@ cookie_store = "0.22"
 ctrlc = "3.5"
 
 # Async runtime
-pollster = "0.3"
+pollster = "0.4"
 
 # Direct3D works on Windows runners without an OpenGL driver installation.
 [target.'cfg(windows)'.dependencies]
