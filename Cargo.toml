@@ -33,7 +33,7 @@ rfd = "0.15"  # File dialogs
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 syntect = "5.2"  # Syntax highlighting
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 urlencoding = "2.1"
 
 tempfile = "3.23"
