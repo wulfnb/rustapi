@@ -28,7 +28,7 @@ toml = "0.8"
 # Utilities
 uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-dirs = "5.0"
+dirs = "7.0"
 rfd = "0.15"  # File dialogs
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 syntect = "5.2"  # Syntax highlighting
