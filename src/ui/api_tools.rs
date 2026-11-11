@@ -51,7 +51,8 @@ impl ApiTools {
             return None;
         }
         let mut imported = None;
-        egui::Window::new("API tools").default_size([850.,650.]).vscroll(true).show(ctx,|ui| {
+        let mut open = true;
+        egui::Window::new("API tools").open(&mut open).collapsible(false).default_size([850.,650.]).vscroll(true).show(ctx,|ui| {
             ui.heading("OpenAPI specification");
             let dirty=self.spec!=self.saved;
             ui.horizontal(|ui| {
@@ -92,6 +93,9 @@ impl ApiTools {
             self.automation.render(ui,collections,service.clone(),secrets);
             if ui.button("Close API tools").clicked(){self.open=false;}
         });
+        if !open {
+            self.open = false;
+        }
         let draft = serde_json::json!({"text":self.spec,"saved":self.saved,"source":self.source})
             .to_string();
         if draft != self.checkpoint {

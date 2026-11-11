@@ -154,7 +154,8 @@ impl PlatformTools {
             return action;
         }
         let root = crate::storage::get_app_data_dir();
-        egui::Window::new("Optional self-hosted tools").default_size([820.,650.]).vscroll(true).show(ctx,|ui|{
+        let mut open = true;
+        egui::Window::new("Optional self-hosted tools").open(&mut open).collapsible(false).default_size([820.,650.]).vscroll(true).show(ctx,|ui|{
             ui.label("Local use remains account-free. Server connections and model requests happen only when selected below.");
             if self.selected_local.is_empty(){if let Some(collection)=collections.first(){self.selected_local=collection.id.clone();}}
             egui::ComboBox::from_id_salt("platform_collection").selected_text(collections.iter().find(|c|c.id==self.selected_local).map(|c|c.name.as_str()).unwrap_or("Select local collection")).show_ui(ui,|ui|{for collection in collections{ui.selectable_value(&mut self.selected_local,collection.id.clone(),&collection.name);}});
@@ -207,6 +208,9 @@ if ui.button("Stop team server").clicked(){self.server=None;}}
             if self.cancel.is_some(){ui.label("Operation in progress…");if ui.button("Cancel platform operation").clicked(){self.cancel();}}
             ui.label(&self.result);if ui.button("Close self-hosted tools").clicked(){self.open=false;}
         });
+        if !open {
+            self.open = false;
+        }
         if self.cancel.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

@@ -33,8 +33,10 @@ pub fn list_item(
     accessible: &str,
 ) -> Response {
     let t = tokens(ui.ctx());
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), LIST_ITEM_HEIGHT), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        vec2(ui.available_width(), LIST_ITEM_HEIGHT),
+        Sense::click_and_drag(),
+    );
     response.widget_info(|| {
         WidgetInfo::selected(
             WidgetType::SelectableLabel,

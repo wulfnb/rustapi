@@ -70,7 +70,8 @@ impl DocumentEditor {
             return;
         }
         let root = storage::get_app_data_dir();
-        egui::Window::new("Workspace documents").default_size([760.,550.]).vscroll(true).show(ctx,|ui| {
+        let mut open = true;
+        egui::Window::new("Workspace documents").open(&mut open).collapsible(false).default_size([760.,550.]).vscroll(true).show(ctx,|ui| {
             let dirty=self.text!=self.saved || self.name!=self.loaded_name;
             match storage::list_documents(&root) {
                 Ok(names)=>{ for name in names { if ui.add_enabled(!dirty,egui::Button::new(&name)).clicked() {
@@ -94,6 +95,9 @@ impl DocumentEditor {
             if !self.error.is_empty() {ui.colored_label(ui.visuals().error_fg_color,&self.error);}
             ui.small("Documents are UTF-8 Markdown files in documents/. Edits stay in memory until Save; drafts recover after restart. A new filename saves a copy.");
         });
+        if !open {
+            self.open = false;
+        }
         self.checkpoint();
     }
 }

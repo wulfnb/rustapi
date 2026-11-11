@@ -69,6 +69,15 @@ pub enum AsyncMessage {
         result: Result<String, String>,
     },
 }
+#[derive(Clone, Debug, PartialEq)]
+pub struct DragRequestPayload {
+    pub source_collection_id: String,
+    pub request_id: String,
+    pub request_name: String,
+    pub method: String,
+    pub method_color: egui::Color32,
+}
+
 #[derive(Clone)]
 enum Action {
     Open(String, Box<ApiRequest>),
@@ -88,6 +97,7 @@ enum Action {
     Move(String, String),
     MoveFolder(String, String),
     Reorder(String, Option<String>, String, bool),
+    MoveTo(String, String, String, Option<String>),
 }
 pub struct RustApiApp {
     dialogs: Box<dyn CollectionDialogs>,
@@ -116,6 +126,8 @@ pub struct RustApiApp {
     show_environments: bool,
     show_import: bool,
     import_text: String,
+    import_collection: Option<String>,
+    import_folder: Option<String>,
     pending_import: Option<rustapi::import::ImportResult>,
     show_new_collection: bool,
     new_name: String,
@@ -233,6 +245,8 @@ impl Default for RustApiApp {
             show_environments: false,
             show_import: false,
             import_text: String::new(),
+            import_collection: None,
+            import_folder: None,
             pending_import: None,
             show_new_collection: false,
             new_name: String::new(),
@@ -792,6 +806,10 @@ impl RustApiApp {
                     self.commit_collection(c);
                 }
             }
+            Action::MoveTo(source, rid, target, folder) => {
+                self.moving_folder = false;
+                self.move_to(&source, &rid, &target, folder);
+            }
         }
     }
     fn detach_missing_tabs(&mut self) {
@@ -820,7 +838,13 @@ impl RustApiApp {
     }
     fn finish_import(&mut self, import: rustapi::import::ImportResult) {
         if let Some(c) = import.collection {
-            self.commit_collection(c);
+            let first_request = c.ordered_requests(None).into_iter().next();
+            let cid = c.id.clone();
+            if self.commit_collection(c) {
+                if let Some(r) = first_request {
+                    self.tab_manager.open_tab(r, Some(cid));
+                }
+            }
         }
         if let Some(e) = import.environment {
             if self.result(storage::save_environment(&e)).is_some() {
@@ -828,6 +852,51 @@ impl RustApiApp {
             }
         }
         self.notice = import.warnings.join("\n");
+    }
+    fn import_curl_command(&mut self) {
+        let request = match rustapi::import::curl_request(&self.import_text) {
+            Ok(r) => r,
+            Err(e) => {
+                self.error = Some(e.to_string());
+                return;
+            }
+        };
+
+        if let Some(target_cid) = self.import_collection.clone() {
+            if let Some(mut c) = self
+                .collections
+                .iter()
+                .find(|c| c.id == target_cid)
+                .cloned()
+            {
+                let req_to_open = request.clone();
+                if let Some(fid) = &self.import_folder {
+                    if let Some(f) = c.folder_mut(fid) {
+                        f.requests.push(request);
+                    } else {
+                        c.requests.push(request);
+                    }
+                } else {
+                    c.requests.push(request);
+                }
+                if self.commit_collection(c) {
+                    self.tab_manager.open_tab(req_to_open, Some(target_cid));
+                    self.import_text.clear();
+                    self.show_import = false;
+                }
+                return;
+            }
+        }
+
+        let mut c = Collection::new("cURL import");
+        let req_to_open = request.clone();
+        let cid = c.id.clone();
+        c.requests.push(request);
+        if self.commit_collection(c) {
+            self.tab_manager.open_tab(req_to_open, Some(cid));
+            self.import_text.clear();
+            self.show_import = false;
+        }
     }
     fn import_review_window(&mut self, ctx: &egui::Context) {
         let Some(import) = &self.pending_import else {
@@ -1173,6 +1242,12 @@ impl RustApiApp {
                         }
                         if ui.button("Import").clicked() {
                             self.show_import = true;
+                            self.import_collection = self
+                                .tab_manager
+                                .active_tab()
+                                .and_then(|t| t.collection_id.clone())
+                                .or_else(|| self.collections.first().map(|c| c.id.clone()));
+                            self.import_folder = None;
                         }
                         ui.separator();
                         if ui.button("Environments").clicked() {
@@ -1301,7 +1376,82 @@ impl RustApiApp {
                                         active_request.as_deref(),
                                         &mut action,
                                     );
+                                    if c.requests.is_empty() && c.folders.is_empty() {
+                                        let (rect, resp) = ui.allocate_exact_size(
+                                            egui::vec2(ui.available_width(), 24.0),
+                                            egui::Sense::hover(),
+                                        );
+                                        let is_hovered = resp
+                                            .dnd_hover_payload::<DragRequestPayload>()
+                                            .is_some();
+                                        let theme = crate::ui::theme::tokens(ui.ctx());
+                                        let stroke = if is_hovered {
+                                            egui::Stroke::new(2.0_f32, theme.primary)
+                                        } else {
+                                            egui::Stroke::new(1.0_f32, theme.outline_variant)
+                                        };
+                                        ui.painter().rect_stroke(
+                                            rect,
+                                            crate::ui::theme::RADIUS_SM,
+                                            stroke,
+                                        );
+                                        ui.painter().text(
+                                            rect.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            "Drop requests here",
+                                            egui::FontId::proportional(12.0),
+                                            if is_hovered {
+                                                theme.primary
+                                            } else {
+                                                theme.on_surface_variant
+                                            },
+                                        );
+                                        if let Some(payload) =
+                                            resp.dnd_release_payload::<DragRequestPayload>()
+                                        {
+                                            if payload.source_collection_id != c.id {
+                                                action = Some(Action::MoveTo(
+                                                    payload.source_collection_id.clone(),
+                                                    payload.request_id.clone(),
+                                                    c.id.clone(),
+                                                    None,
+                                                ));
+                                            }
+                                        }
+                                    }
                                 });
+                        if let Some(payload) = response
+                            .header_response
+                            .dnd_hover_payload::<DragRequestPayload>()
+                        {
+                            let is_already_at_root = payload.source_collection_id == c.id
+                                && c.requests.iter().any(|r| r.id == payload.request_id);
+                            if !is_already_at_root {
+                                ui.painter().rect_stroke(
+                                    response.header_response.rect,
+                                    crate::ui::theme::RADIUS_SM,
+                                    egui::Stroke::new(
+                                        2.0_f32,
+                                        crate::ui::theme::tokens(ui.ctx()).primary,
+                                    ),
+                                );
+                            }
+                        }
+                        if let Some(payload) = response
+                            .header_response
+                            .dnd_release_payload::<DragRequestPayload>()
+                        {
+                            let is_already_at_root = payload.source_collection_id == c.id
+                                && c.requests.iter().any(|r| r.id == payload.request_id);
+                            if !is_already_at_root {
+                                action = Some(Action::MoveTo(
+                                    payload.source_collection_id.clone(),
+                                    payload.request_id.clone(),
+                                    c.id.clone(),
+                                    None,
+                                ));
+                            }
+                        }
                         response.header_response.context_menu(|ui| {
                             for (label, a) in [
                                 ("Add request", Action::Add(c.id.clone(), None)),
@@ -1490,6 +1640,27 @@ impl RustApiApp {
         });
         self.authorize(ctx);
         self.windows(ctx);
+        if let Some(payload) = egui::DragAndDrop::payload::<DragRequestPayload>(ctx) {
+            egui::containers::popup::show_tooltip_at_pointer(
+                ctx,
+                egui::LayerId::new(
+                    egui::Order::Tooltip,
+                    egui::Id::new("dnd_request_tooltip_layer"),
+                ),
+                egui::Id::new("dnd_request_tooltip"),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(&payload.method)
+                                .monospace()
+                                .color(payload.method_color)
+                                .strong(),
+                        );
+                        ui.label(&payload.request_name);
+                    });
+                },
+            );
+        }
     }
 }
 #[allow(clippy::too_many_arguments)] // Recursive tree view carries the parent identity and ordering.
@@ -1524,6 +1695,36 @@ fn render_tree(
                 &format!("{}  {}", r.method.as_str(), r.name),
             )
             .on_hover_text(&r.url);
+
+            let drag_payload = DragRequestPayload {
+                source_collection_id: cid.to_string(),
+                request_id: r.id.clone(),
+                request_name: r.name.clone(),
+                method: method_tag(&r.method),
+                method_color: crate::ui::theme::readable(ui.ctx(), r.method.color()),
+            };
+            response.dnd_set_drag_payload(drag_payload);
+
+            if let Some(payload) = response.dnd_hover_payload::<DragRequestPayload>() {
+                if payload.source_collection_id != cid || payload.request_id != r.id {
+                    ui.painter().rect_stroke(
+                        response.rect,
+                        crate::ui::theme::RADIUS_SM,
+                        egui::Stroke::new(2.0_f32, crate::ui::theme::tokens(ui.ctx()).primary),
+                    );
+                }
+            }
+            if let Some(payload) = response.dnd_release_payload::<DragRequestPayload>() {
+                if payload.source_collection_id != cid || payload.request_id != r.id {
+                    *action = Some(Action::MoveTo(
+                        payload.source_collection_id.clone(),
+                        payload.request_id.clone(),
+                        cid.to_string(),
+                        parent.map(String::from),
+                    ));
+                }
+            }
+
             if response.clicked() {
                 *action = Some(Action::Open(cid.into(), Box::new(r.clone())));
             }
@@ -1589,7 +1790,74 @@ fn render_tree(
                         active,
                         action,
                     );
+                    if f.requests.is_empty() && f.folders.is_empty() {
+                        let (rect, resp) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), 20.0),
+                            egui::Sense::hover(),
+                        );
+                        let is_hovered = resp.dnd_hover_payload::<DragRequestPayload>().is_some();
+                        let theme = crate::ui::theme::tokens(ui.ctx());
+                        if is_hovered {
+                            ui.painter().rect_stroke(
+                                rect,
+                                crate::ui::theme::RADIUS_SM,
+                                egui::Stroke::new(2.0_f32, theme.primary),
+                            );
+                        }
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            "Empty folder",
+                            egui::FontId::proportional(11.0),
+                            if is_hovered {
+                                theme.primary
+                            } else {
+                                theme.on_surface_variant
+                            },
+                        );
+                        if let Some(payload) = resp.dnd_release_payload::<DragRequestPayload>() {
+                            let is_already_in_folder = payload.source_collection_id == cid
+                                && f.requests.iter().any(|r| r.id == payload.request_id);
+                            if !is_already_in_folder {
+                                *action = Some(Action::MoveTo(
+                                    payload.source_collection_id.clone(),
+                                    payload.request_id.clone(),
+                                    cid.to_string(),
+                                    Some(f.id.clone()),
+                                ));
+                            }
+                        }
+                    }
                 });
+            if let Some(payload) = response
+                .header_response
+                .dnd_hover_payload::<DragRequestPayload>()
+            {
+                let is_already_in_folder = payload.source_collection_id == cid
+                    && f.requests.iter().any(|r| r.id == payload.request_id);
+                if !is_already_in_folder {
+                    ui.painter().rect_stroke(
+                        response.header_response.rect,
+                        crate::ui::theme::RADIUS_SM,
+                        egui::Stroke::new(2.0_f32, crate::ui::theme::tokens(ui.ctx()).primary),
+                    );
+                }
+            }
+            if let Some(payload) = response
+                .header_response
+                .dnd_release_payload::<DragRequestPayload>()
+            {
+                let is_already_in_folder = payload.source_collection_id == cid
+                    && f.requests.iter().any(|r| r.id == payload.request_id);
+                if !is_already_in_folder {
+                    *action = Some(Action::MoveTo(
+                        payload.source_collection_id.clone(),
+                        payload.request_id.clone(),
+                        cid.to_string(),
+                        Some(f.id.clone()),
+                    ));
+                }
+            }
             response.header_response.context_menu(|ui| {
                 for (label, a) in [
                     ("Add request", Action::Add(cid.into(), Some(f.id.clone()))),
@@ -1685,6 +1953,17 @@ fn merge_changes(
         }
     }
 }
+fn find_folder_name<'a>(folders: &'a [Folder], id: &str) -> Option<&'a str> {
+    for f in folders {
+        if f.id == id {
+            return Some(&f.name);
+        }
+        if let Some(name) = find_folder_name(&f.folders, id) {
+            return Some(name);
+        }
+    }
+    None
+}
 fn folder_choices(
     ui: &mut egui::Ui,
     folders: &[Folder],
@@ -1760,22 +2039,45 @@ impl RustApiApp {
             }
         }
         if self.show_new_collection {
-            egui::Window::new("New collection").show(ctx, |ui| {
-                ui.text_edit_singleline(&mut self.new_name);
-                if ui.button("Create").clicked()
-                    && !self.new_name.trim().is_empty()
-                    && self.commit_collection(Collection::new(self.new_name.trim()))
-                {
-                    self.new_name.clear();
-                    self.show_new_collection = false;
-                }
-                if ui.button("Cancel").clicked() {
-                    self.show_new_collection = false;
-                }
-            });
+            let mut open = true;
+            egui::Window::new("New collection")
+                .open(&mut open)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.text_edit_singleline(&mut self.new_name);
+                    if ui.button("Create").clicked()
+                        && !self.new_name.trim().is_empty()
+                        && self.commit_collection(Collection::new(self.new_name.trim()))
+                    {
+                        self.new_name.clear();
+                        self.show_new_collection = false;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.show_new_collection = false;
+                    }
+                });
+            if !open {
+                self.show_new_collection = false;
+            }
         }
         if self.show_import {
+            if let Some(cid) = &self.import_collection {
+                if !self.collections.iter().any(|c| &c.id == cid) {
+                    self.import_collection = None;
+                    self.import_folder = None;
+                }
+            }
+            if self.import_collection.is_none() && !self.collections.is_empty() {
+                self.import_collection = self
+                    .tab_manager
+                    .active_tab()
+                    .and_then(|t| t.collection_id.clone())
+                    .or_else(|| self.collections.first().map(|c| c.id.clone()));
+            }
+            let mut open = true;
             egui::Window::new("Import collections / environments / cURL")
+                .open(&mut open)
+                .collapsible(false)
                 .default_width(600.)
                 .show(ctx, |ui| {
                     ui.label("JSON imports create a managed copy. Source files are unchanged.");
@@ -1787,6 +2089,7 @@ impl RustApiApp {
                             self.import(rustapi::import::path(&path));
                         }
                     }
+                    ui.separator();
                     ui.label("Or paste a cURL command");
                     ui.add(
                         egui::TextEdit::multiline(&mut self.import_text)
@@ -1794,17 +2097,80 @@ impl RustApiApp {
                             .desired_rows(5)
                             .desired_width(f32::INFINITY),
                     );
-                    if ui.button("Import cURL").clicked() {
-                        self.import(rustapi::import::curl(&self.import_text));
+                    ui.horizontal(|ui| {
+                        ui.label("Target collection:");
+                        egui::ComboBox::from_id_salt("curl_import_collection")
+                            .selected_text(
+                                self.import_collection
+                                    .as_ref()
+                                    .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                                    .map(|c| c.name.as_str())
+                                    .unwrap_or("New collection"),
+                            )
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_value(
+                                        &mut self.import_collection,
+                                        None,
+                                        "New collection",
+                                    )
+                                    .changed()
+                                {
+                                    self.import_folder = None;
+                                }
+                                for c in &self.collections {
+                                    if ui
+                                        .selectable_value(
+                                            &mut self.import_collection,
+                                            Some(c.id.clone()),
+                                            &c.name,
+                                        )
+                                        .changed()
+                                    {
+                                        self.import_folder = None;
+                                    }
+                                }
+                            });
+                    });
+                    if let Some(c) = self
+                        .import_collection
+                        .as_ref()
+                        .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                    {
+                        if !c.folders.is_empty() {
+                            ui.horizontal(|ui| {
+                                ui.label("Target folder:");
+                                egui::ComboBox::from_id_salt("curl_import_folder")
+                                    .selected_text(
+                                        self.import_folder
+                                            .as_ref()
+                                            .and_then(|fid| find_folder_name(&c.folders, fid))
+                                            .unwrap_or("Collection root"),
+                                    )
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(
+                                            &mut self.import_folder,
+                                            None,
+                                            "Collection root",
+                                        );
+                                        folder_choices(ui, &c.folders, &mut self.import_folder, "");
+                                    });
+                            });
+                        }
                     }
-                    if ui.button("Close").clicked() {
-                        self.show_import = false;
+                    if ui.button("Import cURL").clicked() {
+                        self.import_curl_command();
                     }
                 });
+            if !open {
+                self.show_import = false;
+            }
         }
         self.import_review_window(ctx);
         if let Some(id) = self.save_as.clone() {
+            let mut open = true;
             egui::Window::new("Save request into collection")
+                .open(&mut open)
                 .collapsible(false)
                 .show(ctx, |ui| {
                     egui::ComboBox::from_id_salt("save_collection")
@@ -1862,6 +2228,9 @@ impl RustApiApp {
                         self.save_as = None;
                     }
                 });
+            if !open {
+                self.save_as = None;
+            }
         }
         if let Some(id) = self.close_pending.clone() {
             if self.save_as.is_none() {
@@ -1893,40 +2262,51 @@ impl RustApiApp {
         });
         }
         if let Some((cid, target, folder, mut name)) = self.rename.clone() {
-            egui::Window::new("Rename").show(ctx, |ui| {
-                ui.text_edit_singleline(&mut name);
-                self.rename = Some((cid.clone(), target.clone(), folder, name.clone()));
-                if ui.button("Save").clicked() && !name.trim().is_empty() {
-                    if let Some(mut c) = self.collections.iter().find(|c| c.id == cid).cloned() {
-                        if folder {
-                            if let Some(f) = c.folder_mut(&target) {
-                                f.name = name.clone();
+            let mut open = true;
+            egui::Window::new("Rename")
+                .open(&mut open)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    ui.text_edit_singleline(&mut name);
+                    self.rename = Some((cid.clone(), target.clone(), folder, name.clone()));
+                    if ui.button("Save").clicked() && !name.trim().is_empty() {
+                        if let Some(mut c) = self.collections.iter().find(|c| c.id == cid).cloned()
+                        {
+                            if folder {
+                                if let Some(f) = c.folder_mut(&target) {
+                                    f.name = name.clone();
+                                }
+                            } else if let Some(r) = c.request_mut(&target) {
+                                r.name = name.clone();
                             }
-                        } else if let Some(r) = c.request_mut(&target) {
-                            r.name = name.clone();
-                        }
-                        if self.commit_collection(c) {
-                            if !folder {
-                                for t in &mut self.tab_manager.tabs {
-                                    if t.collection_id.as_ref() == Some(&cid)
-                                        && t.request.id == target
-                                    {
-                                        t.request.name = name.clone();
+                            if self.commit_collection(c) {
+                                if !folder {
+                                    for t in &mut self.tab_manager.tabs {
+                                        if t.collection_id.as_ref() == Some(&cid)
+                                            && t.request.id == target
+                                        {
+                                            t.request.name = name.clone();
+                                        }
                                     }
                                 }
+                                self.rename = None;
                             }
-                            self.rename = None;
                         }
                     }
-                }
-                if ui.button("Cancel").clicked() {
-                    self.rename = None;
-                }
-            });
+                    if ui.button("Cancel").clicked() {
+                        self.rename = None;
+                    }
+                });
+            if !open {
+                self.rename = None;
+            }
         }
         if let Some((_cid, folder)) = self.edit.clone() {
             if let Some(mut c) = self.edit_draft.clone() {
+                let mut open = true;
                 egui::Window::new("Collection / folder settings")
+                    .open(&mut open)
+                    .collapsible(false)
                     .default_width(600.)
                     .default_height(560.)
                     .show(ctx, |ui| {
@@ -1995,59 +2375,70 @@ impl RustApiApp {
                             self.collection_editor_cache(&c);
                         }
                     });
+                if !open {
+                    self.edit = None;
+                }
             }
         }
         if let Some((cid, rid)) = self.move_request.clone() {
-            egui::Window::new("Move request").show(ctx, |ui| {
-                egui::ComboBox::from_id_salt("move_collection")
-                    .selected_text(
-                        self.move_collection
-                            .as_ref()
-                            .and_then(|id| self.collections.iter().find(|c| &c.id == id))
-                            .map(|c| c.name.as_str())
-                            .unwrap_or("Select collection"),
-                    )
-                    .show_ui(ui, |ui| {
-                        for c in &self.collections {
-                            if ui
-                                .selectable_value(
-                                    &mut self.move_collection,
-                                    Some(c.id.clone()),
-                                    &c.name,
-                                )
-                                .changed()
-                            {
-                                self.move_folder = None;
-                            }
-                        }
-                    });
-                if let Some(c) = self
-                    .move_collection
-                    .as_ref()
-                    .and_then(|id| self.collections.iter().find(|c| &c.id == id))
-                {
-                    egui::ComboBox::from_id_salt("move_folder")
-                        .selected_text("Target folder")
+            let mut open = true;
+            egui::Window::new("Move request")
+                .open(&mut open)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    egui::ComboBox::from_id_salt("move_collection")
+                        .selected_text(
+                            self.move_collection
+                                .as_ref()
+                                .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                                .map(|c| c.name.as_str())
+                                .unwrap_or("Select collection"),
+                        )
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.move_folder, None, "Collection root");
-                            folder_choices(ui, &c.folders, &mut self.move_folder, "");
+                            for c in &self.collections {
+                                if ui
+                                    .selectable_value(
+                                        &mut self.move_collection,
+                                        Some(c.id.clone()),
+                                        &c.name,
+                                    )
+                                    .changed()
+                                {
+                                    self.move_folder = None;
+                                }
+                            }
                         });
-                }
-                if ui.button("Move").clicked() {
-                    if let Some(target) = self.move_collection.clone() {
-                        self.move_to(&cid, &rid, &target, self.move_folder.clone());
+                    if let Some(c) = self
+                        .move_collection
+                        .as_ref()
+                        .and_then(|id| self.collections.iter().find(|c| &c.id == id))
+                    {
+                        egui::ComboBox::from_id_salt("move_folder")
+                            .selected_text("Target folder")
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.move_folder, None, "Collection root");
+                                folder_choices(ui, &c.folders, &mut self.move_folder, "");
+                            });
                     }
-                }
-                if ui.button("Cancel").clicked() {
-                    self.move_request = None;
-                }
-            });
+                    if ui.button("Move").clicked() {
+                        if let Some(target) = self.move_collection.clone() {
+                            self.move_to(&cid, &rid, &target, self.move_folder.clone());
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.move_request = None;
+                    }
+                });
+            if !open {
+                self.move_request = None;
+            }
         }
         self.environment_window(ctx);
         self.runner_window(ctx);
         self.vault_window(ctx);
         if self.show_debug {
-            egui::Window::new("Debug console").default_size([900.,550.]).vscroll(true).show(ctx,|ui| {
+            let mut open = true;
+            egui::Window::new("Debug console").open(&mut open).collapsible(false).default_size([900.,550.]).vscroll(true).show(ctx,|ui| {
                 let events=self.service.debug.snapshot();
                 ui.horizontal(|ui|{
                     ui.label(format!("{} / 256 session events",events.len()));
@@ -2061,9 +2452,13 @@ impl RustApiApp {
                 }
                 if ui.button("Close console").clicked(){self.show_debug=false;}
             });
+            if !open {
+                self.show_debug = false;
+            }
         }
         if self.show_inspector {
-            egui::Window::new("Variables and effective headers").default_size([900.,500.]).vscroll(true).show(ctx,|ui| {
+            let mut open = true;
+            egui::Window::new("Variables and effective headers").open(&mut open).collapsible(false).default_size([900.,500.]).vscroll(true).show(ctx,|ui| {
                 ui.checkbox(&mut self.reveal_inspector,"Reveal values including credentials");
                 if let Some(tab)=self.tab_manager.active_tab() {
                     let request=self.contextual_request(tab);
@@ -2081,9 +2476,16 @@ impl RustApiApp {
                 } else {ui.label("Open a request to inspect its active context.");}
                 if ui.button("Close inspector").clicked(){self.show_inspector=false;self.reveal_inspector=false;}
             });
+            if !open {
+                self.show_inspector = false;
+                self.reveal_inspector = false;
+            }
         }
         if self.show_globals {
+            let mut open = true;
             egui::Window::new("Global variables (.local/globals.json)")
+                .open(&mut open)
+                .collapsible(false)
                 .default_size([600., 400.])
                 .show(ctx, |ui| {
                     crate::ui::widgets::dialog_footer("globals").show_inside(ui, |ui| {
@@ -2123,9 +2525,15 @@ impl RustApiApp {
                             });
                         });
                 });
+            if !open {
+                self.show_globals = false;
+            }
         }
         if self.show_overrides {
+            let mut open = true;
             egui::Window::new("Local environment overrides (.local/environment-overrides.json)")
+                .open(&mut open)
+                .collapsible(false)
                 .default_size([700., 450.])
                 .show(ctx, |ui| {
                     crate::ui::widgets::dialog_footer("overrides").show_inside(ui, |ui| {
@@ -2177,9 +2585,15 @@ impl RustApiApp {
                             }
                         });
                 });
+            if !open {
+                self.show_overrides = false;
+            }
         }
         if self.show_cookies {
+            let mut open = true;
             egui::Window::new("Workspace cookies")
+                .open(&mut open)
+                .collapsible(false)
                 .default_width(600.)
                 .default_height(520.)
                 .show(ctx, |ui| {
@@ -2314,6 +2728,9 @@ impl RustApiApp {
                             }
                         });
                 });
+            if !open {
+                self.show_cookies = false;
+            }
         }
         if self.show_history {
             let history = storage::load_history();
@@ -2328,7 +2745,10 @@ impl RustApiApp {
             }
         }
         if self.show_code {
+            let mut open = true;
             egui::Window::new("Generate code")
+                .open(&mut open)
+                .collapsible(false)
                 .default_size([700., 500.])
                 .show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
@@ -2375,6 +2795,9 @@ impl RustApiApp {
                         self.show_code = false;
                     }
                 });
+            if !open {
+                self.show_code = false;
+            }
         }
     }
     fn collection_editor_cache(&mut self, c: &Collection) {
@@ -2463,7 +2886,10 @@ impl RustApiApp {
         if !self.show_environments {
             return;
         }
+        let mut open = true;
         egui::Window::new("Environments")
+            .open(&mut open)
+            .collapsible(false)
             .default_width(620.)
             .default_height(560.)
             .show(ctx, |ui| {
@@ -2536,12 +2962,18 @@ impl RustApiApp {
                         }
                     });
             });
+        if !open {
+            self.show_environments = false;
+        }
     }
     fn runner_window(&mut self, ctx: &egui::Context) {
         if !self.show_runner {
             return;
         }
+        let mut open = true;
         egui::Window::new("Collection runner")
+            .open(&mut open)
+            .collapsible(false)
             .default_size([700., 500.])
             .show(ctx, |ui| {
                 egui::ComboBox::from_id_salt("run_collection")
@@ -2670,12 +3102,18 @@ impl RustApiApp {
                     self.show_runner = false;
                 }
             });
+        if !open {
+            self.show_runner = false;
+        }
     }
     fn vault_window(&mut self, ctx: &egui::Context) {
         if !self.show_vault {
             return;
         }
+        let mut open = true;
         egui::Window::new("Local encrypted secrets")
+            .open(&mut open)
+            .collapsible(false)
             .default_width(550.)
             .show(ctx, |ui| {
                 ui.label(
@@ -2772,6 +3210,9 @@ impl RustApiApp {
                     self.show_vault = false;
                 }
             });
+        if !open {
+            self.show_vault = false;
+        }
     }
 }
 fn edit_variables(ui: &mut egui::Ui, vars: &mut std::collections::HashMap<String, String>) {
