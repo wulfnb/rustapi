@@ -22,7 +22,9 @@ pub fn render_history_panel(
 
     let mut action: Option<HistoryAction> = None;
 
+    let mut open = true;
     egui::Window::new("Request History")
+        .open(&mut open)
         .collapsible(false)
         .resizable(true)
         .default_size([500.0, 400.0])
@@ -115,6 +117,9 @@ pub fn render_history_panel(
                 *show = false;
             }
         });
+    if !open {
+        *show = false;
+    }
 
     action
 }

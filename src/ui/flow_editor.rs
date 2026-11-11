@@ -67,7 +67,8 @@ impl FlowEditor {
             return;
         }
         let root = crate::storage::get_app_data_dir();
-        egui::Window::new("Visual request flows").default_size([850.,650.]).vscroll(true).show(ctx,|ui| {
+        let mut open = true;
+        egui::Window::new("Visual request flows").open(&mut open).collapsible(false).default_size([850.,650.]).vscroll(true).show(ctx,|ui| {
             ui.horizontal(|ui|{ui.label("Flow name");ui.text_edit_singleline(&mut self.flow.name);});
             egui::CollapsingHeader::new("Build from a saved collection").show(ui,|ui|{for collection in collections{if ui.button(&collection.name).clicked(){let path=collection.file_path.as_ref().map(std::path::PathBuf::from).unwrap_or_else(||root.join("collections").join(format!("{}.json",collection.id)));match root.canonicalize().and_then(|base|path.canonicalize().map(|path|(base,path))){Ok((base,path))=>{if let Ok(path)=path.strip_prefix(base){let requests=collection.ordered_requests(None);self.requests=requests.iter().map(|r|(r.id.clone(),r.name.clone())).collect();let mut nodes:Vec<Node>=requests.iter().enumerate().map(|(index,r)|Node{id:uuid::Uuid::new_v4().to_string(),request_id:r.id.clone(),success:None,failure:None,position:[30.+(index%3)as f32*230.,30.+(index/3)as f32*110.]}).collect();for index in 0..nodes.len().saturating_sub(1){nodes[index].success=Some(nodes[index+1].id.clone());}self.flow=Flow{profile:RunProfile{collection:path.to_string_lossy().replace('\\',"/"),..Default::default()},start:nodes.first().map(|n|n.id.clone()).unwrap_or_default(),nodes,..Default::default()};}else{self.result="Save/import the collection inside this workspace first.".into();}},Err(error)=>self.result=error.to_string()}}}});
             ui.horizontal(|ui|{if ui.button("Load flow").clicked(){if let Some(path)=dialogs::open(){match rustapi::tools_cli::read(&path,8*1024*1024).and_then(|text|Ok(serde_json::from_str::<Flow>(&text)?)).and_then(|flow|{flow.validate()?;Ok(flow)}){Ok(flow)=>{self.flow=flow;self.reload_requests(&root);},Err(error)=>self.result=error.to_string()}}}
@@ -93,6 +94,9 @@ if self.flow.start==id{self.flow.start=self.flow.nodes.first().map(|n|n.id.clone
                 if let Some(cancel)=&self.cancel{if ui.button("Cancel flow").clicked(){cancel.cancel();}}
             });ui.label(&self.result);if ui.button("Close flow editor").clicked(){self.open=false;}
         });
+        if !open {
+            self.open = false;
+        }
         if self.cancel.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }

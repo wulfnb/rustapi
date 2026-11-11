@@ -659,7 +659,7 @@ pub fn json(bytes: &[u8]) -> Result<ImportResult> {
         })
     }
 }
-pub fn curl(command: &str) -> Result<ImportResult> {
+pub fn curl_request(command: &str) -> Result<ApiRequest> {
     let tokens = shlex::split(command).context("Unclosed quote in cURL command")?;
     anyhow::ensure!(
         tokens.first().is_some_and(|s| s == "curl"),
@@ -765,6 +765,11 @@ pub fn curl(command: &str) -> Result<ImportResult> {
     {
         r.body_type = BodyType::Json;
     }
+    Ok(r)
+}
+
+pub fn curl(command: &str) -> Result<ImportResult> {
+    let r = curl_request(command)?;
     let mut c = Collection::new("cURL import");
     c.requests.push(r);
     Ok(ImportResult {

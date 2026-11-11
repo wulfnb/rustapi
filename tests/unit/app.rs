@@ -548,3 +548,177 @@ fn stale_oauth_authorization_result_does_not_apply_to_changed_configuration() {
         .is_empty());
     assert!(app.error.unwrap().contains("changed"));
 }
+
+#[test]
+fn curl_import_into_open_collection_opens_first_request() {
+    let _profile = Profile::new();
+    let mut app = app_with_collection();
+    let cid = app.collections[0].id.clone();
+    let mut req = ApiRequest::new("Existing Request");
+    req.url = "https://existing.test".into();
+    app.tab_manager.open_tab(req, Some(cid.clone()));
+
+    let mut h = Harness::new(app, |ctx, app| app.render(ctx));
+    h.click("Import");
+    assert!(h.state.show_import);
+    assert_eq!(h.state.import_collection.as_deref(), Some(cid.as_str()));
+
+    h.state.import_text = "curl -X POST https://httpbin.test/post -d hello".into();
+    h.refresh();
+    h.click("Import cURL");
+
+    assert!(!h.state.show_import);
+    assert!(h.state.import_text.is_empty());
+    assert_eq!(h.state.collections[0].requests.len(), 1);
+    assert_eq!(
+        h.state.collections[0].requests[0].url,
+        "https://httpbin.test/post"
+    );
+    assert_eq!(h.state.tab_manager.tabs.len(), 2);
+    assert_eq!(
+        h.state.tab_manager.active_tab().unwrap().request.url,
+        "https://httpbin.test/post"
+    );
+    assert_eq!(
+        h.state
+            .tab_manager
+            .active_tab()
+            .unwrap()
+            .collection_id
+            .as_deref(),
+        Some(cid.as_str())
+    );
+}
+
+#[test]
+fn curl_import_targeting_new_collection_creates_and_opens_request() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    app.show_import = true;
+    app.import_collection = None;
+    app.import_text = "curl https://httpbin.test/get".into();
+
+    let mut h = Harness::new(app, |ctx, app| app.render(ctx));
+    h.click("Import cURL");
+
+    assert!(!h.state.show_import);
+    assert_eq!(h.state.collections.len(), 1);
+    assert_eq!(h.state.collections[0].name, "cURL import");
+    assert_eq!(
+        h.state.tab_manager.active_tab().unwrap().request.url,
+        "https://httpbin.test/get"
+    );
+    assert_eq!(
+        h.state
+            .tab_manager
+            .active_tab()
+            .unwrap()
+            .collection_id
+            .as_deref(),
+        Some(h.state.collections[0].id.as_str())
+    );
+}
+
+#[test]
+fn curl_import_targeting_folder_places_and_opens_request() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    let mut col = Collection::new("Target Collection");
+    let folder = rustapi::models::Folder::new("Subfolder");
+    let fid = folder.id.clone();
+    col.folders.push(folder);
+    assert!(app.commit_collection(col));
+    let cid = app.collections[0].id.clone();
+
+    app.show_import = true;
+    app.import_collection = Some(cid.clone());
+    app.import_folder = Some(fid.clone());
+    app.import_text = "curl https://httpbin.test/folder-target".into();
+
+    let mut h = Harness::new(app, |ctx, app| app.render(ctx));
+    h.click("Import cURL");
+
+    assert!(!h.state.show_import);
+    let col = &h.state.collections[0];
+    assert!(col.requests.is_empty());
+    assert_eq!(col.folders[0].requests.len(), 1);
+    assert_eq!(
+        col.folders[0].requests[0].url,
+        "https://httpbin.test/folder-target"
+    );
+    assert_eq!(
+        h.state.tab_manager.active_tab().unwrap().request.url,
+        "https://httpbin.test/folder-target"
+    );
+}
+
+#[test]
+fn drag_and_drop_move_request_between_collections() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    let mut col1 = Collection::new("Source Collection");
+    let mut req = ApiRequest::new("Move Me");
+    req.url = "https://example.com/test".into();
+    let rid = req.id.clone();
+    col1.requests.push(req);
+    assert!(app.commit_collection(col1));
+    let cid1 = app.collections[0].id.clone();
+
+    let col2 = Collection::new("Target Collection");
+    assert!(app.commit_collection(col2));
+    let cid2 = app.collections[1].id.clone();
+
+    let tab_req = app.collections[0].requests[0].clone();
+    app.tab_manager.open_tab(tab_req, Some(cid1.clone()));
+    assert_eq!(
+        app.tab_manager.tabs[0].collection_id.as_deref(),
+        Some(cid1.as_str())
+    );
+
+    app.action(Action::MoveTo(
+        cid1.clone(),
+        rid.clone(),
+        cid2.clone(),
+        None,
+    ));
+
+    assert_eq!(app.collections[0].requests.len(), 0);
+    assert_eq!(app.collections[1].requests.len(), 1);
+    assert_eq!(app.collections[1].requests[0].id, rid);
+    assert_eq!(app.collections[1].requests[0].name, "Move Me");
+    assert_eq!(
+        app.tab_manager.tabs[0].collection_id.as_deref(),
+        Some(cid2.as_str())
+    );
+}
+
+#[test]
+fn drag_and_drop_move_request_into_target_collection_folder() {
+    let _profile = Profile::new();
+    let mut app = RustApiApp::default();
+    let mut col1 = Collection::new("Col A");
+    let req = ApiRequest::new("Item");
+    let rid = req.id.clone();
+    col1.requests.push(req);
+    assert!(app.commit_collection(col1));
+    let cid1 = app.collections[0].id.clone();
+
+    let mut col2 = Collection::new("Col B");
+    let folder = rustapi::models::Folder::new("Subfolder");
+    let fid = folder.id.clone();
+    col2.folders.push(folder);
+    assert!(app.commit_collection(col2));
+    let cid2 = app.collections[1].id.clone();
+
+    app.action(Action::MoveTo(
+        cid1.clone(),
+        rid.clone(),
+        cid2.clone(),
+        Some(fid.clone()),
+    ));
+
+    assert_eq!(app.collections[0].requests.len(), 0);
+    assert_eq!(app.collections[1].requests.len(), 0);
+    assert_eq!(app.collections[1].folders[0].requests.len(), 1);
+    assert_eq!(app.collections[1].folders[0].requests[0].id, rid);
+}

@@ -76,7 +76,8 @@ impl ProtocolConsole {
         if !self.open {
             return;
         }
-        egui::Window::new("Live protocol console").default_size([820.,640.]).vscroll(true).show(ctx,|ui| {
+        let mut open = true;
+        egui::Window::new("Live protocol console").open(&mut open).collapsible(false).default_size([820.,640.]).vscroll(true).show(ctx,|ui| {
             ui.horizontal(|ui|{for (kind,label) in [(Protocol::Sse,"SSE"),(Protocol::WebSocket,"WebSocket"),(Protocol::Mqtt,"MQTT"),(Protocol::SocketIo,"Socket.IO"),(Protocol::Grpc,"gRPC")]{ui.selectable_value(&mut self.profile.protocol,kind,label);}});
             ui.horizontal(|ui|{ui.label("Endpoint");ui.text_edit_singleline(&mut self.profile.request.url);});
             ui.horizontal(|ui|{ui.label("Session seconds");ui.add(egui::DragValue::new(&mut self.profile.duration_seconds).range(1..=3600));ui.label("Event cap");ui.add(egui::DragValue::new(&mut self.profile.max_events).range(1..=10000));});
@@ -105,6 +106,9 @@ impl ProtocolConsole {
             ui.label(&self.result);ui.separator();let events=self.events.lock().unwrap_or_else(|p|p.into_inner());for(index,entry)in events.iter().enumerate().rev().take(100){ui.push_id(index,|ui|{ui.horizontal(|ui|{ui.label(format!("{} ms · {}",entry.event.elapsed_ms,entry.event.kind));if ui.small_button("Copy event").clicked(){ui.ctx().copy_text(entry.event.data.to_string());}});ui.monospace(&entry.preview);});}
             if ui.button("Close protocol console").clicked(){self.open=false;}
         });
+        if !open {
+            self.open = false;
+        }
         if self.cancel.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
